@@ -91,6 +91,14 @@ def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False) ->
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    for name in (
+        "httpx",
+        "httpcore",
+        "chromadb",
+        "llama_index",
+        "llama_index.core.node_parser.node_utils",
+    ):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     config_dir = get_config_dir()
 

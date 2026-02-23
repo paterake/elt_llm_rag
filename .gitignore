@@ -10,7 +10,7 @@ build/
 .vscode/
 
 # ChromaDB
-chroma_db/
+**/chroma_db/
 
 # OS
 .DS_Store

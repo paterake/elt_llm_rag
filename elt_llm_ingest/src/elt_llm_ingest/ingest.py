@@ -10,10 +10,10 @@ from typing import Any
 from llama_index.core import (
     Document,
     Settings,
+    SimpleDirectoryReader,
     VectorStoreIndex,
 )
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.readers.file import FlatReader
 
 from elt_llm_core.config import ChunkingConfig, RagConfig
 from elt_llm_core.models import create_embedding_model
@@ -67,7 +67,6 @@ def load_documents(
     logger.info("Loading %d documents", len(file_paths))
 
     documents: list[Document] = []
-    reader = FlatReader()
 
     for file_path in file_paths:
         path = Path(file_path).expanduser()
@@ -78,7 +77,8 @@ def load_documents(
             continue
 
         try:
-            docs = reader.load_data(path)
+            reader = SimpleDirectoryReader(input_files=[str(path)])
+            docs = reader.load_data()
             for doc in docs:
                 if metadata:
                     doc.metadata.update(metadata)

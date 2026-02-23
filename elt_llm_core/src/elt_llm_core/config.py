@@ -164,7 +164,13 @@ class RagConfig:
             logger.error("Configuration must be a YAML dictionary")
             raise ValueError("Configuration must be a YAML dictionary")
 
-        return cls.from_dict(data)
+        config = cls.from_dict(data)
+
+        chroma_dir = str(config.chroma.persist_dir)
+        if not chroma_dir.startswith(("~", "/")):
+            config.chroma.persist_dir = str((config_path.parent / chroma_dir).resolve())
+
+        return config
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary.

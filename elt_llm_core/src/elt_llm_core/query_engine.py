@@ -54,11 +54,8 @@ def create_query_engine(
     # Create retriever
     retriever = index.as_retriever(similarity_top_k=query_config.similarity_top_k)
 
-    # Create query engine
-    query_engine = RetrieverQueryEngine(
-        retriever=retriever,
-        llm=llm,
-    )
+    # Create query engine (Settings.llm already set)
+    query_engine = RetrieverQueryEngine(retriever=retriever)
 
     logger.info("Query engine created")
     return query_engine

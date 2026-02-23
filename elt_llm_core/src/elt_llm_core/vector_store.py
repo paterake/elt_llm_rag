@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 import chromadb
@@ -42,7 +43,11 @@ def create_chroma_client(config: ChromaConfig) -> chromadb.ClientAPI:
     Returns:
         ChromaDB client API instance.
     """
-    persist_path = Path(config.persist_dir).expanduser()
+    env_dir = os.environ.get("RAG_CHROMA_DIR")
+    if env_dir:
+        persist_path = Path(env_dir).expanduser()
+    else:
+        persist_path = Path(config.persist_dir).expanduser()
     persist_path.mkdir(parents=True, exist_ok=True)
 
     logger.info(
