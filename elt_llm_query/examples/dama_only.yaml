@@ -1,0 +1,14 @@
+# Query Config: DAMA-DMBOK Only
+
+# Collections to query
+collections:
+  - name: "dama_dmbok"
+
+# Query settings
+query:
+  similarity_top_k: 5
+  system_prompt: |
+    You are a helpful assistant that answers questions based on the DAMA-DMBOK data management body of knowledge.
+    Always ground your answers in the retrieved content.
+    Prefer using DAMA-DMBOK terminology when answering.
+    If the information is not available in the documents, say so clearly.

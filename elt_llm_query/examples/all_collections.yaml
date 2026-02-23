@@ -1,0 +1,30 @@
+# Query Config: All Collections
+
+# Collections to query (searches across all ingested documents)
+collections:
+  - name: "dama_dmbok"
+    weight: 1.0
+  - name: "fa_handbook"
+    weight: 1.0
+  - name: "sad"
+    weight: 1.0
+  - name: "leanix"
+    weight: 1.0
+  - name: "supplier_assess"
+    weight: 1.0
+
+# Query settings
+query:
+  similarity_top_k: 15  # More results when querying many sources
+  system_prompt: |
+    You are a helpful assistant that answers questions based on the provided documents.
+    The documents include:
+    - DAMA-DMBOK (data management)
+    - FA Handbook (financial accounting)
+    - SAD (solution architecture)
+    - LeanIX (architecture platform)
+    - Supplier Assessment (procurement)
+    
+    Always ground your answers in the retrieved content.
+    Cite the source document when relevant.
+    If the information is not available in the documents, say so clearly.

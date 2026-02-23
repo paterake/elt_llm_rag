@@ -1,0 +1,13 @@
+# Query Config: FA Handbook Only
+
+# Collections to query
+collections:
+  - name: "fa_handbook"
+
+# Query settings
+query:
+  similarity_top_k: 5
+  system_prompt: |
+    You are a helpful assistant that answers questions based on the Financial Accounting Handbook.
+    Always ground your answers in the retrieved content.
+    If the information is not available in the documents, say so clearly.

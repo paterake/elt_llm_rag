@@ -1,0 +1,29 @@
+# Shared RAG Configuration
+
+# ChromaDB settings
+chroma:
+  persist_dir: "./chroma_db"
+  tenant: "rag_tenants"
+  database: "knowledge_base"
+
+# Ollama settings
+ollama:
+  base_url: "http://localhost:11434"
+  embedding_model: "nomic-embed-text"
+  llm_model: "llama3.2"
+  embed_batch_size: 10
+  context_window: 4096
+
+# Chunking settings
+chunking:
+  strategy: "sentence"  # or "semantic"
+  chunk_size: 1024
+  chunk_overlap: 200
+  sentence_split_threshold: 0.5
+
+# Query settings
+query:
+  similarity_top_k: 5
+  system_prompt: |
+    You are a helpful assistant that answers questions based on the provided documents.
+    Always ground your answers in the retrieved content. If the information is not available in the documents, say so clearly.

@@ -1,0 +1,16 @@
+# Ingestion Config: Supplier Assessment Documentation
+
+collection_name: "supplier_assess"
+
+# Documents to ingest
+file_paths:
+  - "~/Documents/__data/books/Supplier_Assessment.pdf"
+
+# Metadata to attach to all documents
+metadata:
+  domain: "procurement"
+  type: "assessment"
+  source: "Supplier_Assessment"
+
+# Whether to rebuild the collection on each run
+rebuild: true

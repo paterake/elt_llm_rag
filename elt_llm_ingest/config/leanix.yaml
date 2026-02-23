@@ -1,0 +1,16 @@
+# Ingestion Config: LeanIX Documentation
+
+collection_name: "leanix"
+
+# Documents to ingest
+file_paths:
+  - "~/Documents/__data/books/LeanIX_Documentation.pdf"
+
+# Metadata to attach to all documents
+metadata:
+  domain: "architecture"
+  type: "enterprise architecure"
+  source: "LeanIX"
+
+# Whether to rebuild the collection on each run
+rebuild: true

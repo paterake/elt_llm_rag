@@ -1,0 +1,16 @@
+# Ingestion Config: DAMA-DMBOK2R Data Management Body of Knowledge
+
+collection_name: "dama_dmbok"
+
+# Documents to ingest
+file_paths:
+  - "~/Documents/__data/books/DAMA-DMBOK2R_unlocked.pdf"
+
+# Metadata to attach to all documents
+metadata:
+  domain: "data_management"
+  type: "body_of_knowledge"
+  source: "DAMA-DMBOK2R"
+
+# Whether to rebuild the collection on each run
+rebuild: true

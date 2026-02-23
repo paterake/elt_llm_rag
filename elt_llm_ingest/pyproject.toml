@@ -1,0 +1,28 @@
+[project]
+name = "elt-llm-ingest"
+version = "0.1.0"
+description = "Generic document ingestion pipeline for RAG systems"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "elt-llm-core>=0.1.0",
+    "llama-index>=0.12.0",
+    "llama-index-readers-file>=0.4.0",
+]
+
+[project.scripts]
+elt-llm-ingest = "elt_llm_ingest.cli:main"
+elt-llm-ingest-runner = "elt_llm_ingest.runner:main"
+
+[build-system]
+requires = ["uv_build>=0.9.15,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=4.0.0",
+]
+
+[tool.uv.sources]
+elt-llm-core = { workspace = true }

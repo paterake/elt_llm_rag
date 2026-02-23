@@ -1,0 +1,26 @@
+[project]
+name = "elt-llm-core"
+version = "0.1.0"
+description = "Core RAG infrastructure: ChromaDB, LlamaIndex, and Ollama integration"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "llama-index>=0.12.0",
+    "llama-index-readers-file>=0.4.0",
+    "llama-index-embeddings-ollama>=0.3.0",
+    "llama-index-llms-ollama>=0.4.0",
+    "llama-index-vector-stores-chroma>=0.4.0",
+    "chromadb>=0.6.0",
+    "ollama>=0.3.0",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.15,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=4.0.0",
+]
