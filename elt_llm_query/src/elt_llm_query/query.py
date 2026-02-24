@@ -120,6 +120,11 @@ def query_collections(
 ) -> QueryResult:
     """Query multiple collections and combine results.
 
+    Retrieves chunks from all collections via vector search first, then makes
+    a single LLM synthesis call with all combined context. This ensures the LLM
+    sees relevant content from every collection rather than discarding all but
+    the first collection's response.
+
     Args:
         collection_names: List of collection names to query.
         query: Query string.
@@ -128,6 +133,8 @@ def query_collections(
     Returns:
         QueryResult with combined response and source nodes.
     """
+    from llama_index.core.response_synthesizers import get_response_synthesizer
+
     logger.info("Querying %d collections: %s", len(collection_names), collection_names)
 
     # Load all indices
@@ -139,37 +146,45 @@ def query_collections(
             source_nodes=[],
         )
 
-    # Create query config
-    query_config = QueryConfig(
-        similarity_top_k=rag_config.query.similarity_top_k,
-        system_prompt=rag_config.query.system_prompt,
-    )
-
-    # Query each index and combine results
-    all_results = []
-    for index in indices:
-        result = query_index(index, query, rag_config, query_config)
-        all_results.append(result)
-
-    # Combine responses (use first response as primary)
-    combined_response = all_results[0].response if all_results else "No results found."
-
-    # Combine all source nodes
-    combined_sources = []
-    for result in all_results:
-        combined_sources.extend(result.source_nodes)
-
-    # Sort by score (highest first)
-    combined_sources.sort(key=lambda x: x.get("score", 0) or 0, reverse=True)
-
-    # Limit to top_k
     top_k = rag_config.query.similarity_top_k
-    combined_sources = combined_sources[:top_k]
+    # Retrieve more per collection so the best chunks survive the final merge
+    per_collection_k = max(top_k, 5)
 
-    return QueryResult(
-        response=combined_response,
-        source_nodes=combined_sources,
-    )
+    # Step 1: Retrieve chunks from every collection — pure vector search, no LLM yet
+    all_nodes = []
+    for index in indices:
+        retriever = index.as_retriever(similarity_top_k=per_collection_k)
+        nodes = retriever.retrieve(query)
+        all_nodes.extend(nodes)
+        logger.info("Collection retrieved %d nodes", len(nodes))
+
+    if not all_nodes:
+        return QueryResult(response="No relevant content found in any collection.", source_nodes=[])
+
+    # Step 2: Merge and keep the best chunks across all collections
+    all_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
+    all_nodes = all_nodes[:top_k]
+
+    # Step 3: Single LLM synthesis call with all combined context
+    llm = create_llm_model(rag_config.ollama)
+    system_prompt = rag_config.query.system_prompt
+    if system_prompt:
+        llm.system_prompt = system_prompt
+    Settings.llm = llm
+
+    synthesizer = get_response_synthesizer(llm=llm)
+    response = synthesizer.synthesize(query, nodes=all_nodes)
+
+    source_nodes = [
+        {
+            "text": n.node.text,
+            "metadata": n.node.metadata,
+            "score": n.score,
+        }
+        for n in all_nodes
+    ]
+
+    return QueryResult(response=str(response), source_nodes=source_nodes)
 
 
 def query_index(

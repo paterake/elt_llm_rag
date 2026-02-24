@@ -49,6 +49,8 @@ def create_query_engine(
 
     # Create and set LLM
     llm = create_llm_model(ollama_config)
+    if query_config.system_prompt:
+        llm.system_prompt = query_config.system_prompt
     Settings.llm = llm
 
     # Create retriever
