@@ -76,13 +76,13 @@ uv run python -m elt_llm_ingest.runner --list
 
 ```bash
 # Ingest DAMA-DMBOK
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok
+uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --force
 
 # Ingest FA Handbook
-uv run python -m elt_llm_ingest.runner --cfg fa_handbook
+uv run python -m elt_llm_ingest.runner --cfg fa_handbook --force
 
 # Ingest FA Handbook
-uv run python -m elt_llm_ingest.runner --cfg fa_data_architecture
+uv run python -m elt_llm_ingest.runner --cfg fa_data_architecture --force
 
 # Ingest SAD
 uv run python -m elt_llm_ingest.runner --cfg sad
