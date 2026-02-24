@@ -4,7 +4,7 @@ collection_name: "fa_handbook"
 
 # Documents to ingest
 file_paths:
-  - "~/Documents/__data/books/FA_Handbook.pdf"
+  - "~/Documents/__data/thefa/FA_Handbook_2025-26.pdf"
 
 # Metadata to attach to all documents
 metadata:
