@@ -2,14 +2,22 @@
 
 collection_name: "leanix"
 
-# Documents to ingest
+# Preprocessor: Convert LeanIX XML to structured Markdown before embedding
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "LeanIXPreprocessor"
+  output_format: "markdown"  # Options: "markdown", "json", "both"
+  output_suffix: "_leanix_processed"
+  enabled: true
+
+# Documents to ingest (XML files will be preprocessed to Markdown)
 file_paths:
-  - "~/Documents/__data/books/LeanIX_Documentation.pdf"
+  - "~/Documents/__data/books/DAT_V00.01_FA_Enterprise_Conceptual_Data_Model.xml"
 
 # Metadata to attach to all documents
 metadata:
   domain: "architecture"
-  type: "enterprise architecure"
+  type: "enterprise_architecture"
   source: "LeanIX"
 
 # Whether to rebuild the collection on each run

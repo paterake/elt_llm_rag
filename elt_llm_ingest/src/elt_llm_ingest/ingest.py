@@ -34,6 +34,7 @@ from elt_llm_ingest.file_hash import (
     is_file_changed,
     store_file_hash,
 )
+from elt_llm_ingest.preprocessor import PreprocessorConfig, preprocess_file
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class IngestConfig:
         metadata: Metadata to attach to all documents.
         rebuild: Whether to rebuild (delete and recreate) the collection.
         force: Whether to force re-ingestion regardless of file changes.
+        preprocessor: Optional preprocessor configuration.
     """
 
     collection_name: str
@@ -55,6 +57,7 @@ class IngestConfig:
     metadata: dict[str, Any] | None = None
     rebuild: bool = True
     force: bool = False
+    preprocessor: PreprocessorConfig | None = None
 
 
 def load_documents(
@@ -63,6 +66,7 @@ def load_documents(
     chroma_client: chromadb.ClientAPI | None = None,
     collection_name: str | None = None,
     force: bool = False,
+    preprocessor: PreprocessorConfig | None = None,
 ) -> list[Document]:
     """Load documents from file paths.
 
@@ -73,12 +77,15 @@ def load_documents(
     - HTML (.html)
     - And more...
 
+    If a preprocessor is configured, files are preprocessed before loading.
+
     Args:
         file_paths: List of file paths to load.
         metadata: Optional metadata to attach to all documents.
         chroma_client: Optional ChromaDB client for hash checking.
         collection_name: Optional collection name for hash tracking.
         force: If True, skip hash checking and load all files.
+        preprocessor: Optional preprocessor configuration.
 
     Returns:
         List of LlamaIndex Document objects.
@@ -88,9 +95,19 @@ def load_documents(
     documents: list[Document] = []
     files_to_process: list[str] = []
 
+    # Preprocess files if configured
+    all_files_to_check = []
+    for file_path in file_paths:
+        if preprocessor and preprocessor.enabled:
+            logger.info("Preprocessing file: %s", file_path)
+            output_files = preprocess_file(file_path, preprocessor)
+            all_files_to_check.extend(output_files)
+        else:
+            all_files_to_check.append(file_path)
+
     # Filter files by change detection if not in force mode
     if chroma_client and collection_name and not force:
-        for file_path in file_paths:
+        for file_path in all_files_to_check:
             path = Path(file_path).expanduser()
             if not path.exists():
                 env_dir = os.environ.get("RAG_DOCS_DIR")
@@ -110,13 +127,13 @@ def load_documents(
             else:
                 logger.info("Skipping unchanged file: %s", path)
     else:
-        files_to_process = [str(Path(fp).expanduser()) for fp in file_paths]
+        files_to_process = [str(Path(fp).expanduser()) for fp in all_files_to_check]
 
     if not files_to_process:
         logger.info("No files to process (all unchanged)")
         return documents
 
-    logger.info("Processing %d/%d files (changed or new)", len(files_to_process), len(file_paths))
+    logger.info("Processing %d/%d files (changed or new)", len(files_to_process), len(all_files_to_check))
 
     for file_path in files_to_process:
         path = Path(file_path)
@@ -256,6 +273,7 @@ def run_ingestion(
         chroma_client=chroma_client,
         collection_name=ingest_config.collection_name,
         force=ingest_config.force,
+        preprocessor=ingest_config.preprocessor,
     )
 
     # If no documents and not rebuilding, all files were unchanged - this is OK

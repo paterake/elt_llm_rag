@@ -1,12 +1,13 @@
 # elt-llm-ingest
 
-Generic document ingestion pipeline for RAG systems with smart change detection.
+Generic document ingestion pipeline for RAG systems with smart change detection and document preprocessing.
 
 ## Overview
 
 This package provides a reusable document ingestion pipeline that:
 
 - Loads documents from multiple formats (PDF, DOCX, TXT, HTML, etc.)
+- **Preprocesses documents** before embedding (e.g., XML to Markdown for LeanIX)
 - Chunks documents using LlamaIndex transformers
 - Embeds chunks using Ollama
 - Stores embeddings in ChromaDB
@@ -87,7 +88,7 @@ uv run python -m elt_llm_ingest.runner --cfg fa_data_architecture --force
 # Ingest SAD
 uv run python -m elt_llm_ingest.runner --cfg sad
 
-# Ingest LeanIX
+# Ingest LeanIX (XML files are preprocessed to Markdown)
 uv run python -m elt_llm_ingest.runner --cfg leanix
 
 # Ingest Supplier Assessment
@@ -203,6 +204,93 @@ rebuild: true  # Rebuild collection on each run (default: true)
 | `file_paths` | list | required | List of file paths to ingest |
 | `metadata` | dict | optional | Metadata to attach to all documents |
 | `rebuild` | bool | `true` | Whether to rebuild collection on each run |
+| `preprocessor` | dict | `null` | Preprocessor configuration (see below) |
+
+### Preprocessor Configuration
+
+For certain file types, preprocessing can improve embedding quality by transforming the source format into a more RAG-friendly format. The preprocessor runs **before** the document is loaded and embedded.
+
+**Example: LeanIX XML Preprocessing**
+
+```yaml
+collection_name: "leanix"
+
+# Preprocess LeanIX XML files to structured Markdown
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "LeanIXPreprocessor"
+  output_format: "markdown"  # Options: "markdown", "json", "both"
+  output_suffix: "_leanix_processed"
+  enabled: true
+
+file_paths:
+  - "~/Documents/__data/books/DAT_V00.01_FA_Enterprise_Conceptual_Data_Model.xml"
+
+metadata:
+  domain: "architecture"
+  type: "enterprise_architecture"
+  source: "LeanIX"
+
+rebuild: true
+```
+
+**Preprocessor Options:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `module` | string | required | Python module containing the preprocessor class |
+| `class` | string | required | Preprocessor class name |
+| `output_format` | string | `"markdown"` | Output format (format-specific) |
+| `output_suffix` | string | `"_processed"` | Suffix for generated output files |
+| `enabled` | bool | `true` | Enable/disable preprocessing |
+
+**How Preprocessing Works:**
+
+1. **Input**: Original file (e.g., `model.xml`)
+2. **Preprocess**: Transform to RAG-friendly format (e.g., `model_leanix_processed.md`)
+3. **Embed**: The generated Markdown is chunked and embedded
+4. **Store**: Embeddings stored in ChromaDB with path to processed file
+
+**Flow:**
+```
+XML File → Preprocessor → Markdown → Chunking → Embedding → ChromaDB
+           (doc_leanix_parser)      (existing pipeline)
+```
+
+**Available Preprocessors:**
+
+| Preprocessor | Module | Class | Description |
+|--------------|--------|-------|-------------|
+| LeanIX | `elt_llm_ingest.preprocessor` | `LeanIXPreprocessor` | Extracts assets and relationships from LeanIX draw.io XML exports |
+| Identity | `elt_llm_ingest.preprocessor` | `IdentityPreprocessor` | Pass-through (no transformation) |
+
+**Creating Custom Preprocessors:**
+
+1. Create a class that inherits from `BasePreprocessor`:
+
+```python
+from elt_llm_ingest.preprocessor import BasePreprocessor, PreprocessorResult
+
+class MyPreprocessor(BasePreprocessor):
+    def preprocess(self, input_file: str, output_path: str, **kwargs) -> PreprocessorResult:
+        # Your transformation logic here
+        # Return PreprocessorResult with output file paths
+        return PreprocessorResult(
+            original_file=input_file,
+            output_files=[output_path],
+            success=True
+        )
+```
+
+2. Configure in YAML:
+
+```yaml
+preprocessor:
+  module: "my_package.preprocessors"
+  class: "MyPreprocessor"
+  output_format: "markdown"
+  enabled: true
+```
 
 ### RAG Config (`config/rag_config.yaml`)
 
@@ -251,7 +339,7 @@ elt-llm-ingest --config config/my_docs.yaml
 
 ## Supported Formats
 
-Via LlamaIndex readers:
+**Via LlamaIndex readers:**
 - PDF (`.pdf`)
 - Word (`.docx`)
 - Text (`.txt`)
@@ -260,6 +348,11 @@ Via LlamaIndex readers:
 - CSV (`.csv`)
 - JSON (`.json`)
 - And more...
+
+**Via Preprocessors:**
+- LeanIX draw.io XML (`.xml`) → Structured Markdown (assets + relationships)
+
+To use a preprocessor, add a `preprocessor` section to your ingestion config. See [Preprocessor Configuration](#preprocessor-configuration) for details.
 
 ## Module Structure
 
@@ -271,13 +364,15 @@ elt_llm_ingest/
 │   ├── fa_handbook.yaml          # FA Handbook ingestion config
 │   ├── fa_data_architecture.yaml # FA Data Architecture config
 │   ├── sad.yaml                  # SAD ingestion config
-│   ├── leanix.yaml               # LeanIX ingestion config
+│   ├── leanix.yaml               # LeanIX ingestion config (with preprocessor)
 │   └── supplier_assess.yaml      # Supplier assessment config
 ├── src/elt_llm_ingest/
 │   ├── __init__.py
 │   ├── runner.py                 # Generic runner (--cfg parameter)
 │   ├── cli.py                    # CLI entry point
 │   ├── ingest.py                 # Ingestion pipeline
+│   ├── preprocessor.py           # Preprocessor framework
+│   ├── doc_leanix_parser.py      # LeanIX XML parser
 │   └── file_hash.py              # File hash utilities (smart ingest)
 └── tests/
 ```

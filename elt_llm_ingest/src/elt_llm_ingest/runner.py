@@ -18,6 +18,7 @@ import yaml
 
 from elt_llm_core.config import RagConfig
 from elt_llm_ingest.ingest import IngestConfig, run_ingestion
+from elt_llm_ingest.preprocessor import PreprocessorConfig
 
 
 def get_config_dir() -> Path:
@@ -184,6 +185,11 @@ def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False, fo
     with open(ingest_path) as f:
         ingest_data = yaml.safe_load(f)
 
+    # Create preprocessor config if present
+    preprocessor_config = None
+    if "preprocessor" in ingest_data:
+        preprocessor_config = PreprocessorConfig.from_dict(ingest_data["preprocessor"])
+
     # Create ingestion config
     ingest_config = IngestConfig(
         collection_name=ingest_data["collection_name"],
@@ -191,6 +197,7 @@ def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False, fo
         metadata=ingest_data.get("metadata"),
         rebuild=not no_rebuild,
         force=force,
+        preprocessor=preprocessor_config,
     )
 
     try:

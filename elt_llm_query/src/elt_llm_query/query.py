@@ -102,11 +102,13 @@ def _build_hybrid_retriever(
         A retriever — either QueryFusionRetriever (hybrid) or plain vector retriever.
     """
     docstore_path = get_docstore_path(rag_config.chroma, collection_name)
+    logger.info("Hybrid search: resolved docstore path = %s", docstore_path.resolve())
 
     if not docstore_path.exists():
-        logger.info(
-            "No docstore for '%s' — run ingestion first to enable hybrid search. "
+        logger.warning(
+            "No docstore found at '%s' for collection '%s' — run ingestion first to enable hybrid search. "
             "Falling back to vector-only.",
+            docstore_path.resolve(),
             collection_name,
         )
         return index.as_retriever(similarity_top_k=top_k)
@@ -118,6 +120,7 @@ def _build_hybrid_retriever(
 
         docstore_storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
         nodes = list(docstore_storage.docstore.docs.values())
+        logger.info("Loaded %d nodes from docstore at '%s'", len(nodes), docstore_path.resolve())
 
         if not nodes:
             logger.warning("Docstore for '%s' is empty; falling back to vector-only.", collection_name)
@@ -129,18 +132,22 @@ def _build_hybrid_retriever(
             len(nodes),
         )
 
+        # QueryFusionRetriever reads Settings.llm at construction time.
+        # Set it now with Ollama so it doesn't fall back to OpenAI.
+        from elt_llm_core.models import create_llm_model
+        Settings.llm = create_llm_model(rag_config.ollama)
+
         vector_retriever = index.as_retriever(similarity_top_k=top_k)
         bm25_retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=top_k)
+        logger.info("BM25Retriever created successfully for '%s'", collection_name)
 
         hybrid_retriever = QueryFusionRetriever(
             retrievers=[vector_retriever, bm25_retriever],
             similarity_top_k=top_k,
             num_queries=1,  # Use original query only — no LLM query expansion
             mode="reciprocal_rerank",
-            use_async=False,
         )
-
-        logger.info("Hybrid retriever ready for '%s'", collection_name)
+        logger.info("Hybrid (QueryFusionRetriever) ready for '%s'", collection_name)
         return hybrid_retriever
 
     except ImportError:
@@ -150,7 +157,12 @@ def _build_hybrid_retriever(
         )
         return index.as_retriever(similarity_top_k=top_k)
     except Exception as e:
-        logger.warning("Hybrid retriever failed for '%s': %s — falling back to vector-only.", collection_name, e)
+        logger.warning(
+            "Hybrid retriever failed for '%s': %s — falling back to vector-only.",
+            collection_name,
+            e,
+            exc_info=True,
+        )
         return index.as_retriever(similarity_top_k=top_k)
 
 
