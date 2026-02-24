@@ -17,6 +17,8 @@ uv sync
 # Pull models
 ollama pull nomic-embed-text
 ollama pull llama3.2
+ollama pull qwen2.5:14b
+
 
 # Ingest
 cd elt_llm_ingest

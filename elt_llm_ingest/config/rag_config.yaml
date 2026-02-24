@@ -9,10 +9,10 @@ chroma:
 # Ollama settings
 ollama:
   base_url: "http://localhost:11434"
-  embedding_model: "nomic-embed-text"
-  llm_model: "llama3.2"
+  embedding_model: "nomic-embed-text"  # keep this, it's good
+  llm_model: "qwen2.5:14b"     # ~9GB — excellent instruction following
   embed_batch_size: 1
-  context_window: 4096
+  context_window: 8192          # enough for 10-15 retrieved chunks
 
 # Chunking settings
 chunking:
