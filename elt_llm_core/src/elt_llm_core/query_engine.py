@@ -34,6 +34,7 @@ def create_query_engine(
     index: VectorStoreIndex,
     ollama_config: OllamaConfig,
     query_config: QueryConfig,
+    retriever=None,
 ) -> RetrieverQueryEngine:
     """Create a query engine from an index.
 
@@ -41,6 +42,8 @@ def create_query_engine(
         index: VectorStoreIndex to query.
         ollama_config: Ollama configuration.
         query_config: Query configuration.
+        retriever: Optional custom retriever (e.g. hybrid BM25+vector). If None,
+            falls back to a plain vector retriever from the index.
 
     Returns:
         RetrieverQueryEngine for querying.
@@ -53,8 +56,8 @@ def create_query_engine(
         llm.system_prompt = query_config.system_prompt
     Settings.llm = llm
 
-    # Create retriever
-    retriever = index.as_retriever(similarity_top_k=query_config.similarity_top_k)
+    if retriever is None:
+        retriever = index.as_retriever(similarity_top_k=query_config.similarity_top_k)
 
     # Create query engine (Settings.llm already set)
     query_engine = RetrieverQueryEngine(retriever=retriever)
@@ -68,6 +71,7 @@ def query_index(
     query: str,
     ollama_config: OllamaConfig,
     query_config: QueryConfig,
+    retriever=None,
 ) -> QueryResult:
     """Query a vector index.
 
@@ -76,6 +80,7 @@ def query_index(
         query: Query string.
         ollama_config: Ollama configuration.
         query_config: Query configuration.
+        retriever: Optional custom retriever (e.g. hybrid BM25+vector).
 
     Returns:
         QueryResult with response and source nodes.
@@ -83,7 +88,7 @@ def query_index(
     logger.info("Querying index: %s", query)
 
     # Create query engine
-    query_engine = create_query_engine(index, ollama_config, query_config)
+    query_engine = create_query_engine(index, ollama_config, query_config, retriever=retriever)
 
     # Execute query
     response = query_engine.query(query)

@@ -100,10 +100,28 @@ def get_or_create_collection(
     return collection
 
 
+def get_docstore_path(config: "ChromaConfig", collection_name: str) -> Path:
+    """Get the path where a collection's docstore is persisted.
+
+    The docstore lives alongside the ChromaDB data and enables BM25 hybrid search.
+
+    Args:
+        config: ChromaDB configuration (used to locate the persist directory).
+        collection_name: Name of the collection.
+
+    Returns:
+        Path to the docstore directory for this collection.
+    """
+    env_dir = os.environ.get("RAG_CHROMA_DIR")
+    base = Path(env_dir).expanduser() if env_dir else Path(config.persist_dir).expanduser()
+    return base / "docstores" / collection_name
+
+
 def create_storage_context(
     client: chromadb.ClientAPI,
     collection_name: str,
     metadata: dict | None = None,
+    include_docstore: bool = False,
 ) -> StorageContext:
     """Create a LlamaIndex StorageContext with Chroma vector store.
 
@@ -111,13 +129,23 @@ def create_storage_context(
         client: ChromaDB client.
         collection_name: Name of the collection.
         metadata: Optional metadata for the collection.
+        include_docstore: If True, attach a SimpleDocumentStore so nodes are
+            persisted for BM25 hybrid search during ingestion.
 
     Returns:
         StorageContext configured with Chroma vector store.
     """
     collection = get_or_create_collection(client, collection_name, metadata)
     vector_store = ChromaVectorStore(chroma_collection=collection)
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+    if include_docstore:
+        from llama_index.core.storage.docstore import SimpleDocumentStore
+        storage_context = StorageContext.from_defaults(
+            vector_store=vector_store,
+            docstore=SimpleDocumentStore(),
+        )
+    else:
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
     logger.info("StorageContext created for collection '%s'", collection_name)
     return storage_context

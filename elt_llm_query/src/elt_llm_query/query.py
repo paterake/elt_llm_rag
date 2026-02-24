@@ -13,6 +13,7 @@ from elt_llm_core.vector_store import (
     ChromaConfig,
     create_chroma_client,
     create_storage_context,
+    get_docstore_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,79 @@ def load_indices(
     return indices
 
 
+def _build_hybrid_retriever(
+    index: VectorStoreIndex,
+    collection_name: str,
+    rag_config: RagConfig,
+    top_k: int,
+):
+    """Build a hybrid BM25 + vector retriever for a collection.
+
+    Falls back to pure vector search if the docstore doesn't exist or BM25
+    is unavailable (e.g. package not installed).
+
+    Args:
+        index: Loaded VectorStoreIndex for vector retrieval.
+        collection_name: Collection name (used to locate the docstore).
+        rag_config: RAG configuration.
+        top_k: Number of results each retriever should return before merging.
+
+    Returns:
+        A retriever — either QueryFusionRetriever (hybrid) or plain vector retriever.
+    """
+    docstore_path = get_docstore_path(rag_config.chroma, collection_name)
+
+    if not docstore_path.exists():
+        logger.info(
+            "No docstore for '%s' — run ingestion first to enable hybrid search. "
+            "Falling back to vector-only.",
+            collection_name,
+        )
+        return index.as_retriever(similarity_top_k=top_k)
+
+    try:
+        from llama_index.core import StorageContext
+        from llama_index.core.retrievers import QueryFusionRetriever
+        from llama_index.retrievers.bm25 import BM25Retriever
+
+        docstore_storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
+        nodes = list(docstore_storage.docstore.docs.values())
+
+        if not nodes:
+            logger.warning("Docstore for '%s' is empty; falling back to vector-only.", collection_name)
+            return index.as_retriever(similarity_top_k=top_k)
+
+        logger.info(
+            "Building hybrid retriever for '%s' (%d nodes from docstore)",
+            collection_name,
+            len(nodes),
+        )
+
+        vector_retriever = index.as_retriever(similarity_top_k=top_k)
+        bm25_retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=top_k)
+
+        hybrid_retriever = QueryFusionRetriever(
+            retrievers=[vector_retriever, bm25_retriever],
+            similarity_top_k=top_k,
+            num_queries=1,  # Use original query only — no LLM query expansion
+            mode="reciprocal_rerank",
+            use_async=False,
+        )
+
+        logger.info("Hybrid retriever ready for '%s'", collection_name)
+        return hybrid_retriever
+
+    except ImportError:
+        logger.warning(
+            "llama-index-retrievers-bm25 not installed; falling back to vector-only. "
+            "Run: uv add llama-index-retrievers-bm25"
+        )
+        return index.as_retriever(similarity_top_k=top_k)
+    except Exception as e:
+        logger.warning("Hybrid retriever failed for '%s': %s — falling back to vector-only.", collection_name, e)
+        return index.as_retriever(similarity_top_k=top_k)
+
+
 def query_collection(
     collection_name: str,
     query: str,
@@ -100,14 +174,21 @@ def query_collection(
     # Load index
     index = load_index(collection_name, rag_config)
 
+    top_k = rag_config.query.similarity_top_k
+
+    # Build retriever — hybrid (BM25 + vector) when enabled and docstore exists
+    retriever = None
+    if rag_config.query.use_hybrid_search:
+        retriever = _build_hybrid_retriever(index, collection_name, rag_config, top_k)
+
     # Create query config
     query_config = QueryConfig(
-        similarity_top_k=rag_config.query.similarity_top_k,
+        similarity_top_k=top_k,
         system_prompt=rag_config.query.system_prompt,
     )
 
     # Execute query
-    result = query_index(index, query, rag_config, query_config)
+    result = query_index(index, query, rag_config, query_config, retriever=retriever)
 
     logger.info("Query complete")
     return result
@@ -150,13 +231,16 @@ def query_collections(
     # Retrieve more per collection so the best chunks survive the final merge
     per_collection_k = max(top_k, 5)
 
-    # Step 1: Retrieve chunks from every collection — pure vector search, no LLM yet
+    # Step 1: Retrieve chunks from every collection — hybrid or vector search, no LLM yet
     all_nodes = []
-    for index in indices:
-        retriever = index.as_retriever(similarity_top_k=per_collection_k)
+    for index, name in zip(indices, collection_names):
+        if rag_config.query.use_hybrid_search:
+            retriever = _build_hybrid_retriever(index, name, rag_config, per_collection_k)
+        else:
+            retriever = index.as_retriever(similarity_top_k=per_collection_k)
         nodes = retriever.retrieve(query)
         all_nodes.extend(nodes)
-        logger.info("Collection retrieved %d nodes", len(nodes))
+        logger.info("Collection '%s' retrieved %d nodes", name, len(nodes))
 
     if not all_nodes:
         return QueryResult(response="No relevant content found in any collection.", source_nodes=[])
@@ -192,6 +276,7 @@ def query_index(
     query: str,
     rag_config: RagConfig,
     query_config: QueryConfig,
+    retriever=None,
 ) -> QueryResult:
     """Query an index.
 
@@ -200,13 +285,14 @@ def query_index(
         query: Query string.
         rag_config: RAG configuration.
         query_config: Query configuration.
+        retriever: Optional custom retriever (e.g. hybrid BM25+vector).
 
     Returns:
         QueryResult with response and source nodes.
     """
     from elt_llm_core.query_engine import query_index as core_query
 
-    return core_query(index, query, rag_config.ollama, query_config)
+    return core_query(index, query, rag_config.ollama, query_config, retriever=retriever)
 
 
 def interactive_query(

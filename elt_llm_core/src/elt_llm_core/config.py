@@ -72,10 +72,12 @@ class QueryConfig:
     Attributes:
         similarity_top_k: Number of similar chunks to retrieve.
         system_prompt: Optional system prompt for the LLM.
+        use_hybrid_search: Whether to combine BM25 keyword search with vector search.
     """
 
     similarity_top_k: int = 5
     system_prompt: str | None = None
+    use_hybrid_search: bool = True
 
 
 @dataclass
@@ -132,6 +134,7 @@ class RagConfig:
             query=QueryConfig(
                 similarity_top_k=query_data.get("similarity_top_k", 5),
                 system_prompt=query_data.get("system_prompt"),
+                use_hybrid_search=query_data.get("use_hybrid_search", True),
             ),
         )
 
@@ -201,6 +204,7 @@ class RagConfig:
             "query": {
                 "similarity_top_k": self.query.similarity_top_k,
                 "system_prompt": self.query.system_prompt,
+                "use_hybrid_search": self.query.use_hybrid_search,
             },
         }
 

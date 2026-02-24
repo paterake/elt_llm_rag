@@ -23,6 +23,7 @@ from elt_llm_core.vector_store import (
     create_chroma_client,
     create_storage_context,
     delete_collection,
+    get_docstore_path,
 )
 from elt_llm_ingest.file_hash import (
     FILE_HASH_COLLECTION,
@@ -169,11 +170,12 @@ def build_index(
     if rebuild:
         delete_collection(chroma_client, collection_name)
 
-    # Create storage context
+    # Create storage context with docstore so nodes are persisted for BM25 hybrid search
     storage_context = create_storage_context(
         chroma_client,
         collection_name,
         metadata={"description": f"Collection: {collection_name}"},
+        include_docstore=True,
     )
 
     # Set embedding model
@@ -205,6 +207,12 @@ def build_index(
         transformations=transformations,
         show_progress=True,
     )
+
+    # Persist docstore alongside ChromaDB for BM25 hybrid search at query time
+    docstore_path = get_docstore_path(rag_config.chroma, collection_name)
+    docstore_path.mkdir(parents=True, exist_ok=True)
+    index.storage_context.persist(persist_dir=str(docstore_path))
+    logger.info("Docstore persisted to: %s (%d nodes)", docstore_path, len(index.docstore.docs))
 
     logger.info("Index built successfully with %d documents", len(documents))
     return index

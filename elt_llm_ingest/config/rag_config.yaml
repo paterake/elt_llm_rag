@@ -24,6 +24,7 @@ chunking:
 # Query settings
 query:
   similarity_top_k: 10
+  use_hybrid_search: true  # Combine BM25 keyword + vector search (fixes structured/list content)
   system_prompt: |
     You are a helpful assistant that answers questions based on the provided documents.
     Always ground your answers in the retrieved content.
