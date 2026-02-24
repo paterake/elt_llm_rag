@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any
 
@@ -73,8 +74,18 @@ def load_documents(
         logger.debug("Loading document: %s", path)
 
         if not path.exists():
-            logger.warning("File not found, skipping: %s", path)
-            continue
+            env_dir = os.environ.get("RAG_DOCS_DIR")
+            if env_dir:
+                alt_path = Path(env_dir).expanduser() / Path(file_path).name
+                if alt_path.exists():
+                    logger.info("Using RAG_DOCS_DIR override for %s -> %s", file_path, alt_path)
+                    path = alt_path
+                else:
+                    logger.warning("File not found at %s and override %s", path, alt_path)
+                    continue
+            else:
+                logger.warning("File not found, skipping: %s", path)
+                continue
 
         try:
             reader = SimpleDirectoryReader(input_files=[str(path)])

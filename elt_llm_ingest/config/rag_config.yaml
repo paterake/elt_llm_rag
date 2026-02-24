@@ -23,7 +23,10 @@ chunking:
 
 # Query settings
 query:
-  similarity_top_k: 5
+  similarity_top_k: 10
   system_prompt: |
     You are a helpful assistant that answers questions based on the provided documents.
-    Always ground your answers in the retrieved content. If the information is not available in the documents, say so clearly.
+    Always ground your answers in the retrieved content.
+    When the documents clearly list items (such as chapters, steps, or roles), enumerate them explicitly.
+    When the documents only partially describe something, say that the list may be incomplete and explain what is stated.
+    If the information is not available in the documents, say so clearly.
