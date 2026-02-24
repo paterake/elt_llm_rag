@@ -38,6 +38,9 @@ uv run python -m elt_llm_ingest.runner --cfg dama_dmbok
 # Ingest FA Handbook
 uv run python -m elt_llm_ingest.runner --cfg fa_handbook
 
+# Ingest FA Handbook
+uv run python -m elt_llm_ingest.runner --cfg fa_data_architecture
+
 # Ingest SAD
 uv run python -m elt_llm_ingest.runner --cfg sad
 

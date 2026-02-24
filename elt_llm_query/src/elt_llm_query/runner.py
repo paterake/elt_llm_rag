@@ -8,13 +8,44 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+import threading
+import time
+import itertools
 from pathlib import Path
+from typing import ContextManager
 
 import yaml
 
 from elt_llm_core.config import RagConfig
 from elt_llm_query.query import interactive_query, query_collection, query_collections
+
+
+class Spinner(ContextManager):
+    """Simple terminal spinner."""
+
+    def __init__(self, message: str = "Processing..."):
+        self.message = message
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._spin)
+
+    def _spin(self) -> None:
+        spinner = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+        while not self.stop_event.is_set():
+            sys.stdout.write(f"\r{next(spinner)} {self.message}")
+            sys.stdout.flush()
+            time.sleep(0.1)
+        sys.stdout.write(f"\r{' ' * (len(self.message) + 2)}\r")
+        sys.stdout.flush()
+
+    def __enter__(self) -> "Spinner":
+        self.thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.stop_event.set()
+        self.thread.join()
 
 
 def get_examples_dir() -> Path:
@@ -83,25 +114,29 @@ def list_configs() -> int:
     return 0
 
 
-def query(config_name: str, query_text: str | None = None, verbose: bool = False) -> int:
+def query(config_name: str, query_text: str | None = None, log_level: str = "CRITICAL") -> int:
     """Query using the specified config.
 
     Args:
         config_name: Name of the config file (without .yaml extension).
         query_text: Optional query string (interactive mode if not provided).
-        verbose: Enable verbose logging.
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
 
     Returns:
         Exit code (0 for success, 1 for error).
     """
     # Configure logging
-    import logging
-
-    log_level = logging.DEBUG if verbose else logging.INFO
+    numeric_level = getattr(logging, log_level.upper(), logging.CRITICAL)
     logging.basicConfig(
-        level=log_level,
+        level=numeric_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        force=True,  # Override any existing config
     )
+
+    # Suppress noisy libraries unless in DEBUG mode
+    if numeric_level > logging.DEBUG:
+        for lib in ["httpx", "httpcore", "chromadb", "llama_index", "urllib3"]:
+            logging.getLogger(lib).setLevel(logging.WARNING)
 
     examples_dir = get_examples_dir()
     ingest_config_dir = get_ingest_config_dir()
@@ -136,10 +171,11 @@ def query(config_name: str, query_text: str | None = None, verbose: bool = False
     if query_text:
         # Single query mode
         try:
-            if len(collections) == 1:
-                result = query_collection(collections[0], query_text, rag_config)
-            else:
-                result = query_collections(collections, query_text, rag_config)
+            with Spinner("Thinking..."):
+                if len(collections) == 1:
+                    result = query_collection(collections[0], query_text, rag_config)
+                else:
+                    result = query_collections(collections, query_text, rag_config)
 
             print("\n=== Response ===\n")
             print(result.response)
@@ -175,10 +211,11 @@ def query(config_name: str, query_text: str | None = None, verbose: bool = False
                 continue
 
             try:
-                if len(collections) == 1:
-                    result = query_collection(collections[0], user_input, rag_config)
-                else:
-                    result = query_collections(collections, user_input, rag_config)
+                with Spinner("Thinking..."):
+                    if len(collections) == 1:
+                        result = query_collection(collections[0], user_input, rag_config)
+                    else:
+                        result = query_collections(collections, user_input, rag_config)
 
                 print("\n=== Response ===\n")
                 print(result.response)
@@ -230,10 +267,17 @@ Examples:
         help="Query string (if not provided, runs interactive mode)",
     )
     parser.add_argument(
+        "--log-level",
+        type=str,
+        default="CRITICAL",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set logging level (default: CRITICAL)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
-        help="Enable verbose logging",
+        help="Enable verbose logging (equivalent to --log-level DEBUG)",
     )
 
     args = parser.parse_args()
@@ -248,8 +292,11 @@ Examples:
         parser.print_help()
         return 1
 
+    # Determine log level
+    log_level = "DEBUG" if args.verbose else args.log_level
+
     # Query mode
-    return query(args.cfg, query_text=args.query, verbose=args.verbose)
+    return query(args.cfg, query_text=args.query, log_level=log_level)
 
 
 if __name__ == "__main__":
