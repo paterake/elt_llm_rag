@@ -4,7 +4,7 @@ collection_name: "dama_dmbok"
 
 # Documents to ingest
 file_paths:
-  - "~/Documents/__data/books/DAMA-DMBOK2R_unlocked.pdf"
+  - "~/Documents/__data/resources/books/DAMA-DMBOK2R_unlocked.pdf"
 
 # Metadata to attach to all documents
 metadata:

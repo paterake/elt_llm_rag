@@ -1,10 +1,10 @@
-# Ingestion Config: Financial Accounting Handbook
+# Ingestion Config: The Football Association Handbook
 
 collection_name: "fa_handbook"
 
 # Documents to ingest
 file_paths:
-  - "~/Documents/__data/thefa/FA_Handbook_2025-26.pdf"
+  - "~/Documents/__data/resources/thefa/FA_Handbook_2025-26.pdf"
 
 # Metadata to attach to all documents
 metadata:

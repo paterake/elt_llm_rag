@@ -4,8 +4,8 @@ collection_name: "fa_data_architecture"
 
 # Documents to ingest
 file_paths:
-  - "~/Documents/__data/thefa/Reference Data Architecture.pptx"
-  - "~/Documents/__data/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
+  - "~/Documents/__data/resources/thefa/Reference Data Architecture.pptx"
+  - "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 
 # Metadata to attach to all documents
 metadata:
