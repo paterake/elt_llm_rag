@@ -44,6 +44,12 @@ def main() -> None:
         help="Don't rebuild the collection (append mode)",
     )
     parser.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Force re-ingestion regardless of file changes (bypass hash checking)",
+    )
+    parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -112,12 +118,16 @@ def main() -> None:
         file_paths=ingest_data.get("file_paths", []),
         metadata=ingest_data.get("metadata"),
         rebuild=not args.no_rebuild,
+        force=args.force,
     )
 
     try:
         index = run_ingestion(ingest_config, rag_config)
         doc_count = len(index.docstore.docs) if index.docstore else 0
-        print(f"\nIngestion complete: {doc_count} chunks indexed")
+        if doc_count > 0:
+            print(f"\nIngestion complete: {doc_count} chunks indexed")
+        else:
+            print(f"\nNo changes detected - collection unchanged")
     except ValueError as e:
         print(f"Error: {e}")
         raise SystemExit(1)

@@ -24,6 +24,12 @@ from elt_llm_core.vector_store import (
     create_storage_context,
     delete_collection,
 )
+from elt_llm_ingest.file_hash import (
+    FILE_HASH_COLLECTION,
+    get_collection_file_count,
+    is_file_changed,
+    store_file_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +43,22 @@ class IngestConfig:
         file_paths: List of file paths to ingest.
         metadata: Metadata to attach to all documents.
         rebuild: Whether to rebuild (delete and recreate) the collection.
+        force: Whether to force re-ingestion regardless of file changes.
     """
 
     collection_name: str
     file_paths: list[str]
     metadata: dict[str, Any] | None = None
     rebuild: bool = True
+    force: bool = False
 
 
 def load_documents(
     file_paths: list[str],
     metadata: dict[str, Any] | None = None,
+    chroma_client: chromadb.ClientAPI | None = None,
+    collection_name: str | None = None,
+    force: bool = False,
 ) -> list[Document]:
     """Load documents from file paths.
 
@@ -61,6 +72,9 @@ def load_documents(
     Args:
         file_paths: List of file paths to load.
         metadata: Optional metadata to attach to all documents.
+        chroma_client: Optional ChromaDB client for hash checking.
+        collection_name: Optional collection name for hash tracking.
+        force: If True, skip hash checking and load all files.
 
     Returns:
         List of LlamaIndex Document objects.
@@ -68,24 +82,41 @@ def load_documents(
     logger.info("Loading %d documents", len(file_paths))
 
     documents: list[Document] = []
+    files_to_process: list[str] = []
 
-    for file_path in file_paths:
-        path = Path(file_path).expanduser()
-        logger.debug("Loading document: %s", path)
-
-        if not path.exists():
-            env_dir = os.environ.get("RAG_DOCS_DIR")
-            if env_dir:
-                alt_path = Path(env_dir).expanduser() / Path(file_path).name
-                if alt_path.exists():
-                    logger.info("Using RAG_DOCS_DIR override for %s -> %s", file_path, alt_path)
-                    path = alt_path
+    # Filter files by change detection if not in force mode
+    if chroma_client and collection_name and not force:
+        for file_path in file_paths:
+            path = Path(file_path).expanduser()
+            if not path.exists():
+                env_dir = os.environ.get("RAG_DOCS_DIR")
+                if env_dir:
+                    alt_path = Path(env_dir).expanduser() / Path(file_path).name
+                    if alt_path.exists():
+                        path = alt_path
+                    else:
+                        logger.warning("File not found at %s and override %s", path, alt_path)
+                        continue
                 else:
-                    logger.warning("File not found at %s and override %s", path, alt_path)
+                    logger.warning("File not found: %s", path)
                     continue
+
+            if is_file_changed(chroma_client, str(path), collection_name):
+                files_to_process.append(str(path))
             else:
-                logger.warning("File not found, skipping: %s", path)
-                continue
+                logger.info("Skipping unchanged file: %s", path)
+    else:
+        files_to_process = [str(Path(fp).expanduser()) for fp in file_paths]
+
+    if not files_to_process:
+        logger.info("No files to process (all unchanged)")
+        return documents
+
+    logger.info("Processing %d/%d files (changed or new)", len(files_to_process), len(file_paths))
+
+    for file_path in files_to_process:
+        path = Path(file_path)
+        logger.debug("Loading document: %s", path)
 
         try:
             reader = SimpleDirectoryReader(input_files=[str(path)])
@@ -96,6 +127,10 @@ def load_documents(
                 doc.metadata["source_file"] = str(path)
             documents.extend(docs)
             logger.info("Loaded document: %s (%d chars)", path, len(doc.text or ""))
+
+            # Store hash after successful load
+            if chroma_client and collection_name:
+                store_file_hash(chroma_client, str(path), collection_name)
         except Exception as e:
             logger.error("Failed to load %s: %s", path, e)
 
@@ -193,11 +228,46 @@ def run_ingestion(
     """
     logger.info("Starting ingestion pipeline for collection: %s", ingest_config.collection_name)
 
-    # Load documents
+    # Create Chroma client for hash tracking
+    chroma_client = create_chroma_client(rag_config.chroma)
+
+    # If rebuilding, clear file hashes for this collection
+    if ingest_config.rebuild:
+        from elt_llm_ingest.file_hash import remove_file_hashes
+        remove_file_hashes(
+            chroma_client,
+            ingest_config.file_paths,
+            ingest_config.collection_name,
+        )
+        logger.info("Cleared file hashes for rebuild")
+
+    # Load documents (with hash checking if not force mode)
     documents = load_documents(
         file_paths=ingest_config.file_paths,
         metadata=ingest_config.metadata,
+        chroma_client=chroma_client,
+        collection_name=ingest_config.collection_name,
+        force=ingest_config.force,
     )
+
+    # If no documents and not rebuilding, all files were unchanged - this is OK
+    if not documents and not ingest_config.rebuild:
+        logger.info("All files unchanged, no ingestion needed")
+        # Return existing index by loading from storage context
+        embed_model = create_embedding_model(rag_config.ollama)
+        Settings.embed_model = embed_model
+        
+        storage_context = create_storage_context(
+            chroma_client,
+            ingest_config.collection_name,
+            metadata={"description": f"Collection: {ingest_config.collection_name}"},
+        )
+        from llama_index.core import VectorStoreIndex
+        index = VectorStoreIndex.from_vector_store(
+            storage_context.vector_store,
+        )
+        logger.info("Loaded existing index with unchanged documents")
+        return index
 
     if not documents:
         raise ValueError("No documents were loaded. Check file paths.")

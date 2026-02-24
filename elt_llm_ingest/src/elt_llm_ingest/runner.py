@@ -4,6 +4,7 @@ Usage:
     uv run python -m elt_llm_ingest.runner --cfg <config_name> [-v] [--no-rebuild]
     uv run python -m elt_llm_ingest.runner --cfg <config_name> --delete [-f]
     uv run python -m elt_llm_ingest.runner --list
+    uv run python -m elt_llm_ingest.runner --status [-v]
 """
 
 from __future__ import annotations
@@ -72,13 +73,78 @@ def list_configs() -> int:
     return 0
 
 
-def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False) -> int:
+def status(verbose: bool = False) -> int:
+    """Show status of all ChromaDB collections.
+
+    Args:
+        verbose: Show detailed information including metadata.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    config_dir = get_config_dir()
+
+    # Load RAG config to get persist directory
+    try:
+        rag_config = RagConfig.from_yaml(config_dir / "rag_config.yaml")
+        persist_dir = Path(rag_config.chroma.persist_dir).expanduser()
+    except (FileNotFoundError, ValueError) as e:
+        print(f"❌ Configuration error: {e}")
+        return 1
+
+    # Connect to ChromaDB
+    try:
+        client = chromadb.PersistentClient(path=str(persist_dir))
+    except Exception as e:
+        print(f"❌ Failed to connect to ChromaDB: {e}")
+        return 1
+
+    # Get all collections
+    collections = client.list_collections()
+
+    if not collections:
+        print("\n=== ChromaDB Status ===\n")
+        print(f"Persist directory: {persist_dir}")
+        print("No collections found.\n")
+        return 0
+
+    print("\n=== ChromaDB Status ===\n")
+    print(f"Persist directory: {persist_dir}\n")
+    print(f"{'Collection Name':<35} {'Documents':>12}  {'Metadata'}")
+    print("-" * 70)
+
+    for collection in collections:
+        try:
+            count = collection.count()
+            metadata = collection.metadata or {}
+            metadata_str = str(metadata) if verbose and metadata else "-"
+
+            # Truncate metadata if too long
+            if len(metadata_str) > 50 and not verbose:
+                metadata_str = metadata_str[:47] + "..."
+
+            print(f"{collection.name:<35} {count:>12}  {metadata_str}")
+        except Exception as e:
+            print(f"{collection.name:<35} {'ERROR':>12}  {e}")
+
+    print()
+
+    # Summary
+    total_docs = sum(c.count() for c in collections)
+    print(f"Total: {len(collections)} collection(s), {total_docs} document(s)")
+    print()
+
+    return 0
+
+
+def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False, force: bool = False) -> int:
     """Ingest documents using the specified config.
 
     Args:
         config_name: Name of the config file (without .yaml extension).
         verbose: Enable verbose logging.
         no_rebuild: Don't rebuild the collection.
+        force: Force re-ingestion regardless of file changes.
 
     Returns:
         Exit code (0 for success, 1 for error).
@@ -124,12 +190,17 @@ def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False) ->
         file_paths=ingest_data.get("file_paths", []),
         metadata=ingest_data.get("metadata"),
         rebuild=not no_rebuild,
+        force=force,
     )
 
     try:
         index = run_ingestion(ingest_config, rag_config)
         doc_count = len(index.docstore.docs) if index.docstore else 0
-        print(f"\n✅ Ingestion complete: {doc_count} chunks indexed")
+        
+        if doc_count > 0:
+            print(f"\n✅ Ingestion complete: {doc_count} chunks indexed")
+        else:
+            print(f"\n✅ No changes detected - collection unchanged")
         return 0
     except ValueError as e:
         print(f"❌ Error: {e}")
@@ -200,6 +271,12 @@ Examples:
   # List available configs
   uv run python -m elt_llm_ingest.runner --list
 
+  # Show collection status
+  uv run python -m elt_llm_ingest.runner --status
+
+  # Show collection status with verbose metadata
+  uv run python -m elt_llm_ingest.runner --status -v
+
   # Ingest DAMA-DMBOK
   uv run python -m elt_llm_ingest.runner --cfg dama_dmbok
 
@@ -247,10 +324,20 @@ Examples:
         "-f",
         "--force",
         action="store_true",
-        help="Skip confirmation prompt (only for delete)",
+        help="For delete: skip confirmation; for ingest: bypass hash checking and re-ingest all files",
+    )
+    parser.add_argument(
+        "--status",
+        "-s",
+        action="store_true",
+        help="Show status of all ChromaDB collections",
     )
 
     args = parser.parse_args()
+
+    # Status mode
+    if args.status:
+        return status(verbose=args.verbose)
 
     # List mode
     if args.list:
@@ -267,7 +354,7 @@ Examples:
         return delete(args.cfg, force=args.force)
 
     # Ingest mode
-    return ingest(args.cfg, verbose=args.verbose, no_rebuild=args.no_rebuild)
+    return ingest(args.cfg, verbose=args.verbose, no_rebuild=args.no_rebuild, force=args.force)
 
 
 if __name__ == "__main__":
