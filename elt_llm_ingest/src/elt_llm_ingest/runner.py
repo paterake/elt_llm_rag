@@ -194,11 +194,10 @@ def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False, fo
     )
 
     try:
-        index = run_ingestion(ingest_config, rag_config)
-        doc_count = len(index.docstore.docs) if index.docstore else 0
-        
-        if doc_count > 0:
-            print(f"\n✅ Ingestion complete: {doc_count} chunks indexed")
+        _, node_count = run_ingestion(ingest_config, rag_config)
+
+        if node_count > 0:
+            print(f"\n✅ Ingestion complete: {node_count} chunks indexed")
         else:
             print(f"\n✅ No changes detected - collection unchanged")
         return 0

@@ -12,9 +12,12 @@ from llama_index.core import (
     Document,
     Settings,
     SimpleDirectoryReader,
+    StorageContext,
     VectorStoreIndex,
 )
+from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.storage.docstore import SimpleDocumentStore
 
 from elt_llm_core.config import ChunkingConfig, RagConfig
 from elt_llm_core.models import create_embedding_model
@@ -144,7 +147,7 @@ def build_index(
     rag_config: RagConfig,
     collection_name: str,
     rebuild: bool = True,
-) -> VectorStoreIndex:
+) -> tuple[VectorStoreIndex, int]:
     """Build a vector index from documents.
 
     Args:
@@ -154,7 +157,8 @@ def build_index(
         rebuild: Whether to rebuild the collection.
 
     Returns:
-        VectorStoreIndex containing the embedded documents.
+        Tuple of (VectorStoreIndex, node_count) where node_count is the number
+        of chunks stored.
     """
     logger.info(
         "Building index from %d documents (collection=%s, rebuild=%s)",
@@ -170,58 +174,53 @@ def build_index(
     if rebuild:
         delete_collection(chroma_client, collection_name)
 
-    # Create storage context with docstore so nodes are persisted for BM25 hybrid search
-    storage_context = create_storage_context(
-        chroma_client,
-        collection_name,
-        metadata={"description": f"Collection: {collection_name}"},
-        include_docstore=True,
-    )
-
     # Set embedding model
     embed_model = create_embedding_model(rag_config.ollama)
     Settings.embed_model = embed_model
 
-    # Create transformations based on strategy
+    # Step 1: Chunk documents into nodes.
+    # NOTE: VectorStoreIndex.from_documents() with ChromaDB skips the docstore
+    # (ChromaDB is the authoritative node store). We run the pipeline explicitly
+    # so we have the nodes to save separately for BM25.
     chunking = rag_config.chunking
-    if chunking.strategy == "sentence":
-        transformations = [
-            SentenceSplitter(
-                chunk_size=chunking.chunk_size,
-                chunk_overlap=chunking.chunk_overlap,
-            )
-        ]
-    else:
-        # For semantic chunking, we'd use a different splitter
-        transformations = [
-            SentenceSplitter(
-                chunk_size=chunking.chunk_size,
-                chunk_overlap=chunking.chunk_overlap,
-            )
-        ]
-
-    # Create index
-    index = VectorStoreIndex.from_documents(
+    splitter = SentenceSplitter(
+        chunk_size=chunking.chunk_size,
+        chunk_overlap=chunking.chunk_overlap,
+    )
+    nodes = IngestionPipeline(transformations=[splitter]).run(
         documents=documents,
+        show_progress=True,
+    )
+    logger.info("Created %d nodes from %d documents", len(nodes), len(documents))
+
+    # Step 2: Persist nodes to a SimpleDocumentStore for BM25 hybrid search.
+    docstore = SimpleDocumentStore()
+    docstore.add_documents(nodes)
+    docstore_path = get_docstore_path(rag_config.chroma, collection_name)
+    docstore_path.mkdir(parents=True, exist_ok=True)
+    StorageContext.from_defaults(docstore=docstore).persist(persist_dir=str(docstore_path))
+    logger.info("Docstore persisted: %s (%d nodes)", docstore_path, len(nodes))
+
+    # Step 3: Embed nodes and store vectors in ChromaDB.
+    storage_context = create_storage_context(
+        chroma_client,
+        collection_name,
+        metadata={"description": f"Collection: {collection_name}"},
+    )
+    index = VectorStoreIndex(
+        nodes=nodes,
         storage_context=storage_context,
-        transformations=transformations,
         show_progress=True,
     )
 
-    # Persist docstore alongside ChromaDB for BM25 hybrid search at query time
-    docstore_path = get_docstore_path(rag_config.chroma, collection_name)
-    docstore_path.mkdir(parents=True, exist_ok=True)
-    index.storage_context.persist(persist_dir=str(docstore_path))
-    logger.info("Docstore persisted to: %s (%d nodes)", docstore_path, len(index.docstore.docs))
-
-    logger.info("Index built successfully with %d documents", len(documents))
-    return index
+    logger.info("Index built successfully with %d nodes", len(nodes))
+    return index, len(nodes)
 
 
 def run_ingestion(
     ingest_config: IngestConfig,
     rag_config: RagConfig,
-) -> VectorStoreIndex:
+) -> tuple[VectorStoreIndex, int]:
     """Run the complete ingestion pipeline.
 
     Args:
@@ -229,7 +228,8 @@ def run_ingestion(
         rag_config: RAG configuration.
 
     Returns:
-        VectorStoreIndex containing the ingested documents.
+        Tuple of (VectorStoreIndex, nodes_indexed) where nodes_indexed is 0
+        when all files were unchanged and no rebuild was needed.
 
     Raises:
         ValueError: If no documents were loaded.
@@ -275,13 +275,13 @@ def run_ingestion(
             storage_context.vector_store,
         )
         logger.info("Loaded existing index with unchanged documents")
-        return index
+        return index, 0
 
     if not documents:
         raise ValueError("No documents were loaded. Check file paths.")
 
     # Build index
-    index = build_index(
+    index, node_count = build_index(
         documents=documents,
         rag_config=rag_config,
         collection_name=ingest_config.collection_name,
@@ -289,7 +289,7 @@ def run_ingestion(
     )
 
     logger.info("Ingestion pipeline complete")
-    return index
+    return index, node_count
 
 
 def ingest_from_config(
@@ -323,4 +323,5 @@ def ingest_from_config(
         rag_config_path = data.get("rag_config", config_path)
         rag_config = RagConfig.from_yaml(rag_config_path)
 
-    return run_ingestion(ingest_config, rag_config)
+    index, _ = run_ingestion(ingest_config, rag_config)
+    return index
