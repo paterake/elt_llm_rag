@@ -17,19 +17,11 @@
 
 collections:
   - name: "fa_handbook"
-  - name: "fa_leanix_overview"
-  - name: "fa_leanix_additional_entities"
-  - name: "fa_leanix_relationships"
-  - name: "fa_leanix_agreements"
-  - name: "fa_leanix_campaign"
-  - name: "fa_leanix_location"
-  - name: "fa_leanix_product"
-  - name: "fa_leanix_reference_data"
-  - name: "fa_leanix_static_data"
-  - name: "fa_leanix_time_bounded_groupings"
-  - name: "fa_leanix_transaction_and_events"
   - name: "fa_data_architecture"
   - name: "dama_dmbok"
+
+collection_prefixes:
+  - name: "fa_leanix"
 
 query:
   similarity_top_k: 15

@@ -200,3 +200,20 @@ def list_collections(client: chromadb.ClientAPI) -> list[str]:
     """
     collections = client.list_collections()
     return [c.name for c in collections]
+
+
+def list_collections_by_prefix(client: chromadb.ClientAPI, prefix: str) -> list[str]:
+    """List all collection names that start with the given prefix.
+
+    Matches '{prefix}_*' so 'fa_leanix' matches 'fa_leanix_overview',
+    'fa_leanix_relationships', etc.
+
+    Args:
+        client: ChromaDB client.
+        prefix: Collection name prefix (without trailing underscore).
+
+    Returns:
+        Sorted list of matching collection names.
+    """
+    match = prefix + "_"
+    return sorted(name for name in list_collections(client) if name.startswith(match))

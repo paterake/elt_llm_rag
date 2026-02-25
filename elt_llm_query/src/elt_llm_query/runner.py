@@ -19,7 +19,12 @@ from typing import ContextManager
 import yaml
 
 from elt_llm_core.config import RagConfig
-from elt_llm_query.query import interactive_query, query_collection, query_collections
+from elt_llm_query.query import (
+    interactive_query,
+    query_collection,
+    query_collections,
+    resolve_collection_prefixes,
+)
 
 
 class Spinner(ContextManager):
@@ -91,9 +96,15 @@ def list_configs() -> int:
         with open(cfg) as f:
             data = yaml.safe_load(f)
         collections = [c["name"] for c in data.get("collections", [])]
+        prefixes = [p["name"] for p in data.get("collection_prefixes", [])]
 
         print(f"  {config_name}")
-        print(f"    Collections: {', '.join(collections)}")
+        parts = []
+        if collections:
+            parts.append(", ".join(collections))
+        if prefixes:
+            parts.append("prefixes: " + ", ".join(f"{p}_*" for p in prefixes))
+        print(f"    Collections: {' | '.join(parts) if parts else '(none)'}")
 
     if not configs:
         print("  No configs found.")
@@ -158,9 +169,32 @@ def query(config_name: str, query_text: str | None = None, log_level: str = "CRI
         print(f"❌ RAG configuration error: {e}")
         return 1
 
-    # Get collections to query
+    # Get collections to query — explicit names + prefix-resolved names
     collections_data = query_data.get("collections", [])
-    collections = [c["name"] for c in collections_data]
+    explicit_collections = [c["name"] for c in collections_data]
+
+    prefix_data = query_data.get("collection_prefixes", [])
+    prefixes = [p["name"] for p in prefix_data]
+
+    resolved_collections: list[str] = []
+    if prefixes:
+        try:
+            resolved_collections = resolve_collection_prefixes(prefixes, rag_config)
+        except Exception as e:
+            print(f"❌ Error resolving collection prefixes {prefixes}: {e}")
+            return 1
+
+    # Merge: explicit first, then prefix-resolved (deduplicated)
+    seen: set[str] = set(explicit_collections)
+    for name in resolved_collections:
+        if name not in seen:
+            explicit_collections.append(name)
+            seen.add(name)
+    collections = explicit_collections
+
+    if not collections:
+        print("❌ Error: No collections defined in config (add 'collections' or 'collection_prefixes')")
+        return 1
 
     # Apply query settings
     query_settings = query_data.get("query", {})
@@ -193,7 +227,9 @@ def query(config_name: str, query_text: str | None = None, log_level: str = "CRI
         # Interactive mode
         print(f"\n=== RAG Query Interface ===")
         print(f"Config: {config_name}")
-        print(f"Collections: {', '.join(collections)}")
+        if prefixes:
+            print(f"Prefixes: {', '.join(f'{p}_*' for p in prefixes)} → {len(resolved_collections)} collections")
+        print(f"Collections ({len(collections)}): {', '.join(collections)}")
         print("Type 'quit' or 'exit' to stop\n")
 
         while True:

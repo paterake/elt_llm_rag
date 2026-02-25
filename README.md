@@ -70,7 +70,7 @@ uv run python -m elt_llm_query.runner --cfg dama_only
 |------------|-----------|--------|--------|
 | `dama_dmbok` | DAMA-DMBOK2 (PDF) | ~11,943 | ✅ Ingested |
 | `fa_handbook` | FA Handbook (PDF) | ~9,673 | ✅ Ingested |
-| `fa_ea_leanix` | LeanIX conceptual model (XML) | ~2,261 | ✅ Ingested |
+| `fa_leanix_*` (11 collections) | LeanIX conceptual model (XML) — split by domain | 15 | ✅ Ingested |
 | `fa_data_architecture` | FA Data Architecture | TBD | ⏳ Config ready |
 
 ## Common Commands

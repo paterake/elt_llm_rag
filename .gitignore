@@ -12,6 +12,9 @@ build/
 # ChromaDB
 **/chroma_db/
 
+# Generated intermediate files (preprocessor output)
+**/_leanix_sections/
+
 # OS
 .DS_Store
 

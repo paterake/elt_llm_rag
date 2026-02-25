@@ -9,7 +9,12 @@ from pathlib import Path
 import yaml
 
 from elt_llm_core.config import RagConfig
-from elt_llm_query.query import interactive_query, query_collection, query_collections
+from elt_llm_query.query import (
+    interactive_query,
+    query_collection,
+    query_collections,
+    resolve_collection_prefixes,
+)
 
 
 def get_examples_dir() -> Path:
@@ -105,12 +110,29 @@ def main() -> None:
         print(f"RAG configuration error: {e}")
         raise SystemExit(1)
 
-    # Get collections to query
+    # Get collections to query — explicit names + prefix-resolved names
     if args.collection:
         collections = [args.collection]
     else:
         collections_data = query_data.get("collections", [])
-        collections = [c["name"] for c in collections_data]
+        explicit_collections = [c["name"] for c in collections_data]
+
+        prefix_data = query_data.get("collection_prefixes", [])
+        prefixes = [p["name"] for p in prefix_data]
+
+        if prefixes:
+            try:
+                resolved = resolve_collection_prefixes(prefixes, rag_config)
+            except Exception as e:
+                print(f"Error resolving collection prefixes {prefixes}: {e}")
+                raise SystemExit(1)
+            seen: set[str] = set(explicit_collections)
+            for name in resolved:
+                if name not in seen:
+                    explicit_collections.append(name)
+                    seen.add(name)
+
+        collections = explicit_collections
 
     # Get query settings
     query_settings = query_data.get("query", {})

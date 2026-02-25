@@ -85,7 +85,7 @@ This RAG platform transforms how FA architecture knowledge is:
 │  │  Vector Store (ChromaDB)                                         │    │
 │  │  - Tenant: rag_tenants                                           │    │
 │  │  - Database: knowledge_base                                      │    │
-│  │  - Collections: per source (fa_ea_leanix, dama_dmbok, etc.)      │    │
+│  │  - Collections: per source (fa_leanix_*, dama_dmbok, etc.)       │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
@@ -137,7 +137,7 @@ elt_llm_rag/
 ├── elt_llm_query/          # Query interface
 │   ├── runner.py           # Generic runner (--cfg parameter)
 │   ├── query.py            # Single/multi-collection queries
-│   └── examples/           # Query configs
+│   └── llm_rag_profile/    # RAG profiles (collections + persona + settings)
 │       ├── architecture_focus.yaml
 │       ├── vendor_assessment.yaml
 │       ├── leanix_fa_combined.yaml
@@ -211,7 +211,7 @@ The LeanIX conceptual model defines **domain groups** and **entities**:
 | DAMA KB Area | RAG Collection | Use Case |
 |--------------|----------------|----------|
 | **Data Governance** | `dama_dmbok` + `fa_handbook` | Policy queries |
-| **Data Architecture** | `fa_ea_leanix` + `fa_ea_sad` | Model queries |
+| **Data Architecture** | `fa_leanix_*` + `fa_ea_sad` | Model queries |
 | **Data Quality** | `dama_dmbok` + supplier assessments | DQ rule generation |
 | **Reference Data** | `iso_reference_data` (TODO) | Standards conformance |
 | **Metadata Management** | All collections + Purview | Catalogue integration |
@@ -236,7 +236,7 @@ The LeanIX conceptual model defines **domain groups** and **entities**:
 |------------|-----------|--------|--------|
 | `dama_dmbok` | DAMA-DMBOK2 (PDF) | ~11,943 | ✅ Ingested |
 | `fa_handbook` | FA Handbook (PDF) | ~9,673 | ✅ Ingested |
-| `fa_ea_leanix` | LeanIX XML (draw.io) | ~2,261 | ✅ Ingested |
+| `fa_leanix_*` (11 collections) | LeanIX XML (draw.io) — split by domain | 15 | ✅ Ingested |
 | `fa_ea_sad` | SAD (PDF) | TBD | ⏳ Config ready |
 | `supplier_assess` | Supplier docs | TBD | ⏳ Config ready |
 | `fa_fdm` | FDM (Excel/PDF) | TBD | ⏳ Planned |
@@ -575,7 +575,7 @@ class SADGenerator:
         
         # Query multi-collection RAG
         result = query_collections(
-            ['fa_ea_leanix', 'fa_handbook', 'dama_dmbok'],
+            ['fa_leanix_overview', 'fa_leanix_relationships', 'fa_handbook', 'dama_dmbok'],
             prompt,
             self.rag_config
         )
@@ -794,7 +794,7 @@ class PurviewSync:
         glossary = query_collection("fa_handbook", "all glossary terms")
         
         # Query RAG for LeanIX entities
-        entities = query_collection("fa_ea_leanix", "all entities")
+        entities = query_collection("fa_leanix_overview", "all entities")
         
         # Map to Purview schema
         purview_terms = []
@@ -863,7 +863,7 @@ class VendorAssessmentGenerator:
         vendor_info = {}
         for vendor in vendors:
             result = query_collections(
-                ['fa_ea_leanix', 'supplier_assess'],
+                ['fa_leanix_overview', 'supplier_assess'],
                 f"Vendor {vendor} capabilities for {criteria}"
             )
             vendor_info[vendor] = result.response
@@ -898,9 +898,9 @@ class VendorAssessmentGenerator:
 |-----------|--------|----------------|--------|
 | **Business Glossary** | FA Handbook | `fa_glossary` | TODO |
 | **Reference Data** | ISO/ONS/FA codes | `iso_reference_data` | TODO |
-| **Data Objects** | LeanIX conceptual | `fa_ea_leanix` | ✅ Partial |
-| **Systems/Applications** | LeanIX | `fa_ea_leanix` | ✅ Partial |
-| **Data Flows** | LeanIX relationships | `fa_ea_leanix` | ✅ Partial |
+| **Data Objects** | LeanIX conceptual | `fa_leanix_*` | ✅ Partial |
+| **Systems/Applications** | LeanIX | `fa_leanix_*` | ✅ Partial |
+| **Data Flows** | LeanIX relationships | `fa_leanix_relationships` | ✅ Partial |
 | **Policies/Standards** | FA Handbook + DAMA | `fa_handbook` + `dama_dmbok` | ✅ Partial |
 | **Schemas** | Purview scans | `purview_schemas` | TODO |
 | **Reports/Dashboards** | Workday/Dynamics | `report_catalogue` | TODO |
@@ -1373,7 +1373,7 @@ uv sync
 
 # Ingest LeanIX conceptual model
 cd elt_llm_ingest
-uv run python -m elt_llm_ingest.runner --cfg fa_ea_leanix --force
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_ea_leanix --force
 
 # Ingest FA Handbook
 uv run python -m elt_llm_ingest.runner --cfg fa_handbook --force
@@ -1418,13 +1418,13 @@ uv run python -m elt_llm_ingest.runner --status -v
 ```yaml
 # config/ingest_fa_ea_leanix.yaml
 
-collection_name: "fa_ea_leanix"
+# Split mode: one XML → 11 domain-scoped collections (fa_leanix_*)
+collection_prefix: "fa_leanix"
 
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
   class: "LeanIXPreprocessor"
-  output_format: "markdown"
-  output_suffix: "_leanix_processed"
+  output_format: "split"
   enabled: true
 
 file_paths:
@@ -1435,19 +1435,22 @@ metadata:
   type: "enterprise_architecture"
   source: "LeanIX"
 
+chunking:
+  chunk_size: 512
+  chunk_overlap: 64
+
 rebuild: true
 ```
 
 ### B.2 Query Config Example
 
 ```yaml
-# examples/architecture_focus.yaml
+# llm_rag_profile/architecture_focus.yaml
 
 collections:
-  - name: "fa_ea_leanix"
-    weight: 1.0
+  - name: "fa_leanix_overview"
+  - name: "fa_leanix_relationships"
   - name: "fa_ea_sad"
-    weight: 1.0
 
 query:
   similarity_top_k: 10

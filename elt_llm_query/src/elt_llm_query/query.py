@@ -14,6 +14,7 @@ from elt_llm_core.vector_store import (
     create_chroma_client,
     create_storage_context,
     get_docstore_path,
+    list_collections_by_prefix,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,37 @@ def load_indices(
         except Exception as e:
             logger.warning("Failed to load collection '%s': %s", name, e)
     return indices
+
+
+def resolve_collection_prefixes(
+    prefixes: list[str],
+    rag_config: RagConfig,
+) -> list[str]:
+    """Resolve prefix patterns to actual collection names from ChromaDB.
+
+    Uses '{prefix}_' matching so 'fa_leanix' resolves to all 'fa_leanix_*'
+    collections that currently exist in the database.
+
+    Args:
+        prefixes: List of prefix strings (without trailing underscore).
+        rag_config: RAG configuration (used to locate the ChromaDB instance).
+
+    Returns:
+        Sorted list of matching collection names. Warns if a prefix matches nothing.
+    """
+    if not prefixes:
+        return []
+
+    client = create_chroma_client(rag_config.chroma)
+    resolved: list[str] = []
+    for prefix in prefixes:
+        matches = list_collections_by_prefix(client, prefix)
+        if not matches:
+            logger.warning("No collections found matching prefix '%s_*'", prefix)
+        else:
+            logger.info("Prefix '%s' resolved to: %s", prefix, matches)
+            resolved.extend(matches)
+    return resolved
 
 
 def _build_hybrid_retriever(
