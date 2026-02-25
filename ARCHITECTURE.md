@@ -21,6 +21,7 @@
 - [6. Business Catalogue Opportunities](#6-business-catalogue-opportunities)
 - [7. Data Working Group Value](#7-data-working-group-value)
 - [8. Implementation Roadmap](#8-implementation-roadmap)
+- [9. Legal & Compliance Considerations](#9-legal--compliance-considerations)
 
 ---
 
@@ -29,9 +30,11 @@
 ### 1.1 Purpose
 
 This RAG platform transforms how FA architecture knowledge is:
-- **Captured**: From SADs, LeanIX, FA Handbook, DAMA-DMBOK
-- **Queried**: Natural language questions across multiple knowledge domains
+- **Captured**: From SADs, LeanIX, FA Handbook, DAMA-DMBOK, FDM, Confluence
+- **Queried**: Natural language questions across multiple knowledge domains — including in real-time during architecture consultations
 - **Generated**: Automated SADs, ERDs, vendor assessments, glossaries
+- **Validated**: SADs and designs checked against FA standards before ACB submission
+- **Analysed**: Query logs surface what knowledge is missing, stale, or inconsistently applied — input to SAD/ACB process review
 
 ### 1.2 Strategic Value
 
@@ -58,6 +61,9 @@ This RAG platform transforms how FA architecture knowledge is:
 ├─────────────────┬─────────────────┬─────────────────┬───────────────────┤
 │   FA Handbook   │    LeanIX XML   │   DAMA-DMBOK    │   Workday Docs    │
 │   (PDF/HTML)    │  (draw.io)      │   (PDF)         │   (PDF/DOCX)      │
+├─────────────────┼─────────────────┼─────────────────┼───────────────────┤
+│      FDM        │   Confluence    │                 │                   │
+│  (Excel/PDF)    │   (HTML scrape) │                 │                   │
 └────────┬────────┴────────┬────────┴────────┬────────┴─────────┬─────────┘
          │                 │                 │                  │
          ↓                 ↓                 ↓                  ↓
@@ -233,6 +239,8 @@ The LeanIX conceptual model defines **domain groups** and **entities**:
 | `fa_ea_leanix` | LeanIX XML (draw.io) | ~2,261 | ✅ Ingested |
 | `fa_ea_sad` | SAD (PDF) | TBD | ⏳ Config ready |
 | `supplier_assess` | Supplier docs | TBD | ⏳ Config ready |
+| `fa_fdm` | FDM (Excel/PDF) | TBD | ⏳ Planned |
+| `confluence` | Confluence pages (HTML scrape) | TBD | ⏳ Planned |
 
 ### 4.3 Preprocessors ✅
 
@@ -287,6 +295,40 @@ PRODUCT relates to (one or more to zero or more) TRANSACTION (including Match, A
 ---
 
 ## 5. What Needs to Be Built
+
+### 5.0 Priority 0 (Quick Win): LeanIX Glossary → CSV Export 🔴
+
+**Purpose**: Export glossary terms and Conceptual Data Model entities from LeanIX to CSV — agreed deliverable for the Data Working Group.
+
+**Implementation**: Extend `doc_leanix_parser.py` with a CSV export method:
+
+```python
+# scripts/export_leanix_glossary_csv.py
+
+def export_glossary_csv(leanix_xml: str, output_path: str):
+    """Export LeanIX entities + domain groups to CSV for glossary/catalogue use.
+
+    Columns: domain_group, entity_name, parent_entity, relationships, fact_sheet_id
+    """
+    extractor = LeanIXExtractor(leanix_xml)
+    extractor.parse_xml()
+    extractor.extract_all()
+
+    rows = []
+    for asset in extractor.assets.values():
+        rows.append({
+            "domain_group": asset.parent_group,
+            "entity_name": asset.label,
+            "fact_sheet_id": asset.fact_sheet_id,
+            "relationships": "; ".join([r.target_label for r in extractor.relationships if r.source_label == asset.label]),
+        })
+
+    pd.DataFrame(rows).to_csv(output_path, index=False)
+```
+
+**Value**: Enables Robin + colleagues to review/extend the glossary in Excel; feeds Purview import.
+
+---
 
 ### 5.1 Priority 1: Business Glossary Extractor 🔴
 
@@ -385,6 +427,110 @@ def check_conformance(source_system: str, field: str, values: list) -> dict:
 - Identify data quality issues (e.g., Workday not conforming to ONS)
 - Automate reference data management
 - Support data quality initiatives
+
+---
+
+### 5.1b Priority 1b: Business Context Builder — Glossary Linked to Conceptual Model 🔴
+
+**Purpose**: Link FA Handbook glossary terms to LeanIX conceptual model entities to produce a unified business context layer. This is the core deliverable agreed with colleagues — the conceptual model is the frame, the FA Handbook provides the SME definitions on top of it.
+
+**Context**: Three separate outputs need to be joined:
+1. FA Handbook glossary terms (from FAGlossaryPreprocessor)
+2. LeanIX conceptual model entities (from LeanIXPreprocessor / CSV export)
+3. Integration metadata — what is held, owned, transmitted to/from each entity
+
+**Implementation**:
+```python
+# scripts/build_business_context.py
+
+class BusinessContextBuilder:
+    """Link FA Handbook glossary terms to LeanIX conceptual model entities.
+
+    Output: Unified business context — each entry has:
+    - Term (from FA Handbook)
+    - Definition (FA Handbook source + section)
+    - LeanIX entity (domain group + entity name + fact_sheet_id)
+    - Related terms (FA Handbook cross-references)
+    - Systems holding this data (LeanIX relationships)
+    - Systems transmitting this data (integrations)
+    - ISO/reference data standards (if applicable)
+    """
+
+    def build(self, glossary: list[dict], leanix_entities: list[dict]) -> list[dict]:
+        """Match glossary terms to LeanIX entities by name + semantic similarity."""
+        # 1. Exact name matching (e.g. "Club" → PARTY > Club)
+        # 2. Fuzzy/semantic matching for synonyms (e.g. "Member" → Individual)
+        # 3. Manual override file for known mismatches
+        # 4. Output: linked glossary CSV + RAG-optimised Markdown
+```
+
+**Output formats**:
+- **CSV**: Shareable with Robin, Data Working Group, feeds Purview import
+- **Markdown**: Ingested into ChromaDB as `fa_business_context` collection
+- **DSI layer**: Glossary above Data Source Inventory — drill down from term → entity → systems holding/transmitting it → lineage
+
+**Value**:
+- Single source of truth: business term → definition → conceptual model entity → physical systems
+- Enables the lineage the colleague described: "glossary sits above DSI, allows drill down showing lineage between sources and targets"
+- Feeds Purview business context population (agreed with Robin)
+- Queryable: "What is a Club, which systems hold Club data, and where does it flow?"
+
+---
+
+### 5.2b Priority 2b: FDM Ingestion + Conceptual Model Alignment 🔴
+
+**Purpose**: Ingest the Functional Data Model (FDM) and align it with the LeanIX conceptual model as the frame.
+
+**Context**: The conceptual model is the frame — the FDM provides business process-aligned enrichment on top. Agreed with colleague: "There's something we can do at the start to align the FDM and conceptual model."
+
+**Implementation**:
+- Create `ingest_fa_fdm.yaml` ingestion config (source: Excel/PDF)
+- Build `FDMPreprocessor` to extract entities, attributes, and domain groupings
+- Create `fdm_leanix_alignment.yaml` query config to cross-reference FDM entities against LeanIX conceptual model
+- Identify gaps: entities in FDM not in LeanIX, and vice versa
+
+**Value**:
+- Conceptual model enriched with FDM business process context
+- Alignment gaps surfaced for Robin + Data Modeller review
+- Combined frame for ERD generation (conceptual → logical)
+
+---
+
+### 5.2c Priority 2c: Confluence Scraper 🟡
+
+**Purpose**: Ingest FA Confluence pages (architecture decisions, standards, process docs) into the RAG knowledge base.
+
+**Implementation**:
+```python
+# elt_llm_ingest/confluence_scraper.py
+
+class ConfluenceScraper:
+    """Scrape Confluence pages and convert to Markdown for RAG ingestion.
+
+    - Authenticates via Confluence REST API or local HTML export
+    - Converts page content to clean Markdown
+    - Preserves page hierarchy and metadata (space, author, last updated)
+    - Outputs to standard ingest format for ChromaDB
+    """
+```
+
+**Config**:
+```yaml
+# config/ingest_confluence.yaml
+collection_name: "confluence_arch"
+preprocessor:
+  class: "ConfluencePreprocessor"
+spaces:
+  - "DATA"        # Data team space
+  - "ARCH"        # Architecture space
+metadata:
+  domain: "internal_knowledge"
+  type: "confluence"
+```
+
+**Value**:
+- Architecture decisions and ADRs queryable alongside LeanIX + FA Handbook
+- Institutional knowledge not captured in formal documents made accessible
 
 ---
 
@@ -489,6 +635,37 @@ class SADGenerator:
 
 ---
 
+### 5.3b Priority 3b: SAD Quality Checker 🟡
+
+**Purpose**: Review submitted SADs against FA standards — flag gaps, inconsistencies, and missing traceability to LeanIX entities. Complements the SAD generator; more defensible value proposition.
+
+**Context**: EA feedback — the consultation and review process is the value. This supports that by making review faster and more consistent, not bypassing it.
+
+**Implementation**:
+```python
+# scripts/check_sad.py
+
+class SADChecker:
+    """Check a submitted SAD against FA architecture standards.
+
+    Checks:
+    - Required sections present (FA SAD template)
+    - Business entities referenced exist in LeanIX conceptual model
+    - Reference data conforms to ISO/ONS standards
+    - Integration patterns consistent with reference architecture
+    - DAMA-DMBOK data management principles applied
+
+    Output: Structured report with pass/fail/warning per check, with citations.
+    """
+```
+
+**Value**:
+- Consistent pre-ACB review quality gate
+- Reduces back-and-forth in consultation by surfacing gaps early
+- Traceable to FA standards (not subjective reviewer opinion)
+
+---
+
 ### 5.4 Priority 4: ERD Generator 🟡
 
 **Purpose**: Generate ERD diagrams (conceptual, logical, physical) from LeanIX.
@@ -564,6 +741,35 @@ class ERDGenerator:
 - Always up-to-date ERDs (regenerate from LeanIX)
 - Consistent notation across projects
 - Traceability to business entities
+
+---
+
+### 5.4b Priority 4b: Query Analytics & Usage Logging 🟡
+
+**Purpose**: Log what questions are asked, what can't be answered, and what sources are used — surfaces knowledge gaps and stale content.
+
+**Context**: EA feedback: query logs are useful input to the SAD/ACB review — real data about what people actually need to know, not what we think they need.
+
+**Implementation**:
+```python
+# elt_llm_core/query_logger.py
+
+class QueryLogger:
+    """Log queries, sources retrieved, and response quality signals.
+
+    Captures:
+    - Query text and timestamp
+    - Collections searched
+    - Sources retrieved (doc name, chunk, score)
+    - Whether a confident answer was returned
+    - Unanswered / low-confidence queries flagged for gap analysis
+    """
+```
+
+**Value**:
+- Evidence for SAD/ACB process review: what knowledge is missing
+- Identify stale documents (never retrieved = not useful)
+- Usage patterns inform roadmap prioritisation
 
 ---
 
@@ -807,10 +1013,16 @@ The RAG platform provides **traceability** that strengthens Data Working Group c
 |----------|-------------|
 | **Term Standardisation** | Query glossary across FA Handbook + DAMA |
 | **Conceptual Model Review** | Extract entities/relationships from LeanIX |
+| **FDM + Conceptual Model Alignment** | Cross-reference FDM entities against LeanIX frame; surface gaps |
 | **Reference Data Governance** | Conformance checking against ISO/ONS |
 | **Project Architecture Review** | Auto-generate SAD sections for consistency |
+| **SAD Quality Checking** | Pre-ACB review: flag gaps, missing LeanIX traceability, non-conformance |
+| **Consultation Co-pilot** | Real-time in-meeting queries: "what does DAMA/FA Handbook say about X?" |
+| **SAD/ACB Process Review** | Query logs as evidence: what knowledge is missing, stale, or inconsistently applied |
 | **Vendor Evaluation** | Generate assessment reports with traceability |
 | **Data Quality Investigations** | Trace non-conformance to source systems |
+| **Purview Catalogue Population** | Export glossary + LeanIX entities → Purview business context (agreed with Robin) |
+| **DSI Lineage** | Glossary above Data Source Inventory — drill down showing lineage sources to targets |
 
 ### 7.3 DAMA-DMBOK Alignment
 
@@ -835,33 +1047,40 @@ The RAG platform operationalises DAMA-DMBOK guidance:
 
 ### 8.1 Phase 1: Foundation (Weeks 1-4)
 
-| Task | Owner | Status |
-|------|-------|--------|
-| FAGlossaryPreprocessor | R. Patel | TODO |
-| ISO Reference Data ingestion | R. Patel | TODO |
-| FA Handbook HTML scraper | R. Patel | TODO |
-| Multi-collection query optimisation | R. Patel | ✅ Complete |
+| Task | Owner | Status | Priority |
+|------|-------|--------|----------|
+| LeanIX → CSV glossary export | R. Patel | TODO | Quick win — agreed with colleague |
+| ISO Reference Data ingestion (ISO 3166, ISO 4217, ONS) | R. Patel | TODO | Urgent — active Workday/Dynamics conformance issues |
+| FAGlossaryPreprocessor | R. Patel | TODO | Foundation for all catalogue work |
+| FDM ingestion + conceptual model alignment | R. Patel + Robin | TODO | Agreed as starting point |
+| FA Handbook HTML scraper | R. Patel | TODO | |
+| Multi-collection query optimisation | R. Patel | ✅ Complete | |
 
 **Deliverables**:
-- Glossary extraction from FA Handbook
-- Reference data catalogue (ISO 3166, ISO 4217, ONS)
-- Query interface for glossary + reference data
+- LeanIX entities exported to CSV (shareable with Data Working Group)
+- Reference data catalogue (ISO 3166, ISO 4217, ONS) with conformance checker
+- Glossary extraction from FA Handbook linked to LeanIX entities
+- FDM ingested and aligned against conceptual model; gaps identified
 
 ---
 
-### 8.2 Phase 2: SAD Generator (Weeks 5-8)
+### 8.2 Phase 2: SAD Quality + Generation (Weeks 5-8)
 
 | Task | Owner | Status |
 |------|-------|--------|
+| SAD Quality Checker (pre-ACB review tool) | R. Patel | TODO |
+| Confluence scraper + ingestion | R. Patel | TODO |
+| Query analytics / usage logging | R. Patel | TODO |
 | SAD template definition | R. Patel + team | TODO |
 | SAD section generator (PoC) | R. Patel | TODO |
 | Workday design doc ingestion | R. Patel | TODO |
-| SAD generation workflow | R. Patel | TODO |
 
 **Deliverables**:
+- SAD Quality Checker — pre-ACB gap analysis with FA standard citations
+- Confluence knowledge base ingested
+- Query logs capturing usage patterns for SAD/ACB process review input
 - SAD Generator PoC (1-2 sections)
 - Workday design doc ingestion pipeline
-- SAD template aligned with FA standards
 
 ---
 
@@ -923,6 +1142,224 @@ The RAG platform operationalises DAMA-DMBOK guidance:
 | Reference data conformance | Unknown | 95%+ validated |
 | Vendor assessment time | 1-2 weeks | 2-3 days |
 | Data Working Group credibility | Subjective | Evidence-based |
+
+---
+
+## 9. Legal & Compliance Considerations
+
+### 9.1 Data Protection & GDPR (DPO Perspective)
+
+**Core Principle: All data stays local — nothing leaves The FA's infrastructure.**
+
+| Aspect | Implementation | Compliance Status |
+|--------|----------------|-------------------|
+| **Data Residency** | All files stored on local filesystem (`~/Documents/__data/`) | ✅ FA-controlled storage |
+| **Vector Embeddings** | ChromaDB running locally (no cloud SaaS) | ✅ No data egress |
+| **LLM Processing** | Ollama running on local machine (localhost:11434) | ✅ No API calls to external providers |
+| **Embedding Model** | `nomic-embed-text` runs locally via Ollama | ✅ No data sent to OpenAI, Anthropic, etc. |
+| **Query Processing** | All queries processed locally | ✅ No external logging or telemetry |
+| **Network Isolation** | No outbound connections required for core functionality | ✅ Air-gap capable |
+
+**GDPR Considerations:**
+
+| Requirement | How This System Complies |
+|-------------|-------------------------|
+| **Data Minimisation** | Only documents necessary for architecture work are ingested |
+| **Purpose Limitation** | System used for architecture knowledge management, not general processing |
+| **Storage Limitation** | Documents can be deleted via `--delete` command; hash tracking enables audit |
+| **Integrity & Confidentiality** | Local-only processing reduces exposure to external threats |
+| **Accountability** | Ingestion configs provide audit trail of what was processed and when |
+
+**DPO Checklist:**
+
+```markdown
+- [ ] Confirm local-only deployment (no cloud LLM APIs)
+- [ ] Document data sources and lawful basis for processing
+- [ ] Ensure deletion capability (already exists via `--delete` flag)
+- [ ] Add access controls if deploying beyond personal use
+- [ ] Create data processing record for RAG system
+- [ ] Review if personal data is ingested (e.g., SADs with names)
+```
+
+---
+
+### 9.2 Copyright & Intellectual Property
+
+**Knowledge Source Risk Assessment:**
+
+| Source | Copyright Status | Risk Level | Mitigation |
+|--------|------------------|------------|------------|
+| **FA Handbook** | © The FA | None (internal use) | FA's own publication |
+| **LeanIX Exports** | © The FA (data you own) | None | Your subscription, your data |
+| **Workday Design Docs** | © The FA | None | Internal documents |
+| **SAD Documents** | © The FA | None | Internal artefacts |
+| **DAMA-DMBOK2 (2nd Ed.)** | © DAMA International | Medium | See below |
+| **ISO Standards (3166, 4217)** | © ISO | Medium-High | See below |
+| **ONS Codes** | © Crown Copyright (OGL) | None | Open Government License |
+
+---
+
+#### DAMA-DMBOK2 Considerations
+
+**Current Status:**
+- You have ingested the full DAMA-DMBOK2 PDF into the RAG system
+- Embeddings are stored locally in ChromaDB
+- LLM generates summaries/answers based on retrieved content
+- No verbatim reproduction is intended
+
+**Risk Factors:**
+
+| Factor | Your Situation | Risk Impact |
+|--------|----------------|-------------|
+| **Personal/Local Use** | ✅ Currently the case | Lower risk |
+| **Internal Team Use** | ⚠️ Potential future state | Medium risk |
+| **Organisation-Wide Deployment** | ⚠️ Possible future state | Higher risk |
+| **Commercial License** | ⚠️ Check if FA has DAMA corporate membership | Mitigates risk |
+| **Verbatim Output** | ⚠️ Depends on LLM configuration | Configure to paraphrase |
+
+**UK Copyright Law Context:**
+
+| Exception | Applicability |
+|-----------|---------------|
+| **Fair Dealing (Research/Study)** | Narrow — primarily personal use |
+| **Text & Data Mining (TDM)** | UK has TDM exceptions for non-commercial research; commercial use is less clear |
+| **Quotation for Criticism/Review** | May apply if output includes short excerpts with attribution |
+| **Incidental Use** | Embeddings may be considered transformative, but untested in UK courts |
+
+**Recommended Actions:**
+
+```markdown
+- [ ] Check if The FA has DAMA International corporate membership
+- [ ] If yes: confirm whether internal RAG use is covered
+- [ ] If no: consider purchasing organizational license or reaching out to DAMA
+- [ ] Configure LLM system prompts to avoid verbatim reproduction
+- [ ] Add disclaimer to RAG output (see below)
+- [ ] For production deployment: seek legal review
+```
+
+**Suggested Disclaimer (add to query output):**
+
+```
+This response is generated based on DAMA-DMBOK2 (2nd Edition) and other 
+architecture documentation. It is a summary for internal reference only. 
+Consult the original publication for authoritative guidance.
+© DAMA International. All rights reserved.
+```
+
+**LLM Configuration (prevent verbatim output):**
+
+```yaml
+# rag_config.yaml
+
+query:
+  system_prompt: |
+    You are a helpful assistant that answers questions based on the provided documents.
+    
+    IMPORTANT:
+    - Summarise concepts in your own words — do not reproduce text verbatim
+    - Keep quotations under 50 words and always cite the source
+    - Prioritise explaining concepts over copying definitions
+    - If asked for exact text, direct the user to the original document
+    
+    Always ground your answers in the retrieved content.
+    Cite the source when relevant (e.g., "According to DAMA-DMBOK2, Chapter 3...").
+```
+
+---
+
+#### ISO Standards Considerations
+
+**ISO 3166 (Countries), ISO 4217 (Currencies):**
+
+| Factor | Status |
+|--------|--------|
+| ISO standards are copyrighted | Yes |
+| Country/currency codes are factual | Yes (but compilation is protected) |
+| Risk of enforcement | Low (ISO rarely pursues internal use) |
+| Mitigation | Use codes factually; don't reproduce full standard tables |
+
+**Recommendation:**
+- For reference data catalogues, use codes factually (e.g., "GB = United Kingdom")
+- Don't reproduce full ISO standard text or tables verbatim
+- Consider linking to official ISO sources instead of embedding full standards
+
+---
+
+### 9.3 Deployment Scenarios & Risk Levels
+
+| Scenario | Deployment Scope | Risk Level | Actions Required |
+|----------|------------------|------------|------------------|
+| **Personal/Research** | Your machine only | Low | Document lawful basis; ensure local-only |
+| **Team Pilot** | Data Working Group (5-10 people) | Medium | DPO review; add access controls |
+| **Architecture Team** | FA Architecture (20-50 people) | Medium | Legal review; DAMA license check |
+| **Organisation-Wide** | All FA staff (500+) | High | Full legal review; licensing; DPO sign-off |
+
+---
+
+### 9.4 Security Controls
+
+**Current Security Posture:**
+
+| Control | Status | Notes |
+|---------|--------|-------|
+| **Data Encryption at Rest** | ⚠️ Depends on filesystem | Consider encrypting `chroma_db/` directory |
+| **Data Encryption in Transit** | ✅ N/A (local-only) | No network transmission |
+| **Access Controls** | ⚠️ Filesystem permissions only | Add authentication for multi-user deployment |
+| **Audit Logging** | ⚠️ Basic (ingestion timestamps) | Consider adding query logging |
+| **Deletion Capability** | ✅ Implemented | `--delete` flag removes collections |
+| **Backup** | ⚠️ User responsibility | Add to backup procedures if production |
+
+**Recommended Enhancements (for production):**
+
+```markdown
+- [ ] Enable ChromaDB authentication (if deploying as service)
+- [ ] Add query audit logging (who queried what, when)
+- [ ] Encrypt ChromaDB persist directory
+- [ ] Implement role-based access control (RBAC)
+- [ ] Add rate limiting (prevent abuse)
+- [ ] Create incident response procedure
+```
+
+---
+
+### 9.5 Summary: Compliance Checklist
+
+**Before Production Deployment:**
+
+```markdown
+## Data Protection (DPO)
+- [ ] Confirm local-only deployment (no external LLM APIs)
+- [ ] Document lawful basis for processing each data source
+- [ ] Create data processing record
+- [ ] Ensure deletion capability is working
+- [ ] Review for personal data in ingested documents
+
+## Copyright & IP
+- [ ] Check FA's DAMA International membership status
+- [ ] Contact DAMA International if deploying beyond personal use
+- [ ] Configure LLM to avoid verbatim reproduction
+- [ ] Add copyright disclaimers to output
+- [ ] Seek legal review for organisation-wide deployment
+
+## Security
+- [ ] Encrypt ChromaDB data directory
+- [ ] Add authentication (if multi-user)
+- [ ] Enable audit logging
+- [ ] Document backup/restore procedures
+- [ ] Create incident response plan
+```
+
+---
+
+**Bottom Line:**
+
+| Use Case | Status |
+|----------|--------|
+| **Personal experimentation** | ✅ Fine — continue as-is |
+| **Team pilot (Data Working Group)** | ⚠️ Get DPO review; document lawful basis |
+| **Production deployment** | 🔴 Legal review + licensing required |
+
+**Key Assurance:** The architecture is designed for **data sovereignty** — no FA assets leave your infrastructure, no external APIs are called, and all processing is local. This significantly reduces DPO/GDPR risk compared to cloud-based LLM solutions.
 
 ---
 
