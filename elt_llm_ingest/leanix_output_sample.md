@@ -1,0 +1,515 @@
+# LeanIX Enterprise Architecture Inventory
+**Source:** DAT_V00.01_FA Enterprise Conceptual Data Model.xml
+**Total Assets:** 217
+**Total Relationships:** 16
+
+## Assets by Type
+
+### DataObject
+*Count: 217*
+
+#### AGREEMENTS
+- **AGREEMENTS**
+  - ID: `a74319ea-27d7-46b0-8791-305333f20498`
+- **Advertising Agreements**
+  - ID: `6713aaa2-264d-44f2-aa29-52339c141e1c`
+- **Agent Agreements**
+  - ID: `86947848-29bf-4eaf-a852-03dc8d611585`
+- **Antidoping**
+  - ID: `a57f7b50-a1e0-4508-b439-f343f85c54c6`
+- **Assessments, Exams, Certification & Licencing**
+  - ID: `f03b1e54-092b-47c7-8d21-9ff478885aea`
+- **Broadcasting Rights Agreement**
+  - ID: `47dd84e6-391d-4129-90ba-9e6d3ce9ff8b`
+- **Claims & Settlements**
+  - ID: `7db7cefa-096b-44b5-8de7-2d0db04895c8`
+- **Classification Types**
+  - ID: `c8eff8a9-51f8-468f-8afc-47cb72270c19`
+- **Codes of Conduct**
+  - ID: `d0470497-2d16-45e5-b696-ff24ae6a2978`
+- **Commercial & Legal**
+  - ID: `0978dfbd-730c-46cc-a833-5e4212e22837`
+- **Competition Agreements**
+  - ID: `6391ea03-3b07-4172-9ede-11cb9bfdee5b`
+- **Competition Governance**
+  - ID: `067ab529-b34c-4a8c-8b9a-4759c758538b`
+- **Declarations or Waivers**
+  - ID: `bd2759dd-39e3-4f47-9f6c-30616f395f1a`
+- **Disciplinary Agreement**
+  - ID: `e25521c0-2bfb-40e8-a4bb-17bbdf4ed1d6`
+- **Discounts and Coupons**
+  - ID: `b79b363e-4d9c-4dce-9092-995abd20315f`
+- **Fixture Commitment**
+  - ID: `828d3350-67b2-42d6-a0a3-4c0d4a6b4b0d`
+- **Game Regulation Agreements**
+  - ID: `6abb1e4e-39d5-4104-8201-7f4a21542f3a`
+- **Insurance**
+  - ID: `a8dd88c5-4c73-4aba-b021-eaa3a63b53f7`
+- **Learning & Qualifications Agreements**
+  - ID: `ef9ecb3d-8739-4b07-8ca1-84874f656ad1`
+- **Learning Pathway Enrolment Agreements**
+  - ID: `967955e0-bd68-4f0d-ae7a-c71e13967958`
+- **Legal Contracts**
+  - ID: `84ff4ea5-2fd6-4696-9a22-112afa1d1291`
+- **Licence**
+  - ID: `a90c36ed-3d22-4530-ace8-5efe344e5b2e`
+- **Marketing Incentives, Offers & Promotions**
+  - ID: `3993fa40-d065-44f5-8d11-f2dc6d0f794b`
+- **Match Appointment**
+  - ID: `e75b6249-a2ac-4f56-9e00-79f993994526`
+- **Match Execution**
+  - ID: `7ea534f5-55c5-48af-a02b-96b530169e0f`
+- **Match Official Development Agreements**
+  - ID: `3ae15ba5-5cfa-4678-a0ea-c3ae7a1fdfea`
+- **Medical Clearance Agreement**
+  - ID: `cf1fcdd6-f548-4427-a8e0-e4d49b00e387`
+- **Memorandum of Understanding**
+  - ID: `17fd3270-3f8a-41ec-a19c-d37db0ada8ff`
+- **Operational Infrastructure**
+  - ID: `53a0ac04-242f-4234-8635-6d190ef13b9b`
+- **Participant Eligibility**
+  - ID: `39bbed94-3024-4804-8eb9-a5db52dc27bf`
+- **Player Loan Agreement**
+  - ID: `62c70f39-181a-43f4-9d44-f2360f332ffc`
+- **Player Registration**
+  - ID: `8d04bfd1-fb88-4f77-86c5-0584d154dd12`
+- **Player Transfer**
+  - ID: `7a89cdf9-fb23-43b3-bef4-afcadf9de6dc`
+- **Policy**
+  - ID: `75b5446c-9ac4-47b2-8c25-cbda09af4389`
+- **Privacy & Consent Agreements**
+  - ID: `b7ef2d60-923c-4d07-8c42-a954d861de80`
+- **Safeguarding Case**
+  - ID: `e7a2ae83-d615-4a78-8711-ae18a4de68ad`
+- **Service Level Agreements**
+  - ID: `592b546b-f015-4145-ac9a-705c9234bdc2`
+- **Sponsorship, Merchandising & Image Rights**
+  - ID: `0db9b6b9-988b-4baa-9e59-73a699010c25`
+- **Terms and Conditions**
+  - ID: `462fca9d-f297-4b73-8f4a-090092a8c3c5`
+- **Tournament Participation**
+  - ID: `8c55a78c-eee6-4117-bb06-5fc2a0791e8b`
+- **Venue Use Agreement**
+  - ID: `0ff611f6-0410-4722-bea1-3025fbbaf95c`
+- **Worker Type Contracts**
+  - ID: `c6815533-812d-450d-8659-a9b07d80f46d`
+- **Youth Agreements**
+  - ID: `cc1915d2-fcf0-4ede-93e4-dbb2f5970edf`
+
+#### CAMPAIGN
+- **CAMPAIGN**
+  - ID: `323253eb-bfc8-49f1-80fa-970d3376bf60`
+- **Campaign Type**
+  - ID: `b187afa4-d09e-4e38-8b99-250a0f84daed`
+- **Campaign channel**
+  - ID: `d3674d47-65ae-4787-99ed-3a0e87021d5f`
+- **Market Plan**
+  - ID: `faeadbb5-9809-463b-8340-6ba2f928dd71`
+- **Market Segment**
+  - ID: `c72e7414-c312-4cdf-98eb-0cb1819ff0ec`
+- **Mass Promotion**
+  - ID: `eea8c7f5-1ba3-4516-8276-5fc60cb9a54f`
+- **Offer**
+  - ID: `bea8075d-8dd9-4660-a94e-ea806a6e4204`
+- **Opportunity**
+  - ID: `d4bcfefe-6872-41e1-8b13-9df3cf227767`
+- **Promotion**
+  - ID: `f2675648-5f58-4ab3-adbf-731f7a4ac37f`
+- **Targeted Promotion**
+  - ID: `6ac80df9-dc41-493e-8631-a0a83b186084`
+
+#### LOCATION
+- **Country**
+  - ID: `89a7d377-8473-43d2-b37b-91aff0bb24d8`
+- **Ground**
+  - ID: `2bdedbf0-c25c-4134-9101-6bc094648c71`
+- **LOCATION**
+  - ID: `4aa9f3f4-783f-4bfe-8fa3-1f194b13ee6f`
+- **People Management Location**
+  - ID: `8b8590d5-279a-44b2-bf4a-06bae2af8856`
+- **UK Geographic County**
+  - ID: `c7963562-7423-4099-9db6-a66c8e7a5b1e`
+- **Venue**
+  - ID: `7811a857-f3e0-404e-b5de-32bdf53090b6`
+
+#### PRODUCT
+- **Alcoholic Beverages**
+  - ID: `3d0554a0-dcd1-4779-abdb-c31c99e4d812`
+- **Clothing & Apparel**
+  - ID: `d04fa621-3340-440a-b3ac-6222667f4dc0`
+- **Coach Education & Certification**
+  - ID: `e492dfb1-df54-4772-ae93-56e0c6c40d91`
+- **Commercial & Corporate Services**
+  - ID: `02860dcf-0a29-4ce8-98b2-54133f069a42`
+- **Concessions Management Services**
+  - ID: `a3248e9c-6f48-4ebd-beac-6e06dd7ccd84`
+- **Content Bundles**
+  - ID: `d1a6f77d-cade-460a-a03a-f6afd0165231`
+- **Corporate Services**
+  - ID: `b26df65e-73d0-4e9f-ae3d-1aefecfbb2a2`
+- **Digital Merchandise**
+  - ID: `fcd531c5-d57a-4267-aed2-b4574f7adaa7`
+- **Emergency Services**
+  - ID: `f63feab7-d1a6-46f2-9c9b-f6be029e5094`
+- **Event Management Services**
+  - ID: `87b44642-ca99-4b42-990b-3e54d9317a9d`
+- **Event Streaming Access**
+  - ID: `c9e26af0-536f-4aba-b2a6-06a59f98a2f8`
+- **Event Ticket**
+  - ID: `53baf89e-f124-45e8-baef-09bd0966f34f`
+- **Events and Experiences**
+  - ID: `99c364c2-76d6-4e32-a8e7-78ea42d324b2`
+- **F&B Miscellaneous**
+  - ID: `3e947f2a-82e7-4659-8fc9-3b237696791d`
+- **Facilities Management Services**
+  - ID: `60dcb976-0af4-4f27-868a-4e6b0579b0d7`
+- **Financial Services & Payments**
+  - ID: `7b3e4bea-749f-4d11-a4c2-f224e6faf73e`
+- **Food & Beverages**
+  - ID: `eddf6201-b0bd-49db-8450-4229c2a0f415`
+- **Food (Hot/Cold Meals, Snacks)**
+  - ID: `46f948cc-c5f9-4c63-a746-282456f9f453`
+- **Football Administration**
+  - ID: `0e0417f8-da5c-40ef-aa07-a4cdee6c1d4e`
+- **Football Services & Operations**
+  - ID: `051d4d3c-70aa-47e5-a6a2-31c6b78c54c3`
+- **Gigs / Concerts**
+  - ID: `d497250e-c0f7-4eda-9569-7c181130cf8c`
+- **Hospitality Packages**
+  - ID: `7818accc-7777-42c4-b1d2-13fd64b73ec9`
+- **Match & Event Subscriptions**
+  - ID: `365b3507-7908-498a-91e9-b6b5bdde0fcc`
+- **Match Official Development & Promotion**
+  - ID: `3de11fdf-2615-4932-8d9f-b767571d0ab5`
+- **Match Officiating & Governance**
+  - ID: `6be2c701-473b-490c-a844-d502542894d4`
+- **Match Programmes**
+  - ID: `d53c9559-e51f-4d97-85a6-8838c349773d`
+- **Memberships**
+  - ID: `a7fcf17d-7593-4c38-8580-36acca9d1708`
+- **Merchandise & Retail**
+  - ID: `9d605053-9278-4013-ac1b-98714a89df0e`
+- **Other Event Experiences or Activations**
+  - ID: `39183512-bb6a-4fd5-a7fb-b89fba1e9e60`
+- **Other Merchandise**
+  - ID: `a6c5ff73-3997-4e60-a454-d0bd4ef4a0f6`
+- **PRODUCT**
+  - ID: `a1d1216a-d10c-44dc-a67a-55fa23fb7ccf`
+- **Partnership Fulfilment**
+  - ID: `7c48d39b-3ee4-4ef5-a14b-6bc84b1b5fc1`
+- **Player Pathway & Development**
+  - ID: `d63b3531-94f7-4928-8d09-212a1bcdee91`
+- **Procurement & Supply Chain**
+  - ID: `9e038862-3bdf-482d-86a5-77867cd450f9`
+- **Public & Crowd Control Services**
+  - ID: `720e0fd2-5f48-4648-85a7-3731f75b6d21`
+- **Soft drinks / Non-Alcoholic Beverages**
+  - ID: `c5f6cca6-aeee-406d-aede-2bb65bacc773`
+- **Sponsorship Management**
+  - ID: `dc58b85a-0f0e-437d-9226-37f6c1f120c6`
+- **Subscriptions & Media Access**
+  - ID: `87a0db8f-c9e5-4289-9acb-1a3479f54bff`
+- **Tickets**
+  - ID: `061987a2-50cd-4c94-b432-429f8bb28504`
+- **Tournaments & Competitions**
+  - ID: `9ef9e270-a73a-473a-82a9-af3efccde825`
+- **Venue & Event Operations**
+  - ID: `983c0e66-9b6d-45da-9f9f-50ecf4df968d`
+- **Wayfinding & Navigation Subscription**
+  - ID: `f5ca9129-6e0e-4f7f-ab00-1707ba51ffce`
+- **Wayfinding & Signage Products**
+  - ID: `d70f8c69-3e5b-412c-a09f-3d3e72df8c4b`
+
+#### REFERENCE DATA
+- **Configuration Data**
+  - ID: `6a797156-1823-4a31-974c-222a0894fde4`
+- **REFERENCE DATA**
+  - ID: `6011fe7a-c3f9-48f4-897e-ad5295f19cd7`
+
+#### Static Data
+- **Currency**
+  - ID: `439cb8dd-a193-4dbe-8829-33cf99a19c5d`
+- **Ethnicity**
+  - ID: `9d05933c-3d26-4abc-affb-021340c6cd54`
+- **Socio Economic Background**
+  - ID: `db77d0b7-5709-47d2-8ca0-fea113029646`
+- **Static Data**
+  - ID: `a9438d56-b54e-4b5b-b009-e8fc0105659d`
+
+#### TRANSACTION AND EVENTS
+- **Application Usage Event**
+  - ID: `631c64ee-5c5b-4496-8796-d6930c02a5f4`
+- **Attendance & Operational Events**
+  - ID: `8938f955-8dc0-42b5-a0c4-6051995414d9`
+- **Behavioural & Engagement Interactions**
+  - ID: `2339364a-6872-48d7-9f59-9df527151da8`
+- **Booking Transaction**
+  - ID: `29677dcf-f5ca-46a6-a965-97be7219319f`
+- **Club Registration Event**
+  - ID: `2c8eb355-c0b2-4a35-8d1e-679977e27b61`
+- **Coaching Session Event**
+  - ID: `cd449628-8e3c-4b9c-87c0-2afb4d8ee6f2`
+- **Concert Attendance**
+  - ID: `33d7bbf7-c373-44bc-aac0-e37bd43fe3ac`
+- **Content Engagement Event**
+  - ID: `5689dab4-81da-4404-9c43-e3598251353e`
+- **Customer Transactions**
+  - ID: `d13fb6be-e1ae-4f3c-a0db-1cb033a44cf5`
+- **Fixture Scheduling Event**
+  - ID: `e54930dc-5c1e-4601-bb13-89f91c792f82`
+- **Football Admin & Governance Events**
+  - ID: `7996ea27-a1ef-40a9-a964-c5d261e238e7`
+- **Geo-Position Event**
+  - ID: `c4e69cfa-9667-4ef3-bcac-d333a3ce7a56`
+- **IT Maintenance Event**
+  - ID: `00bf6482-7b96-4169-8c3a-ab8fc051a8c6`
+- **Incidents & Disciplinary Events**
+  - ID: `8348807c-a541-4845-ba6f-a958208c818e`
+- **Individual Dedupe**
+  - ID: `28f7fdb7-8e3b-49ff-969e-5d1dc7c9bd4b`
+- **Injury or Medical Event**
+  - ID: `5723d04e-d7a9-42ca-a02f-5d877141193e`
+- **League Governance Decision**
+  - ID: `e651e4d4-d283-4023-9057-05dc7d0f98fc`
+- **Match Attendance**
+  - ID: `d2d931c9-c73e-4e55-ae08-74548a1eecdf`
+- **Match Incident**
+  - ID: `afef8ca3-b74d-4fe1-83b3-de9e8f13fe77`
+- **Match Results**
+  - ID: `93039e65-d78d-4cb3-a740-877d773f6995`
+- **Notification Event**
+  - ID: `def4f1ae-15ec-4b79-80ae-52940a9ee5da`
+- **Performance & Game Events**
+  - ID: `39f76edc-5b82-46a2-adad-f183b4fe623e`
+- **Player Performance Event**
+  - ID: `9a90d0e7-2a9e-4b25-91de-d4ab5ddc704e`
+- **Player Registration Event**
+  - ID: `fd8b3cc4-1826-4535-8718-535d41d00d41`
+- **Player Suspension**
+  - ID: `34a9ab97-9a4c-45f4-9621-fab39b256115`
+- **Poll & Vote Interactions**
+  - ID: `197435f1-d4b0-4d45-8ebd-0f3a555febdc`
+- **Purchase Transaction**
+  - ID: `100cc63e-f78d-44d6-b05b-6c570f386296`
+- **QR Scan & NFC Tap Event**
+  - ID: `85c3b7ca-cb01-4a29-91b2-08864d1f4ca4`
+- **Referee Assignment Event**
+  - ID: `befdcb1a-a97e-4646-b6ea-6a7cfbdc63d4`
+- **Refund Transaction**
+  - ID: `dea9cea6-3357-4d5b-9892-06f876064120`
+- **Safeguarding Charge**
+  - ID: `cd0a2300-3775-4ed1-a20d-96f4c097c931`
+- **Safeguarding Incident**
+  - ID: `3389edc8-4ba0-45c9-8e64-d2a3e4c7cdf1`
+- **Safeguarding Sanction**
+  - ID: `f8965384-975e-49bd-a1dd-e5cf21cd4bb5`
+- **TRANSACTION AND EVENTS**
+  - ID: `1ba81a88-0421-4dd8-8ab7-04d2297575a9`
+- **Team Sheet Submission Event**
+  - ID: `ec42c68c-1f92-4987-938b-dd437cc2c5bc`
+- **Transfer Approval Event**
+  - ID: `dde2278f-e81c-465e-bc3e-8c5c5e698df5`
+- **Venue Entry Event**
+  - ID: `52b78995-cfe1-4079-aee6-26712a411a4c`
+
+#### Time Bounded Groupings
+- **Football Development Phases**
+  - ID: `685c489d-9522-49b5-9f7a-f771311df0f0`
+- **Football Season**
+  - ID: `919bc0e4-6eee-4859-a7b8-7863a69dac28`
+- **Time Bounded Groupings**
+  - ID: `abef338c-e6e7-4fe3-821f-5d00a0fe7766`
+- **ACCOUNTS**
+  - ID: `b3a7722e-820c-440f-8da8-f740266d6c8a`
+- **ASSETS**
+  - ID: `a2cedf1c-364b-4c45-a533-435f4a5cfb61`
+- **Access or Identity Accounts**
+  - ID: `3436ec84-80e0-40ac-b6f1-7514fb6e6ee1`
+- **Board & Committee Members**
+  - ID: `be1ffbf9-b80f-4876-9d53-86ad661143fb`
+- **Box Office**
+  - ID: `5d28a6aa-384f-4c45-aa4d-3b353c84454f`
+- **Broadcast**
+  - ID: `988df7de-7509-4561-9bef-edcd5e76f238`
+- **Broadcast Timing Type**
+  - ID: `2e66014b-aa3d-45ba-96b1-c025e71a3b20`
+- **Business Unit**
+  - ID: `daaa1b59-a86e-4336-a35d-ab0476adf207`
+- **CHANNEL**
+  - ID: `3a67c923-f680-40f5-84b1-ad00428613ee`
+- **Call Centre**
+  - ID: `ae8c74b4-8bd9-41a2-8256-7f05edfd66cf`
+- **Candidates**
+  - ID: `b5d276cd-fe4d-4692-933f-b36c8aa7f91c`
+- **Casual & Contingent Labourers**
+  - ID: `6192aa8d-2cf2-4f87-8454-06067b55a926`
+- **Charity**
+  - ID: `584b2a75-8b26-4de8-b786-284a71e29738`
+- **Club**
+  - ID: `9bfd5367-ddd5-47e0-a6a1-20bb3d258074`
+- **Club Official**
+  - ID: `0678de13-575d-449f-bda8-d5b352e6b820`
+- **Coach Developer**
+  - ID: `1b75bf29-887b-44f3-88ca-4a6d2dcab460`
+- **Competition League**
+  - ID: `a42c53d6-add3-4496-8dba-d5a41e02c5d7`
+- **Concierge**
+  - ID: `9c02f379-9275-4c6d-9201-3bafca9011cf`
+- **County Administrator**
+  - ID: `4f1972d1-94b2-4556-b015-3b6acc7b37b5`
+- **Customer**
+  - ID: `3a680156-79cc-4157-8795-bb5ab660faf9`
+- **Customer Help Point**
+  - ID: `e7549719-95d2-44ff-8efc-d1791f0d464f`
+- **Data & Information Assets**
+  - ID: `8851fb59-cfd6-412f-9165-88ec6bb5fab0`
+- **Digital Assets**
+  - ID: `691b6607-3890-4bf8-8b6e-b478f9c73809`
+- **Digital Channel**
+  - ID: `615addf7-b77b-4c22-a687-95d3a86bbda6`
+- **Email**
+  - ID: `3fb44f0e-adc2-47c2-8143-c02c4baffeb9`
+- **Employees**
+  - ID: `cfbb43a8-b8ef-4dbe-ab8c-1e5d0e2ab61f`
+- **England Supporter**
+  - ID: `13eada4d-d4a8-47fd-a4e5-1d25a44aa1e6`
+- **Event Attendee**
+  - ID: `eb097e61-666a-4402-8b2b-47fc2fcea979`
+- **FA County**
+  - ID: `872bfa37-6c68-4c34-935a-5b4a37ffd91d`
+- **Financial Accounts**
+  - ID: `9dcf312a-06bf-4f05-88b3-b01f92982c8e`
+- **Financial Assets**
+  - ID: `c8b02820-804d-4021-86a7-9b084eb9db7f`
+- **Government**
+  - ID: `635c8660-67c4-4941-b977-2907bd8eac0c`
+- **Household**
+  - ID: `5da21afe-4271-496f-9b47-da6478364f60`
+- **In Person**
+  - ID: `e366326e-3513-45b9-aee8-afb86b662c77`
+- **Individual**
+  - ID: `8327eab5-c6ba-4d8e-a4da-66bd8e22d500`
+- **Intellectual Property Assets**
+  - ID: `0867c96a-58fd-422e-84b9-744c8d059474`
+- **Learner**
+  - ID: `ad17385f-52b5-4abf-af61-a3d458d0a8b7`
+- **Live Chat**
+  - ID: `e0c0d40b-2d53-4b2c-8ba2-436df8de6446`
+- **Livestream**
+  - ID: `b213c30b-f354-47a4-a78b-8e23800c17c4`
+- **Local Authority**
+  - ID: `c87a78c0-522c-46e0-8304-5b8c668b2313`
+- **Managed Service Workers**
+  - ID: `6bb50d53-23f4-4c8e-b70d-bf9ea579a1f1`
+- **Match Official**
+  - ID: `7cfb9dc5-7e64-44ae-a06d-64ea65274eb0`
+- **Mentor**
+  - ID: `8014fe6b-32d7-4fb9-948e-fb01209eedb5`
+- **Mentor**
+  - ID: `8014fe6b-32d7-4fb9-948e-fb01209eedb5`
+- **Merchandise Stand or Store**
+  - ID: `22f261e1-c9ff-4dbd-b759-fe55216edc85`
+- **Mobile Apps**
+  - ID: `02789cc3-80fb-44a6-9d6d-002ace39fc78`
+- **Organisation**
+  - ID: `2d6c14ce-0e99-4645-a49c-2fee0bce556d`
+- **PARTY**
+  - ID: `3a0936a7-887c-44a8-83cd-f9ad2b25df74`
+- **Personally Assisted**
+  - ID: `512fbc27-b79a-4362-bdb9-b0a49a82b800`
+- **Physical Assets**
+  - ID: `bfd008bc-5a73-457f-b903-309a0257b7b2`
+- **Physical Channel**
+  - ID: `04dd9411-a830-438d-9901-c46ee7165408`
+- **Player**
+  - ID: `c015664e-3af1-4795-94bd-dbba578103a7`
+- **Point of Sale (POS)**
+  - ID: `68f807d3-9df2-4444-a378-1b24fa5df005`
+- **Prospect**
+  - ID: `1a4b4732-c7a0-4f78-b8bc-f55cad3dd874`
+- **Push Notification**
+  - ID: `2b58527e-2538-431f-9383-b8b64305f8d4`
+- **Radio**
+  - ID: `e12fcb44-d4cb-4ddf-b984-2dc0f8222151`
+- **SMS**
+  - ID: `77a8b7d9-9f97-4afb-a1c5-9f25c516f3da`
+- **School**
+  - ID: `702d4696-20f6-4e15-a5fc-cc5b29d56983`
+- **Service Accounts**
+  - ID: `8d593a45-f219-4222-b1f9-e6869f218e6d`
+- **Social Media Platforms**
+  - ID: `bf9af74a-ab41-449d-b2c3-240bfbd4b23c`
+- **Specialised & Domain Specific Accounts**
+  - ID: `20522e9c-2ce0-439d-bb39-bfc58b24778a`
+- **Sports Governing Body**
+  - ID: `86f5c9cd-9be9-4a22-8399-ec27edc6a2d4`
+- **Sports Specific operational assets**
+  - ID: `5c12690b-452d-4285-9d49-cebf2268d05f`
+- **Streaming / OTT Services**
+  - ID: `3733b701-74ba-4708-a770-28e5da6c92d2`
+- **Supplier**
+  - ID: `34b53c8c-650e-4485-8c2d-7b772d055325`
+- **TV**
+  - ID: `0d5e3f78-77c5-4566-aadb-0cf6cc9cc755`
+- **Team**
+  - ID: `23da3a74-c40a-4dbe-a69f-50d627c040d4`
+- **Turnstile or Access Gate**
+  - ID: `85733fc8-d739-41db-a1a5-2b61b234e9aa`
+- **Web Portal**
+  - ID: `c2979fdc-6b22-4bb6-ba01-bd491bed33c0`
+
+
+## Relationships
+
+### ACCOUNTS
+- → **ASSETS** [0..*-0..*]
+  - Type: Entity Relationship
+
+
+### AGREEMENTS
+- → **ASSETS** [0..*-0..*]
+  - Type: Entity Relationship
+- → **PRODUCT** [0..*-0..*]
+  - Type: Entity Relationship
+
+
+### CHANNEL
+- → **CAMPAIGN** [0..*-0..*]
+  - Type: Entity Relationship
+
+
+### LOCATION
+- → **ASSETS** [0..*-0..*]
+  - Type: Entity Relationship
+
+
+### PARTY
+- → **ACCOUNTS** [0..*-0..*]
+  - Type: Entity Relationship
+- → **AGREEMENTS** [0..*-0..*]
+  - Type: Entity Relationship
+- → **ASSETS** [0..*-0..*]
+  - Type: Entity Relationship
+- → **CAMPAIGN** [0..*-0..*]
+  - Type: Entity Relationship
+- → **LOCATION** [0..*-0..*]
+  - Type: Entity Relationship
+- → **PARTY** [0..*-0..*]
+  - Type: Entity Relationship
+- → **TRANSACTION AND EVENTS** [0..*-0..*]
+  - Type: Entity Relationship
+
+
+### PRODUCT
+- → **CAMPAIGN** [0..*-0..*]
+  - Type: Entity Relationship
+- → **PARTY** [0..*-0..*]
+  - Type: Entity Relationship
+
+
+### TRANSACTION AND EVENTS
+- → **ACCOUNTS** [0..*-0..*]
+  - Type: Entity Relationship
+- → **AGREEMENTS** [0..*-0..*]
+  - Type: Entity Relationship
+

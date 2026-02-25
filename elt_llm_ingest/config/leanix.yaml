@@ -12,7 +12,7 @@ preprocessor:
 
 # Documents to ingest (XML files will be preprocessed to Markdown)
 file_paths:
-  - "~/Documents/__data/books/DAT_V00.01_FA_Enterprise_Conceptual_Data_Model.xml"
+  - "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 
 # Metadata to attach to all documents
 metadata:

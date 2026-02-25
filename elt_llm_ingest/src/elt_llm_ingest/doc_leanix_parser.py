@@ -300,12 +300,12 @@ class LeanIXExtractor:
             for parent, assets in sorted(by_parent.items()):
                 if parent != "Uncategorized":
                     md.append(f"\n#### {parent}\n")
-                
+
                 for asset in sorted(assets, key=lambda x: x.label):
-                    md.append(f"- **{asset.label}**")
+                    md.append(f"- **{asset.label}**\n")
                     if asset.fact_sheet_id:
-                        md.append(f"  - ID: `{asset.fact_sheet_id}`")
-            
+                        md.append(f"  - ID: `{asset.fact_sheet_id}`\n")
+
             md.append("\n")
         
         # Relationships section
@@ -319,13 +319,13 @@ class LeanIXExtractor:
         for source in sorted(rels_by_source.keys()):
             rels = rels_by_source[source]
             md.append(f"\n### {source}\n")
-            
+
             for rel in sorted(rels, key=lambda x: x.target_label or ""):
                 cardinality = f" [{rel.cardinality}]" if rel.cardinality else ""
-                md.append(f"- → **{rel.target_label or rel.target_id}**{cardinality}")
+                md.append(f"- → **{rel.target_label or rel.target_id}**{cardinality}\n")
                 if rel.relationship_type:
-                    md.append(f"  - Type: {rel.relationship_type}")
-            
+                    md.append(f"  - Type: {rel.relationship_type}\n")
+
             md.append("\n")
         
         return "".join(md)
