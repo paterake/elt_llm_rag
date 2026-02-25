@@ -182,6 +182,30 @@ def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False, fo
         print(f"❌ Error: Ingestion config not found: {ingest_path}")
         return 1
 
+    # Check for batch config
+    from elt_llm_ingest.batch_loader import load_batch_config
+    try:
+        batch_configs = load_batch_config(ingest_path)
+        if batch_configs:
+            print(f"📦 Detected batch configuration: {len(batch_configs)} configs")
+            failed = 0
+            for cfg in batch_configs:
+                # Remove extension if present
+                cfg_name = Path(cfg).stem
+                print(f"\n🚀 Running ingestion for: {cfg_name}")
+                # Recursively call ingest for each config
+                if ingest(cfg_name, verbose, no_rebuild, force) != 0:
+                    failed += 1
+            
+            if failed > 0:
+                print(f"\n❌ Batch ingestion completed with {failed} failures")
+                return 1
+            print("\n✅ Batch ingestion completed successfully")
+            return 0
+    except Exception as e:
+        # Not a batch config or error reading it, proceed as single config
+        pass
+
     with open(ingest_path) as f:
         ingest_data = yaml.safe_load(f)
 

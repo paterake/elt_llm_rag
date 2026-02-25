@@ -430,3 +430,21 @@ client.delete_collection('file_hashes')
 - **README.md** - Package overview and installation
 - **elt_llm_query/** - Query module documentation
 - **elt_llm_core/** - Core RAG utilities
+
+## Batch Ingestion
+
+You can run multiple ingestion configurations in sequence by pointing to a meta-config file (like `load_rag`).
+
+**Example:**
+```bash
+# Run all configs listed in load_rag.yaml
+uv run python -m elt_llm_ingest.runner --cfg load_rag
+```
+
+**load_rag.yaml format:**
+```yaml
+file_paths:
+  - "ingest_dama_dmbok.yaml"
+  - "ingest_fa_data_architecture.yaml"
+  - ...
+```
