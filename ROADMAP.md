@@ -45,8 +45,11 @@ This roadmap tracks the implementation of the ELT LLM RAG platform as defined in
 | API module (`elt_llm_api`) | 🟡 Partial | Basic convenience functions only |
 | DAMA-DMBOK ingestion | ✅ Complete | ~11,943 chunks indexed |
 | FA Handbook ingestion | ✅ Complete | ~9,673 chunks indexed |
-| LeanIX ingestion | ✅ Complete | ~2,261 chunks indexed |
+| LeanIX split ingestion | ✅ Complete | 11 `fa_leanix_*` collections; 15 chunks (split by domain) |
 | Hybrid search (BM25 + vector) | ✅ Complete | QueryFusionRetriever implemented |
+| Split-mode preprocessor | ✅ Complete | One XML → N domain collections via `collection_prefix` |
+| `collection_prefixes` in profiles | ✅ Complete | Dynamic prefix resolution at query time from ChromaDB |
+| `llm_rag_profile/` RAG profiles | ✅ Complete | 12 profiles; renamed from `examples/`; mixed explicit + prefix |
 
 ### Documentation
 
@@ -142,7 +145,7 @@ file_paths:
 
 **Purpose**: Add pytest tests for critical paths.
 
-**Test Files to Create**:
+**Test Files to Create** (test directories already exist in all 4 modules):
 - [ ] `elt_llm_core/tests/test_config.py`
 - [ ] `elt_llm_core/tests/test_models.py`
 - [ ] `elt_llm_core/tests/test_vector_store.py`
@@ -150,6 +153,7 @@ file_paths:
 - [ ] `elt_llm_ingest/tests/test_preprocessor.py`
 - [ ] `elt_llm_ingest/tests/test_leanix_parser.py`
 - [ ] `elt_llm_query/tests/test_query.py`
+- [ ] `elt_llm_query/tests/test_runner.py` (including `collection_prefixes` resolution)
 
 **Status**: ⏳ Not started
 

@@ -13,7 +13,7 @@
 | **Architecture Alignment** | ✅ **Strong** | Code structure matches ARCHITECTURE.md diagrams |
 | **Module Organisation** | ✅ **Good** | Clean separation: core, ingest, query, api |
 | **Documentation** | ✅ **Comprehensive** | README + ARCHITECTURE.md cover current state and roadmap |
-| **Missing Roadmap** | 🔴 **Gap** | No standalone ROADMAP.md (roadmap only in ARCHITECTURE.md) |
+| **Roadmap** | ✅ **Present** | Standalone ROADMAP.md with 5 phases, exit criteria, and risks |
 | **Test Coverage** | 🔴 **Gap** | Test directories exist but are empty |
 | **API Module** | 🟡 **Partial** | Basic implementation, not mentioned in README |
 
@@ -159,19 +159,25 @@ dependencies = [
 - ✅ Section 4.4 confirms query configs present
 - ✅ Section 4.1 confirms hybrid search (BM25 + vector) implementation
 
-**Query Configs Present:**
-| Config | Collections | Status |
-|--------|-------------|--------|
-| `dama_only.yaml` | DAMA-DMBOK | ✅ Present |
-| `fa_handbook_only.yaml` | FA Handbook | ✅ Present |
-| `leanix_only.yaml` | LeanIX | ✅ Present |
-| `architecture_focus.yaml` | SAD + LeanIX | ✅ Present |
-| `vendor_assessment.yaml` | LeanIX + Supplier | ✅ Present |
-| `dama_fa_combined.yaml` | DAMA + FA Handbook | ✅ Present |
-| `leanix_fa_combined.yaml` | LeanIX + FA Handbook | ✅ Present |
-| `all_collections.yaml` | All collections | ✅ Present |
+**RAG Profiles (in `llm_rag_profile/`):**
+| Config | Collections | Mode | Status |
+|--------|-------------|------|--------|
+| `dama_only.yaml` | DAMA-DMBOK | Explicit | ✅ Present |
+| `fa_handbook_only.yaml` | FA Handbook | Explicit | ✅ Present |
+| `dama_fa_combined.yaml` | DAMA + FA Handbook | Explicit | ✅ Present |
+| `dama_fa_data_arch.yaml` | DAMA + FA Handbook + FA Data Architecture | Explicit | ✅ Present |
+| `leanix_only.yaml` | All `fa_leanix_*` | Prefix | ✅ Present |
+| `leanix_relationships.yaml` | `fa_leanix_relationships` + overview | Explicit | ✅ Present |
+| `leanix_fa_combined.yaml` | FA Handbook + all `fa_leanix_*` | Mixed | ✅ Present |
+| `architecture_focus.yaml` | SAD + curated `fa_leanix_*` subset | Explicit | ✅ Present |
+| `vendor_assessment.yaml` | Curated `fa_leanix_*` + Supplier | Explicit | ✅ Present |
+| `dama_fa_full.yaml` | DAMA + FA Handbook + curated `fa_leanix_*` | Explicit | ✅ Present |
+| `fa_data_management.yaml` | FA Handbook + FA Data Arch + DAMA + all `fa_leanix_*` | Mixed | ✅ Present |
+| `all_collections.yaml` | All collections | Mixed | ✅ Present |
 
-**Verdict**: ✅ **Fully aligned** with ARCHITECTURE.md. All query configs present.
+**`collection_prefixes` support**: Profiles may use `collection_prefixes` (e.g. `- name: "fa_leanix"`) to dynamically resolve all `fa_leanix_*` collections from ChromaDB at query time. New domains ingested are picked up automatically with no profile changes needed.
+
+**Verdict**: ✅ **Fully aligned** with ARCHITECTURE.md. All query profiles present, with dynamic prefix resolution for split-mode collections.
 
 ---
 
@@ -260,14 +266,14 @@ query:
 - ✅ `todo_ingest_*.yaml` for pending work
 - ✅ Clear, descriptive names
 
-**Content Review:**
+**Content Review (split-mode example):**
 ```yaml
-# ingest_fa_ea_leanix.yaml — Example
-collection_name: "fa_ea_leanix"
+# ingest_fa_ea_leanix.yaml — Split-mode: one XML → 11 fa_leanix_* collections
+collection_prefix: "fa_leanix"
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
   class: "LeanIXPreprocessor"
-  output_format: "markdown"
+  output_format: "split"
   enabled: true
 file_paths:
   - "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
@@ -275,6 +281,9 @@ metadata:
   domain: "architecture"
   type: "enterprise_architecture"
   source: "LeanIX"
+chunking:
+  chunk_size: 512
+  chunk_overlap: 64
 rebuild: true
 ```
 
@@ -289,18 +298,29 @@ rebuild: true
 - ✅ `<domain1>_<domain2>_combined.yaml` for multi-collection
 - ✅ Clear, descriptive names
 
-**Content Review:**
+**Content Review (explicit collections example):**
 ```yaml
-# architecture_focus.yaml — Example
+# llm_rag_profile/architecture_focus.yaml
 collections:
   - name: "fa_ea_sad"
-    weight: 1.0
-  - name: "fa_ea_leanix"
-    weight: 1.0
+  - name: "fa_leanix_relationships"
+  - name: "fa_leanix_overview"
 query:
   similarity_top_k: 10
   system_prompt: |
     You are a helpful assistant that answers questions based on architecture documentation.
+```
+
+**Content Review (prefix-based example):**
+```yaml
+# llm_rag_profile/leanix_only.yaml
+collection_prefixes:
+  - name: "fa_leanix"   # resolves to all fa_leanix_* collections at query time
+
+query:
+  similarity_top_k: 10
+  system_prompt: |
+    You are a helpful enterprise data architect assistant.
 ```
 
 **Verdict**: ✅ **Fully aligned** with ARCHITECTURE.md Section B.2.
@@ -387,12 +407,12 @@ class ChromaConfig:
 
 | Module | Test Directory | Test Files | Coverage |
 |--------|---------------|------------|----------|
-| `elt_llm_core` | ❌ Not present | N/A | 0% |
+| `elt_llm_core` | ✅ `tests/` | `__init__.py` only | 0% |
 | `elt_llm_ingest` | ✅ `tests/` | `__init__.py` only | 0% |
 | `elt_llm_query` | ✅ `tests/` | `__init__.py` only | 0% |
 | `elt_llm_api` | ✅ `tests/` | `test_dama_api.py` | Partial |
 
-**Verdict**: 🔴 **Critical Gap**. Test directories exist but are empty (except api).
+**Verdict**: 🔴 **Critical Gap**. Test directories exist in all 4 modules but are effectively empty (only `__init__.py` present except `elt_llm_api`).
 
 ---
 
@@ -602,10 +622,9 @@ class ChromaConfig:
 | Gap | Impact | Priority |
 |-----|--------|----------|
 | **No tests** | Risk of regressions, hard to refactor | P0 |
-| **No standalone roadmap** | Hard to track progress, not actionable | P1 |
 | **API module incomplete** | Limits programmatic integration options | P2 |
 | **DAMA/ISO licensing unclear** | Legal risk for production deployment | P0 |
-| **Chunking settings mismatch** | Documentation doesn't match implementation | P2 |
+| **Chunking settings mismatch** | rag_config.yaml (256/32) differs from ARCHITECTURE.md default (1024/200) — LeanIX uses 512/64 override | P2 |
 
 ---
 
@@ -614,12 +633,11 @@ class ChromaConfig:
 **Immediate (P0):**
 1. **Add pytest tests** for core modules (config, models, preprocessor)
 2. **Clarify DAMA licensing** — check FA corporate membership status
-3. **Create ROADMAP.md** as standalone, actionable document
 
 **Short-term (P1):**
-4. **Implement FAGlossaryPreprocessor** (ARCHITECTURE.md §5.1)
-5. **Implement ISO reference data ingestion** (ARCHITECTURE.md §5.2)
-6. **Link roadmap to GitHub Issues** for tracking
+3. **Implement FAGlossaryPreprocessor** (ARCHITECTURE.md §5.1)
+4. **Implement ISO reference data ingestion** (ARCHITECTURE.md §5.2)
+5. **Link roadmap to GitHub Issues** for tracking
 
 **Medium-term (P2):**
 7. **Expand or remove elt_llm_api** — decide on REST API strategy
@@ -636,11 +654,11 @@ class ChromaConfig:
 | **Code Quality** | 9/10 | Professional-grade code |
 | **Documentation** | 8/10 | Comprehensive but chunking mismatch |
 | **Testing** | 2/10 | Critical gap |
-| **Roadmap** | 6/10 | Content exists, not actionable |
+| **Roadmap** | 9/10 | Standalone ROADMAP.md with phases, exit criteria, risks |
 | **Compliance** | 7/10 | DPO good, licensing unclear |
 | **Strategic Alignment** | 8/10 | Strong alignment with Data Working Group goals |
 
-**Overall: 7/10 — Strong foundation, production readiness requires tests + licensing clarity**
+**Overall: 8/10 — Strong foundation with solid architecture, tests and licensing clarity required for production**
 
 ---
 
