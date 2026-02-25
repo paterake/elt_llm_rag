@@ -81,8 +81,9 @@ class LeanIXPreprocessor(BasePreprocessor):
         """
         from .doc_leanix_parser import LeanIXExtractor
         
-        input_path = Path(input_file)
-        output_path_obj = Path(output_path)
+        # Expand user paths (~ to full path)
+        input_path = Path(input_file).expanduser().resolve()
+        output_path_obj = Path(output_path).expanduser().resolve()
         
         # Ensure output directory exists
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)

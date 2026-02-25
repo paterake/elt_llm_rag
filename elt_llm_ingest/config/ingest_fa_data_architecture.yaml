@@ -1,0 +1,22 @@
+# Ingestion Config: FA Reference Data Architecture
+#
+# Contains: FA Reference Data Architecture slide deck (PPTX)
+#
+# Note: The FA Enterprise Conceptual Data Model (LeanIX XML) is ingested
+# separately via leanix.yaml with preprocessing (XML → Markdown).
+# Keep these two collections separate — they are different semantic domains.
+
+collection_name: "fa_data_architecture"
+
+# Documents to ingest
+file_paths:
+  - "~/Documents/__data/resources/thefa/Reference Data Architecture.pptx"
+
+# Metadata to attach to all documents
+metadata:
+  domain: "architecture"
+  type: "data_architecture"
+  source: "FA Reference Data Architecture"
+
+# Whether to rebuild the collection on each run
+rebuild: true

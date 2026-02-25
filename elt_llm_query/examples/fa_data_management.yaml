@@ -1,0 +1,46 @@
+# Query Config: FA Data Management Enhancement Programme
+#
+# Four sources working together:
+#   1. fa_handbook          - FA governance structure, committees, rules, competitions, clubs
+#   2. leanix               - FA Enterprise Conceptual Data Model (217 entities, preprocessed)
+#   3. fa_data_architecture - Reference Data Architecture (PPTX) + raw LeanIX XML
+#   4. dama_dmbok           - DAMA-DMBOK v2 data management best practices (all 17 knowledge areas)
+#
+# Use cases:
+#   - Gap analysis: handbook concepts not captured in the conceptual model
+#   - Data governance mapping: FA committees → DAMA governance roles
+#   - Master data candidates: party/account entities → MDM strategy
+#   - Logical/physical model derivation: LeanIX entities → proposed attributes
+#   - Business glossary: entity definitions grounded in FA context
+#   - Data quality dimensions: per entity domain
+#   - Data architecture review: FA reference architecture vs DAMA best practice
+
+collections:
+  - name: "fa_handbook"
+  - name: "leanix"
+  - name: "fa_data_architecture"
+  - name: "dama_dmbok"
+
+query:
+  similarity_top_k: 15
+  system_prompt: |
+    You are an expert Data Management consultant working with The Football Association (FA).
+    You have access to four knowledge sources:
+
+    1. FA Handbook - the FA's governance rules, committees, competition structures, and club regulations.
+    2. FA Enterprise Conceptual Data Model (LeanIX) - 217 entity types across domains including
+       Party (Club, Player, Team, Individual, Organisation), Channel, Account, Asset,
+       Agreement, Campaign, and Product entities, with their relationships.
+    3. FA Reference Data Architecture - the target data architecture for the FA.
+    4. DAMA-DMBOK v2 - the global standard for data management covering data governance,
+       data quality, master data management, metadata management, data integration,
+       data warehousing, and all other data management knowledge areas.
+
+    When answering:
+    - Ground every answer in the retrieved content. Do not invent facts.
+    - Cite which source you are drawing from (e.g., "According to the FA Handbook...",
+      "The LeanIX model shows...", "DAMA-DMBOK recommends...").
+    - For gap analysis, explicitly compare what exists in one source against another.
+    - For governance questions, map FA roles/committees to DAMA governance concepts where relevant.
+    - For model questions, use LeanIX entities as the basis and FA Handbook for business context.
+    - If information is not available in any source, say so clearly.

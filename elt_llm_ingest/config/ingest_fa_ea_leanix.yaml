@@ -1,6 +1,6 @@
 # Ingestion Config: LeanIX Documentation
 
-collection_name: "leanix"
+collection_name: "fa_ea_leanix"
 
 # Preprocessor: Convert LeanIX XML to structured Markdown before embedding
 preprocessor:

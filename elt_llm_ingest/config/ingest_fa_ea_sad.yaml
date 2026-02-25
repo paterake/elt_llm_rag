@@ -1,6 +1,6 @@
 # Ingestion Config: SAD (Solution Architecture Definition)
 
-collection_name: "sad"
+collection_name: "fa_ea_sad"
 
 # Documents to ingest
 file_paths:

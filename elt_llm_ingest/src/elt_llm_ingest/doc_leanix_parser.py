@@ -84,19 +84,23 @@ class LeanIXExtractor:
         self.enrich_relationships()
         
     def extract_groups(self):
-        """Extract group containers (like PARTY, AGREEMENTS, etc.)"""
-        # Find all mxCell elements with style="group"
+        """Extract group containers (like PARTY, AGREEMENTS, etc.)
+        
+        Groups are identified as mxCell elements with style containing 'group'.
+        """
         for mxcell in self.root.iter('mxCell'):
             style = mxcell.get('style', '')
             if 'group' in style and mxcell.get('vertex') == '1':
                 group_id = mxcell.get('id')
-                # Try to find the label from child object using parent map
+                # Find the factSheet object that is the container within this group
                 for obj in self.root.iter('object'):
                     obj_cell = obj.find('mxCell')
                     if obj_cell is not None and obj_cell.get('parent') == group_id:
+                        # This object is directly in the group - use it as the group label
                         label = obj.get('label', '')
-                        self.groups[group_id] = self.clean_label(label)
-                        break
+                        if label and obj.get('type') == 'factSheet':
+                            self.groups[group_id] = self.clean_label(label)
+                            break
     
     def extract_assets(self):
         """Extract all fact sheet assets"""
@@ -284,8 +288,9 @@ class LeanIXExtractor:
             group = asset.parent_group or "Uncategorized"
             assets_by_group[group].append(asset)
 
-        # Only include named domain groups (skip Uncategorized)
-        domain_names = sorted(k for k in assets_by_group if k != "Uncategorized")
+        # Separate Uncategorized for special handling
+        uncategorized_assets = assets_by_group.pop("Uncategorized", [])
+        domain_names = sorted(assets_by_group.keys())
 
         # ── Overview ──────────────────────────────────────────────────────────
         md.append("# FA Enterprise Conceptual Data Model\n\n")
@@ -313,6 +318,45 @@ class LeanIXExtractor:
                 f"Enterprise Conceptual Data Model. "
                 f"The entities within this domain are: {member_str}.\n\n"
             )
+
+        # ── Uncategorized entities (Party types, Channels, Accounts, Assets) ──
+        if uncategorized_assets:
+            # Group uncategorized by common patterns
+            party_types = []
+            channel_types = []
+            account_types = []
+            asset_types = []
+            other = []
+
+            for asset in uncategorized_assets:
+                label = asset.label.lower()
+                if any(p in label for p in ['player', 'club', 'team', 'individual', 'organisation', 'employee', 'customer', 'member', 'official', 'learner', 'prospect', 'supplier', 'county', 'charity', 'government', 'school', 'authority', 'candidate', 'mentor', 'developer', 'household', 'unit', 'supporter', 'attendee']):
+                    party_types.append(asset.label)
+                elif any(c in label for c in ['channel', 'broadcast', 'streaming', 'tv', 'radio', 'sms', 'email', 'mobile', 'web', 'portal', 'social', 'push', 'live', 'chat', 'call centre', 'concierge', 'in person', 'pos', 'turnstile', 'merchandise']):
+                    channel_types.append(asset.label)
+                elif 'account' in label:
+                    account_types.append(asset.label)
+                elif 'asset' in label or 'data' in label or 'property' in label:
+                    asset_types.append(asset.label)
+                else:
+                    other.append(asset.label)
+
+            md.append("## Additional Model Entities\n\n")
+            md.append(
+                "The following entities are defined in the FA Enterprise Conceptual Data Model "
+                "and include key party, channel, account, and asset entities.\n\n"
+            )
+
+            if party_types:
+                md.append(f"**Party Types ({len(party_types)} entities):** {', '.join(sorted(party_types))}.\n\n")
+            if channel_types:
+                md.append(f"**Channel Types ({len(channel_types)} entities):** {', '.join(sorted(channel_types))}.\n\n")
+            if account_types:
+                md.append(f"**Account Types ({len(account_types)} entities):** {', '.join(sorted(account_types))}.\n\n")
+            if asset_types:
+                md.append(f"**Asset Types ({len(asset_types)} entities):** {', '.join(sorted(asset_types))}.\n\n")
+            if other:
+                md.append(f"**Other Entities ({len(other)} entities):** {', '.join(sorted(other))}.\n\n")
 
         # ── Relationships as natural language ─────────────────────────────────
         if self.relationships:

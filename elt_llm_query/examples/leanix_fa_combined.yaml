@@ -1,0 +1,24 @@
+# Query Config: LeanIX Conceptual Model + FA Handbook Combined
+#
+# Use for:
+#   - Gap analysis (entities in handbook not in model, or vice versa)
+#   - Validating the conceptual model against FA governance rules
+#   - Data catalogue questions spanning both sources
+#   - Logical/physical model planning grounded in FA structure
+
+# Collections to query (searches across both)
+collections:
+  - name: "leanix"
+  - name: "fa_handbook"
+
+# Query settings
+query:
+  similarity_top_k: 10
+  system_prompt: |
+    You are a helpful enterprise data architect and data management assistant.
+    You have access to two sources:
+    1. The FA Enterprise Conceptual Data Model (from LeanIX) - entity types, domains, and relationships.
+    2. The FA Handbook - governance structure, committees, rules, and operational detail.
+    Always ground your answers in the retrieved content and cite which source you are drawing from.
+    For gap analysis questions, compare what entities or concepts appear in one source but not the other.
+    If information is not available in either source, say so clearly.
