@@ -1,10 +1,10 @@
 # Query Config: FA Data Management Enhancement Programme
 #
 # Four sources working together:
-#   1. fa_handbook          - FA governance structure, committees, rules, competitions, clubs
-#   2. leanix               - FA Enterprise Conceptual Data Model (217 entities, preprocessed)
-#   3. fa_data_architecture - Reference Data Architecture (PPTX) + raw LeanIX XML
-#   4. dama_dmbok           - DAMA-DMBOK v2 data management best practices (all 17 knowledge areas)
+#   1. fa_handbook           - FA governance structure, committees, rules, competitions, clubs
+#   2. fa_ea_leanix          - FA Enterprise Conceptual Data Model (217 entities, preprocessed)
+#   3. fa_data_architecture  - Reference Data Architecture (PPTX) + raw LeanIX XML
+#   4. dama_dmbok            - DAMA-DMBOK v2 data management best practices (all 17 knowledge areas)
 #
 # Use cases:
 #   - Gap analysis: handbook concepts not captured in the conceptual model
@@ -17,7 +17,7 @@
 
 collections:
   - name: "fa_handbook"
-  - name: "leanix"
+  - name: "fa_ea_leanix"
   - name: "fa_data_architecture"
   - name: "dama_dmbok"
 

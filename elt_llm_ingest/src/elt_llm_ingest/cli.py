@@ -10,6 +10,7 @@ import yaml
 
 from elt_llm_core.config import RagConfig
 from elt_llm_ingest.ingest import IngestConfig, run_ingestion
+from elt_llm_ingest.preprocessor import PreprocessorConfig
 
 
 def get_config_dir() -> Path:
@@ -112,6 +113,11 @@ def main() -> None:
     with open(config_path) as f:
         ingest_data = yaml.safe_load(f)
 
+    # Create preprocessor config if present
+    preprocessor_config = None
+    if "preprocessor" in ingest_data:
+        preprocessor_config = PreprocessorConfig.from_dict(ingest_data["preprocessor"])
+
     # Create ingestion config
     ingest_config = IngestConfig(
         collection_name=args.collection or ingest_data["collection_name"],
@@ -119,13 +125,13 @@ def main() -> None:
         metadata=ingest_data.get("metadata"),
         rebuild=not args.no_rebuild,
         force=args.force,
+        preprocessor=preprocessor_config,
     )
 
     try:
-        index = run_ingestion(ingest_config, rag_config)
-        doc_count = len(index.docstore.docs) if index.docstore else 0
-        if doc_count > 0:
-            print(f"\nIngestion complete: {doc_count} chunks indexed")
+        index, node_count = run_ingestion(ingest_config, rag_config)
+        if node_count > 0:
+            print(f"\nIngestion complete: {node_count} chunks indexed")
         else:
             print(f"\nNo changes detected - collection unchanged")
     except ValueError as e:

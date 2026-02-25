@@ -2,9 +2,9 @@
 
 # Collections to query
 collections:
-  - name: "sad"
+  - name: "fa_ea_sad"
     weight: 1.0
-  - name: "leanix"
+  - name: "fa_ea_leanix"
     weight: 1.0
 
 # Query settings

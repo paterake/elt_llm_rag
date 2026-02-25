@@ -8,7 +8,7 @@
 
 # Collections to query (searches across both)
 collections:
-  - name: "leanix"
+  - name: "fa_ea_leanix"
   - name: "fa_handbook"
 
 # Query settings

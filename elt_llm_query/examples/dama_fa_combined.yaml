@@ -12,7 +12,7 @@ query:
   similarity_top_k: 10  # More results when querying multiple sources
   system_prompt: |
     You are a helpful assistant that answers questions based on the provided documents.
-    The documents include DAMA-DMBOK (data management) and FA Handbook (financial accounting).
+    The documents include DAMA-DMBOK (data management) and FA Handbook (Football Association governance and regulations).
     Always ground your answers in the retrieved content.
     Cite the source (DAMA-DMBOK or FA Handbook) when relevant.
     If the information is not available in the documents, say so clearly.

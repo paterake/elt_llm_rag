@@ -6,9 +6,11 @@ collections:
     weight: 1.0
   - name: "fa_handbook"
     weight: 1.0
-  - name: "sad"
+  - name: "fa_data_architecture"
     weight: 1.0
-  - name: "leanix"
+  - name: "fa_ea_leanix"
+    weight: 1.0
+  - name: "fa_ea_sad"
     weight: 1.0
   - name: "supplier_assess"
     weight: 1.0
@@ -20,11 +22,12 @@ query:
     You are a helpful assistant that answers questions based on the provided documents.
     The documents include:
     - DAMA-DMBOK (data management)
-    - FA Handbook (financial accounting)
-    - SAD (solution architecture)
-    - LeanIX (architecture platform)
+    - FA Handbook (Football Association governance and regulations)
+    - FA Data Architecture (Football Association data architecture)
+    - SAD (Solution Architecture Definition)
+    - LeanIX (Football Association Enterprise Architecture)
     - Supplier Assessment (procurement)
-    
+
     Always ground your answers in the retrieved content.
     Cite the source document when relevant.
     If the information is not available in the documents, say so clearly.

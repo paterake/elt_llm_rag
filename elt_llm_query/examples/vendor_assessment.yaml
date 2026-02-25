@@ -2,7 +2,7 @@
 
 # Collections to query
 collections:
-  - name: "leanix"
+  - name: "fa_ea_leanix"
     weight: 1.0
   - name: "supplier_assess"
     weight: 1.0
