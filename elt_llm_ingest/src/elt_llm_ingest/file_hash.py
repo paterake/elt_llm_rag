@@ -210,7 +210,10 @@ def remove_file_hashes(
         collection_name: Name of the target collection.
     """
     collection = _get_hash_collection(client)
-    doc_ids = [_file_path_to_id(fp, collection_name) for fp in file_paths]
+    doc_ids = []
+    for fp in file_paths:
+        expanded_path = str(Path(fp).expanduser())
+        doc_ids.append(_file_path_to_id(expanded_path, collection_name))
 
     try:
         collection.delete(ids=doc_ids)

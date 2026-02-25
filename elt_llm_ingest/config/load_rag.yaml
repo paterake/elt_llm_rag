@@ -1,0 +1,5 @@
+file_paths:
+  - "ingest_dama_dmbok.yaml"
+  - "ingest_fa_data_architecture.yaml"
+  - "ingest_fa_ea_leanix.yaml"
+  - "ingest_fa_handbook.yaml"

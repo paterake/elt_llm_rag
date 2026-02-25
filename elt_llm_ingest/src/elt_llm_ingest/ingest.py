@@ -143,6 +143,19 @@ def load_documents(
             reader = SimpleDirectoryReader(input_files=[str(path)])
             docs = reader.load_data()
             for doc in docs:
+                # Sanitize metadata: Remove complex types that ChromaDB rejects
+                if "extraction_errors" in doc.metadata:
+                    del doc.metadata["extraction_errors"]
+                
+                # Keep only supported types (str, int, float, bool, None)
+                safe_metadata = {}
+                for k, v in doc.metadata.items():
+                    if isinstance(v, (str, int, float, bool, type(None))):
+                        safe_metadata[k] = v
+                    else:
+                        logger.warning("Dropping unsupported metadata field '%s' type %s", k, type(v))
+                doc.metadata = safe_metadata
+
                 if metadata:
                     doc.metadata.update(metadata)
                 doc.metadata["source_file"] = str(path)
