@@ -269,66 +269,114 @@ class LeanIXExtractor:
         return json.dumps(self.to_dict(), indent=indent, default=str)
     
     def to_markdown(self) -> str:
-        """Convert to Markdown format suitable for RAG"""
+        """Convert to sentence-format Markdown optimised for RAG ingestion.
+
+        UUIDs are intentionally omitted — they are preserved in the JSON output
+        for LeanIX roundtripping. This file is optimised for semantic embedding:
+        each section is self-contained so any chunk retrieved by the RAG system
+        carries full domain context.
+        """
         md = []
-        
-        # Header
-        md.append("# LeanIX Enterprise Architecture Inventory\n")
-        md.append(f"**Source:** {self.xml_file.name}\n")
-        md.append(f"**Total Assets:** {len(self.assets)}\n")
-        md.append(f"**Total Relationships:** {len(self.relationships)}\n")
-        
-        # Group assets by type
-        assets_by_type = defaultdict(list)
+
+        # Build domain → member list mapping
+        assets_by_group: Dict[str, List[LeanIXAsset]] = defaultdict(list)
         for asset in self.assets.values():
-            assets_by_type[asset.fact_sheet_type].append(asset)
-        
-        # Assets section
-        md.append("\n## Assets by Type\n")
-        
-        for fact_sheet_type in sorted(assets_by_type.keys()):
-            type_assets = assets_by_type[fact_sheet_type]
-            md.append(f"\n### {fact_sheet_type}\n")
-            md.append(f"*Count: {len(type_assets)}*\n")
-            
-            # Group by parent if available
-            by_parent = defaultdict(list)
-            for asset in type_assets:
-                parent = asset.parent_group or "Uncategorized"
-                by_parent[parent].append(asset)
-            
-            for parent, assets in sorted(by_parent.items()):
-                if parent != "Uncategorized":
-                    md.append(f"\n#### {parent}\n")
+            group = asset.parent_group or "Uncategorized"
+            assets_by_group[group].append(asset)
 
-                for asset in sorted(assets, key=lambda x: x.label):
-                    md.append(f"- **{asset.label}**\n")
-                    if asset.fact_sheet_id:
-                        md.append(f"  - ID: `{asset.fact_sheet_id}`\n")
+        # Only include named domain groups (skip Uncategorized)
+        domain_names = sorted(k for k in assets_by_group if k != "Uncategorized")
 
-            md.append("\n")
-        
-        # Relationships section
-        md.append("\n## Relationships\n")
-        
-        # Group relationships by source
-        rels_by_source = defaultdict(list)
-        for rel in self.relationships:
-            rels_by_source[rel.source_label or rel.source_id].append(rel)
-        
-        for source in sorted(rels_by_source.keys()):
-            rels = rels_by_source[source]
-            md.append(f"\n### {source}\n")
+        # ── Overview ──────────────────────────────────────────────────────────
+        md.append("# FA Enterprise Conceptual Data Model\n\n")
+        md.append(
+            f"The FA Enterprise Conceptual Data Model (source: {self.xml_file.name}) "
+            f"contains {len(self.assets)} DataObject entities organised into "
+            f"{len(domain_names)} domain groups: {', '.join(domain_names)}. "
+            f"These domains are connected through {len(self.relationships)} entity relationships. "
+            "The model captures the key data objects, parties, agreements, products, transactions, "
+            "channels, locations, and reference data that underpin The Football Association's "
+            "operations.\n\n"
+        )
 
-            for rel in sorted(rels, key=lambda x: x.target_label or ""):
-                cardinality = f" [{rel.cardinality}]" if rel.cardinality else ""
-                md.append(f"- → **{rel.target_label or rel.target_id}**{cardinality}\n")
-                if rel.relationship_type:
-                    md.append(f"  - Type: {rel.relationship_type}\n")
+        # ── One section per domain ────────────────────────────────────────────
+        for group_name in domain_names:
+            group_assets = sorted(assets_by_group[group_name], key=lambda a: a.label)
+            # Exclude the root node (same name as group) from the member list
+            members = [a.label for a in group_assets if a.label.upper() != group_name.upper()]
 
-            md.append("\n")
-        
+            md.append(f"## {group_name} Domain\n\n")
+
+            member_str = ", ".join(members) if members else "no sub-entities defined"
+            md.append(
+                f"The {group_name} domain contains {len(group_assets)} entities in the FA "
+                f"Enterprise Conceptual Data Model. "
+                f"The entities within this domain are: {member_str}.\n\n"
+            )
+
+        # ── Relationships as natural language ─────────────────────────────────
+        if self.relationships:
+            md.append("## Entity Relationships\n\n")
+            md.append(
+                "The following relationships define how the domain groups in the FA Enterprise "
+                "Conceptual Data Model connect to one another.\n\n"
+            )
+
+            rels_by_source: Dict[str, List[LeanIXRelationship]] = defaultdict(list)
+            for rel in self.relationships:
+                rels_by_source[rel.source_label or rel.source_id].append(rel)
+
+            for source_label in sorted(rels_by_source.keys()):
+                rels = rels_by_source[source_label]
+
+                # List up to 8 representative members of the source domain
+                source_members = sorted(
+                    a.label for a in self.assets.values()
+                    if a.parent_group == source_label and a.label.upper() != source_label.upper()
+                )
+                source_sample = source_members[:8]
+                source_ctx = (
+                    f" (including {', '.join(source_sample)}"
+                    f"{'...' if len(source_members) > 8 else ''})"
+                    if source_sample else ""
+                )
+
+                for rel in sorted(rels, key=lambda r: r.target_label or ""):
+                    target_label = rel.target_label or rel.target_id
+                    cardinality_desc = self._describe_cardinality(rel.cardinality)
+
+                    # List up to 8 representative members of the target domain
+                    target_members = sorted(
+                        a.label for a in self.assets.values()
+                        if a.parent_group == target_label and a.label.upper() != target_label.upper()
+                    )
+                    target_sample = target_members[:8]
+                    target_ctx = (
+                        f" (including {', '.join(target_sample)}"
+                        f"{'...' if len(target_members) > 8 else ''})"
+                        if target_sample else ""
+                    )
+
+                    md.append(
+                        f"{source_label}{source_ctx} {cardinality_desc} "
+                        f"{target_label}{target_ctx}.\n\n"
+                    )
+
         return "".join(md)
+
+    def _describe_cardinality(self, cardinality: Optional[str]) -> str:
+        """Convert cardinality notation to a natural language phrase."""
+        mapping = {
+            "0..*-0..*": "relates to (zero or more to zero or more)",
+            "1..*-0..*": "relates to (one or more to zero or more)",
+            "0..*-1..*": "relates to (zero or more to one or more)",
+            "1..1-0..*": "relates to (exactly one to zero or more)",
+            "0..*-1..1": "relates to (zero or more to exactly one)",
+            "1..1-1..1": "relates to (exactly one to exactly one)",
+        }
+        if cardinality and cardinality in mapping:
+            return mapping[cardinality]
+        return f"relates to ({cardinality})" if cardinality else "relates to"
     
     def save(self, output_path: str, format: str = "both"):
         """Save extracted data to file(s).
