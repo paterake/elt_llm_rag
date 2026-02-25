@@ -49,11 +49,11 @@ class Spinner(ContextManager):
 
 
 def get_examples_dir() -> Path:
-    """Get the examples directory path."""
+    """Get the llm_rag_profile directory path."""
     # Try multiple locations: package install and development
     candidates = [
-        Path(__file__).parent.parent / "examples",  # Installed package
-        Path(__file__).parent.parent.parent.parent / "elt_llm_query" / "examples",  # Development
+        Path(__file__).parent.parent / "llm_rag_profile",  # Installed package
+        Path(__file__).parent.parent.parent.parent / "elt_llm_query" / "llm_rag_profile",  # Development
     ]
     for candidate in candidates:
         if candidate.exists():

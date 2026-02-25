@@ -13,8 +13,8 @@ from elt_llm_query.query import interactive_query, query_collection, query_colle
 
 
 def get_examples_dir() -> Path:
-    """Get the examples directory path."""
-    return Path(__file__).parent.parent / "examples"
+    """Get the llm_rag_profile directory path."""
+    return Path(__file__).parent.parent / "llm_rag_profile"
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
         "--config",
         "-c",
         type=str,
-        help="Path to query configuration YAML file (e.g., examples/dama_only.yaml)",
+        help="Path to query configuration YAML file (e.g., llm_rag_profile/dama_only.yaml)",
     )
     parser.add_argument(
         "--rag-config",
