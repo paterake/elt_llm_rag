@@ -16,7 +16,7 @@ from pathlib import Path
 import chromadb
 import yaml
 
-from elt_llm_core.config import RagConfig
+from elt_llm_core.config import ChunkingConfig, RagConfig
 from elt_llm_ingest.ingest import IngestConfig, run_ingestion
 from elt_llm_ingest.preprocessor import PreprocessorConfig
 
@@ -209,28 +209,56 @@ def ingest(config_name: str, verbose: bool = False, no_rebuild: bool = False, fo
     with open(ingest_path) as f:
         ingest_data = yaml.safe_load(f)
 
-    # Create preprocessor config if present
+    # Detect split mode (collection_prefix) vs single-collection mode
+    collection_prefix = ingest_data.get("collection_prefix")
+    collection_name = ingest_data.get("collection_name")
+
+    if collection_prefix and collection_name:
+        print("❌ Error: ingest config must not set both 'collection_prefix' and 'collection_name'")
+        return 1
+    if not collection_prefix and not collection_name:
+        print("❌ Error: ingest config must set either 'collection_prefix' (split mode) or 'collection_name'")
+        return 1
+
+    # Preprocessor config
     preprocessor_config = None
     if "preprocessor" in ingest_data:
         preprocessor_config = PreprocessorConfig.from_dict(ingest_data["preprocessor"])
+        # Propagate collection_prefix into the preprocessor so split mode works
+        if collection_prefix and preprocessor_config.collection_prefix is None:
+            preprocessor_config.collection_prefix = collection_prefix
 
-    # Create ingestion config
+    # Per-config chunking override (optional)
+    chunking_override = None
+    if "chunking" in ingest_data:
+        cd = ingest_data["chunking"]
+        chunking_override = ChunkingConfig(
+            strategy=cd.get("strategy", "sentence"),
+            chunk_size=cd.get("chunk_size", 1024),
+            chunk_overlap=cd.get("chunk_overlap", 200),
+        )
+
     ingest_config = IngestConfig(
-        collection_name=ingest_data["collection_name"],
+        collection_name=collection_name,
+        collection_prefix=collection_prefix,
         file_paths=ingest_data.get("file_paths", []),
         metadata=ingest_data.get("metadata"),
         rebuild=not no_rebuild,
         force=force,
         preprocessor=preprocessor_config,
+        chunking_override=chunking_override,
     )
 
     try:
         _, node_count = run_ingestion(ingest_config, rag_config)
 
         if node_count > 0:
-            print(f"\n✅ Ingestion complete: {node_count} chunks indexed")
+            if collection_prefix:
+                print(f"\n✅ Split ingestion complete: {node_count} total chunks indexed across collections prefixed '{collection_prefix}_*'")
+            else:
+                print(f"\n✅ Ingestion complete: {node_count} chunks indexed")
         else:
-            print(f"\n✅ No changes detected - collection unchanged")
+            print(f"\n✅ No changes detected - collection(s) unchanged")
         return 0
     except ValueError as e:
         print(f"❌ Error: {e}")
@@ -261,7 +289,8 @@ def delete(config_name: str, force: bool = False) -> int:
     with open(ingest_path) as f:
         ingest_data = yaml.safe_load(f)
 
-    collection_name = ingest_data["collection_name"]
+    collection_prefix = ingest_data.get("collection_prefix")
+    collection_name = ingest_data.get("collection_name")
 
     # Load RAG config to get persist directory
     try:
@@ -271,7 +300,40 @@ def delete(config_name: str, force: bool = False) -> int:
         print(f"❌ Configuration error: {e}")
         return 1
 
-    # Confirm deletion
+    try:
+        client = chromadb.PersistentClient(path=str(persist_dir))
+    except Exception as e:
+        print(f"❌ Failed to connect to ChromaDB: {e}")
+        return 1
+
+    # ── Split mode: delete all collections matching the prefix ─────────────
+    if collection_prefix:
+        all_collections = client.list_collections()
+        matching = [c for c in all_collections if c.name.startswith(f"{collection_prefix}_")]
+        if not matching:
+            print(f"\n⚠️  No collections found with prefix '{collection_prefix}_'")
+            return 0
+
+        collection_names_to_delete = [c.name for c in matching]
+        if not force:
+            print(f"\n⚠️  WARNING: This will delete {len(collection_names_to_delete)} collection(s):")
+            for name in sorted(collection_names_to_delete):
+                print(f"   - {name}")
+            print(f"\n   Persist directory: {persist_dir}")
+            response = input("\nAre you sure? (y/N): ").strip().lower()
+            if response not in ("y", "yes"):
+                print("Aborted.")
+                return 0
+
+        for name in collection_names_to_delete:
+            try:
+                client.delete_collection(name)
+                print(f"  ✅ Deleted: {name}")
+            except Exception as e:
+                print(f"  ❌ Failed to delete {name}: {e}")
+        return 0
+
+    # ── Single-collection mode ─────────────────────────────────────────────
     if not force:
         print(f"\n⚠️  WARNING: This will delete the '{collection_name}' collection from ChromaDB.")
         print(f"   Persist directory: {persist_dir}")
@@ -280,9 +342,7 @@ def delete(config_name: str, force: bool = False) -> int:
             print("Aborted.")
             return 0
 
-    # Delete collection
     try:
-        client = chromadb.PersistentClient(path=str(persist_dir))
         client.delete_collection(collection_name)
         print(f"\n✅ Successfully deleted collection: {collection_name}")
         return 0

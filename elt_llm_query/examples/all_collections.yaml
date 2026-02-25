@@ -1,6 +1,6 @@
 # Query Config: All Collections
+# Searches across all ingested documents
 
-# Collections to query (searches across all ingested documents)
 collections:
   - name: "dama_dmbok"
     weight: 1.0
@@ -8,24 +8,43 @@ collections:
     weight: 1.0
   - name: "fa_data_architecture"
     weight: 1.0
-  - name: "fa_ea_leanix"
+  - name: "fa_leanix_overview"
+    weight: 1.0
+  - name: "fa_leanix_additional_entities"
+    weight: 1.0
+  - name: "fa_leanix_relationships"
+    weight: 1.0
+  - name: "fa_leanix_agreements"
+    weight: 1.0
+  - name: "fa_leanix_campaign"
+    weight: 1.0
+  - name: "fa_leanix_location"
+    weight: 1.0
+  - name: "fa_leanix_product"
+    weight: 1.0
+  - name: "fa_leanix_reference_data"
+    weight: 1.0
+  - name: "fa_leanix_static_data"
+    weight: 1.0
+  - name: "fa_leanix_time_bounded_groupings"
+    weight: 1.0
+  - name: "fa_leanix_transaction_and_events"
     weight: 1.0
   - name: "fa_ea_sad"
     weight: 1.0
   - name: "supplier_assess"
     weight: 1.0
 
-# Query settings
 query:
-  similarity_top_k: 15  # More results when querying many sources
+  similarity_top_k: 15
   system_prompt: |
     You are a helpful assistant that answers questions based on the provided documents.
     The documents include:
     - DAMA-DMBOK (data management)
     - FA Handbook (Football Association governance and regulations)
     - FA Data Architecture (Football Association data architecture)
+    - FA Enterprise Conceptual Data Model — LeanIX (entities, domains, relationships)
     - SAD (Solution Architecture Definition)
-    - LeanIX (Football Association Enterprise Architecture)
     - Supplier Assessment (procurement)
 
     Always ground your answers in the retrieved content.

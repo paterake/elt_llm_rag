@@ -1,10 +1,10 @@
 # Query Config: FA Data Management Enhancement Programme
 #
 # Four sources working together:
-#   1. fa_handbook           - FA governance structure, committees, rules, competitions, clubs
-#   2. fa_ea_leanix          - FA Enterprise Conceptual Data Model (217 entities, preprocessed)
-#   3. fa_data_architecture  - Reference Data Architecture (PPTX) + raw LeanIX XML
-#   4. dama_dmbok            - DAMA-DMBOK v2 data management best practices (all 17 knowledge areas)
+#   1. fa_handbook                 - FA governance structure, committees, rules, competitions, clubs
+#   2. fa_leanix_* (all sections)  - FA Enterprise Conceptual Data Model (217 entities, split by domain)
+#   3. fa_data_architecture        - Reference Data Architecture (PPTX)
+#   4. dama_dmbok                  - DAMA-DMBOK v2 data management best practices
 #
 # Use cases:
 #   - Gap analysis: handbook concepts not captured in the conceptual model
@@ -17,7 +17,17 @@
 
 collections:
   - name: "fa_handbook"
-  - name: "fa_ea_leanix"
+  - name: "fa_leanix_overview"
+  - name: "fa_leanix_additional_entities"
+  - name: "fa_leanix_relationships"
+  - name: "fa_leanix_agreements"
+  - name: "fa_leanix_campaign"
+  - name: "fa_leanix_location"
+  - name: "fa_leanix_product"
+  - name: "fa_leanix_reference_data"
+  - name: "fa_leanix_static_data"
+  - name: "fa_leanix_time_bounded_groupings"
+  - name: "fa_leanix_transaction_and_events"
   - name: "fa_data_architecture"
   - name: "dama_dmbok"
 
@@ -30,7 +40,7 @@ query:
     1. FA Handbook - the FA's governance rules, committees, competition structures, and club regulations.
     2. FA Enterprise Conceptual Data Model (LeanIX) - 217 entity types across domains including
        Party (Club, Player, Team, Individual, Organisation), Channel, Account, Asset,
-       Agreement, Campaign, and Product entities, with their relationships.
+       Agreement, Campaign, and Product entities, with their domain-level relationships.
     3. FA Reference Data Architecture - the target data architecture for the FA.
     4. DAMA-DMBOK v2 - the global standard for data management covering data governance,
        data quality, master data management, metadata management, data integration,
@@ -38,7 +48,7 @@ query:
 
     When answering:
     - Ground every answer in the retrieved content. Do not invent facts.
-    - Cite which source you are drawing from (e.g., "According to the FA Handbook...",
+    - Cite which source you are drawing from (e.g. "According to the FA Handbook...",
       "The LeanIX model shows...", "DAMA-DMBOK recommends...").
     - For gap analysis, explicitly compare what exists in one source against another.
     - For governance questions, map FA roles/committees to DAMA governance concepts where relevant.

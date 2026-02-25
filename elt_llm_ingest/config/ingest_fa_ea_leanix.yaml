@@ -1,24 +1,45 @@
-# Ingestion Config: LeanIX Documentation
+# Ingestion Config: LeanIX Enterprise Conceptual Data Model — Split Mode
+#
+# Generates one ChromaDB collection per logical domain section, plus a
+# dedicated relationships collection. This avoids the chunking fragmentation
+# that occurs when entity lists and relationships are interleaved in a single
+# large Markdown file.
+#
+# Collections produced (prefix = 'fa_leanix'):
+#   fa_leanix_overview            — model summary and domain list
+#   fa_leanix_agreements          — AGREEMENTS domain entities
+#   fa_leanix_campaign            — CAMPAIGN domain entities
+#   fa_leanix_location            — LOCATION domain entities
+#   fa_leanix_product             — PRODUCT domain entities
+#   fa_leanix_reference_data      — REFERENCE DATA domain entities
+#   fa_leanix_static_data         — Static Data domain entities
+#   fa_leanix_time_bounded_groupings — Time Bounded Groupings domain
+#   fa_leanix_transaction_and_events — TRANSACTION AND EVENTS domain
+#   fa_leanix_additional_entities — Party types, channel types, accounts, assets
+#   fa_leanix_relationships       — All 16 domain-level relationships (dedicated)
 
-collection_name: "fa_ea_leanix"
+collection_prefix: "fa_leanix"
 
-# Preprocessor: Convert LeanIX XML to structured Markdown before embedding
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
   class: "LeanIXPreprocessor"
-  output_format: "markdown"  # Options: "markdown", "json", "both"
-  output_suffix: "_leanix_processed"
+  output_format: "split"
   enabled: true
 
-# Documents to ingest (XML files will be preprocessed to Markdown)
 file_paths:
   - "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 
-# Metadata to attach to all documents
+# Metadata attached to all chunks in every section collection
 metadata:
   domain: "architecture"
   type: "enterprise_architecture"
   source: "LeanIX"
 
-# Whether to rebuild the collection on each run
+# Larger chunks than the global default (1024 chars) are appropriate here:
+# - Entity lists need enough room to list all members of a domain
+# - Relationship sections are self-contained ~400-600 char blocks
+chunking:
+  chunk_size: 512
+  chunk_overlap: 64
+
 rebuild: true

@@ -1,18 +1,23 @@
 # Query Config: Architecture Focus (SAD + LeanIX)
 
-# Collections to query
 collections:
   - name: "fa_ea_sad"
     weight: 1.0
-  - name: "fa_ea_leanix"
+  - name: "fa_leanix_relationships"
     weight: 1.0
+  - name: "fa_leanix_additional_entities"
+    weight: 1.0
+  - name: "fa_leanix_overview"
+    weight: 0.8
+  - name: "fa_leanix_agreements"
+    weight: 0.8
 
-# Query settings
 query:
   similarity_top_k: 10
   system_prompt: |
     You are a helpful assistant that answers questions based on architecture documentation.
-    The documents include SAD (Solution Architecture Definition) and LeanIX platform documentation.
+    The documents include SAD (Solution Architecture Definition) and the FA LeanIX Enterprise
+    Conceptual Data Model (entities, domains, and domain-level relationships).
     Always ground your answers in the retrieved content.
     Cite the source (SAD or LeanIX) when relevant.
     If the information is not available in the documents, say so clearly.

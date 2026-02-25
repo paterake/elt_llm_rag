@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Tuple
 
 from llama_index.core import (
     Document,
@@ -19,6 +19,7 @@ from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.storage.docstore import SimpleDocumentStore
 
+import chromadb
 from elt_llm_core.config import ChunkingConfig, RagConfig
 from elt_llm_core.models import create_embedding_model
 from elt_llm_core.vector_store import (
@@ -44,16 +45,26 @@ class IngestConfig:
     """Ingestion configuration.
 
     Attributes:
-        collection_name: Name of the Chroma collection.
+        collection_name: Name of the Chroma collection. Set to ``None`` when
+            using ``collection_prefix`` (split-mode preprocessing).
         file_paths: List of file paths to ingest.
+        collection_prefix: Prefix for split-mode ingestion. When set the
+            preprocessor generates one file per section and each is loaded into
+            ``{collection_prefix}_{section_key}``. Mutually exclusive with
+            ``collection_name``.
+        chunking_override: Per-config chunking settings. When provided these
+            override the global ``RagConfig.chunking`` settings, allowing
+            different chunk sizes for different document types.
         metadata: Metadata to attach to all documents.
-        rebuild: Whether to rebuild (delete and recreate) the collection.
+        rebuild: Whether to rebuild (delete and recreate) the collection(s).
         force: Whether to force re-ingestion regardless of file changes.
         preprocessor: Optional preprocessor configuration.
     """
 
-    collection_name: str
+    collection_name: str | None
     file_paths: list[str]
+    collection_prefix: str | None = None
+    chunking_override: ChunkingConfig | None = None
     metadata: dict[str, Any] | None = None
     rebuild: bool = True
     force: bool = False
@@ -177,6 +188,7 @@ def build_index(
     rag_config: RagConfig,
     collection_name: str,
     rebuild: bool = True,
+    chunking_override: ChunkingConfig | None = None,
 ) -> tuple[VectorStoreIndex, int]:
     """Build a vector index from documents.
 
@@ -212,7 +224,7 @@ def build_index(
     # NOTE: VectorStoreIndex.from_documents() with ChromaDB skips the docstore
     # (ChromaDB is the authoritative node store). We run the pipeline explicitly
     # so we have the nodes to save separately for BM25.
-    chunking = rag_config.chunking
+    chunking = chunking_override if chunking_override is not None else rag_config.chunking
     splitter = SentenceSplitter(
         chunk_size=chunking.chunk_size,
         chunk_overlap=chunking.chunk_overlap,
@@ -247,6 +259,103 @@ def build_index(
     return index, len(nodes)
 
 
+def run_split_ingestion(
+    ingest_config: IngestConfig,
+    rag_config: RagConfig,
+) -> list[tuple[str, VectorStoreIndex, int]]:
+    """Run ingestion for a split-mode preprocessor.
+
+    A split-mode preprocessor (e.g. ``LeanIXPreprocessor`` with
+    ``output_format='split'``) generates one Markdown file per logical section
+    and declares which ChromaDB collection each file belongs to via
+    :attr:`PreprocessorResult.section_collection_map`.
+
+    This function processes each section independently, loading documents and
+    building a separate vector index per collection.
+
+    Args:
+        ingest_config: Ingestion configuration with ``collection_prefix`` set
+            and ``preprocessor`` configured for split mode.
+        rag_config: RAG configuration (chunking may be overridden via
+            ``ingest_config.chunking_override``).
+
+    Returns:
+        List of ``(collection_name, VectorStoreIndex, node_count)`` tuples,
+        one entry per section that was successfully ingested.
+    """
+    logger.info("Starting split ingestion with prefix: %s", ingest_config.collection_prefix)
+    from elt_llm_ingest.preprocessor import get_preprocessor
+
+    chroma_client = create_chroma_client(rag_config.chroma)
+    results: list[tuple[str, VectorStoreIndex, int]] = []
+
+    for source_file in ingest_config.file_paths:
+        source_path = Path(source_file).expanduser().resolve()
+
+        # ── Run preprocessor to produce section files ──────────────────────
+        preprocessor = get_preprocessor(ingest_config.preprocessor)
+        persist_dir = Path(rag_config.chroma.persist_dir).expanduser()
+        output_base = persist_dir.parent / "_leanix_sections" / source_path.stem
+
+        logger.info("Running split preprocessor on: %s → %s", source_path, output_base)
+        result = preprocessor.preprocess(str(source_path), str(output_base))
+
+        if not result.success:
+            logger.error("Preprocessing failed: %s", result.message)
+            continue
+
+        if not result.section_collection_map:
+            logger.warning(
+                "Preprocessor returned no section_collection_map. "
+                "Ensure output_format='split' and collection_prefix is set."
+            )
+            continue
+
+        logger.info(
+            "Preprocessor produced %d sections: %s",
+            len(result.section_collection_map),
+            list(result.section_collection_map.values()),
+        )
+
+        # ── Ingest each section into its own collection ────────────────────
+        for file_path, collection_name in result.section_collection_map.items():
+            logger.info("Ingesting section file → collection '%s': %s", collection_name, file_path)
+
+            if ingest_config.rebuild:
+                delete_collection(chroma_client, collection_name)
+                from elt_llm_ingest.file_hash import remove_file_hashes
+                remove_file_hashes(chroma_client, [file_path], collection_name)
+
+            section_docs = load_documents(
+                file_paths=[file_path],
+                metadata={
+                    **(ingest_config.metadata or {}),
+                    "leanix_section": collection_name,
+                },
+                # Skip hash checking when rebuilding (collection just wiped)
+                chroma_client=chroma_client if not ingest_config.rebuild else None,
+                collection_name=collection_name,
+                force=ingest_config.force,
+                preprocessor=None,  # already preprocessed above
+            )
+
+            if not section_docs:
+                logger.info("No documents for section '%s' (unchanged or empty)", collection_name)
+                continue
+
+            index, node_count = build_index(
+                documents=section_docs,
+                rag_config=rag_config,
+                collection_name=collection_name,
+                rebuild=ingest_config.rebuild,
+                chunking_override=ingest_config.chunking_override,
+            )
+            results.append((collection_name, index, node_count))
+            logger.info("Section '%s': %d nodes indexed", collection_name, node_count)
+
+    return results
+
+
 def run_ingestion(
     ingest_config: IngestConfig,
     rag_config: RagConfig,
@@ -264,6 +373,19 @@ def run_ingestion(
     Raises:
         ValueError: If no documents were loaded.
     """
+    # ── Dispatch to split ingestion when a collection_prefix is set ───────
+    if ingest_config.collection_prefix is not None:
+        split_results = run_split_ingestion(ingest_config, rag_config)
+        if not split_results:
+            raise ValueError(
+                "Split ingestion produced no results. "
+                "Check file paths and preprocessor configuration."
+            )
+        total_nodes = sum(n for _, _, n in split_results)
+        last_index = split_results[-1][1]
+        return last_index, total_nodes
+
+    # ── Standard single-collection ingestion ──────────────────────────────
     logger.info("Starting ingestion pipeline for collection: %s", ingest_config.collection_name)
 
     # Create Chroma client for hash tracking

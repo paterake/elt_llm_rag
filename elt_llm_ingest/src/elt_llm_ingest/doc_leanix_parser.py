@@ -422,6 +422,225 @@ class LeanIXExtractor:
             return mapping[cardinality]
         return f"relates to ({cardinality})" if cardinality else "relates to"
     
+    def _sanitize_section_key(self, name: str) -> str:
+        """Sanitize a domain name into a valid section key for use in collection names."""
+        key = name.lower()
+        key = re.sub(r'[^a-z0-9]+', '_', key)
+        key = key.strip('_')
+        return key
+
+    def to_section_files(self) -> Dict[str, str]:
+        """Generate section-specific Markdown, one entry per logical domain + relationships.
+
+        Produces focused, self-contained documents suitable for loading into separate
+        ChromaDB collections. This avoids the chunking fragmentation that occurs when
+        relationships and entity lists are interleaved in a single large Markdown file.
+
+        Returns:
+            Dict mapping section_key → markdown_content. Keys are sanitized domain
+            names (e.g. 'agreements', 'product', 'transaction_and_events') plus
+            'overview', 'additional_entities', and 'relationships'.
+        """
+        sections: Dict[str, str] = {}
+
+        # Build domain → assets mapping
+        assets_by_group: Dict[str, List[LeanIXAsset]] = defaultdict(list)
+        for asset in self.assets.values():
+            group = asset.parent_group or "Uncategorized"
+            assets_by_group[group].append(asset)
+        uncategorized_assets = assets_by_group.pop("Uncategorized", [])
+        domain_names = sorted(assets_by_group.keys())
+
+        # ── Overview ──────────────────────────────────────────────────────────
+        md: List[str] = []
+        md.append("# FA Enterprise Conceptual Data Model — Overview\n\n")
+        md.append(
+            f"The FA Enterprise Conceptual Data Model (source: {self.xml_file.name}) "
+            f"contains {len(self.assets)} DataObject entities organised into "
+            f"{len(domain_names)} named domain groups: {', '.join(domain_names)}. "
+            f"These domains are connected through {len(self.relationships)} entity "
+            f"relationships.\n\n"
+        )
+        for group_name in domain_names:
+            group_assets = assets_by_group[group_name]
+            members = [a.label for a in group_assets if a.label.upper() != group_name.upper()]
+            md.append(f"The **{group_name}** domain contains {len(members)} entities.\n\n")
+        sections["overview"] = "".join(md)
+
+        # ── One section per domain ────────────────────────────────────────────
+        for group_name in domain_names:
+            group_assets = sorted(assets_by_group[group_name], key=lambda a: a.label)
+            members = [a.label for a in group_assets if a.label.upper() != group_name.upper()]
+
+            md = []
+            md.append(f"# {group_name} Domain — FA Enterprise Conceptual Data Model\n\n")
+            md.append(
+                f"The {group_name} domain is part of the FA Enterprise Conceptual Data Model. "
+                f"It contains {len(members)} entities.\n\n"
+            )
+            if members:
+                md.append(f"The entities within the {group_name} domain are:\n\n")
+                for member in members:
+                    md.append(f"- **{member}**\n")
+                md.append("\n")
+
+            # Include relationships that touch this domain (for co-location context)
+            domain_rels = [
+                r for r in self.relationships
+                if r.source_label == group_name or r.target_label == group_name
+            ]
+            if domain_rels:
+                md.append(f"## {group_name} Domain Relationships\n\n")
+                for rel in sorted(domain_rels, key=lambda r: r.target_label or ""):
+                    source = rel.source_label or rel.source_id
+                    target = rel.target_label or rel.target_id
+                    cardinality_desc = self._describe_cardinality(rel.cardinality)
+                    md.append(f"- **{source}** {cardinality_desc} **{target}**\n")
+                md.append("\n")
+
+            section_key = self._sanitize_section_key(group_name)
+            sections[section_key] = "".join(md)
+
+        # ── Additional entities (uncategorized: party types, channels, etc.) ──
+        if uncategorized_assets:
+            party_types: List[str] = []
+            channel_types: List[str] = []
+            account_types: List[str] = []
+            asset_types: List[str] = []
+            other: List[str] = []
+
+            for asset in uncategorized_assets:
+                label = asset.label.lower()
+                if any(p in label for p in [
+                    'player', 'club', 'team', 'individual', 'organisation', 'employee',
+                    'customer', 'member', 'official', 'learner', 'prospect', 'supplier',
+                    'county', 'charity', 'government', 'school', 'authority', 'candidate',
+                    'mentor', 'developer', 'household', 'unit', 'supporter', 'attendee',
+                ]):
+                    party_types.append(asset.label)
+                elif any(c in label for c in [
+                    'channel', 'broadcast', 'streaming', 'tv', 'radio', 'sms', 'email',
+                    'mobile', 'web', 'portal', 'social', 'push', 'live', 'chat',
+                    'call centre', 'concierge', 'in person', 'pos', 'turnstile', 'merchandise',
+                ]):
+                    channel_types.append(asset.label)
+                elif 'account' in label:
+                    account_types.append(asset.label)
+                elif 'asset' in label or 'data' in label or 'property' in label:
+                    asset_types.append(asset.label)
+                else:
+                    other.append(asset.label)
+
+            md = []
+            md.append("# Additional Entities — FA Enterprise Conceptual Data Model\n\n")
+            md.append(
+                "The following entities are defined in the FA Enterprise Conceptual Data Model "
+                "and include key party, channel, account, and asset entities that form the "
+                "core of The Football Association's data landscape.\n\n"
+            )
+            if party_types:
+                md.append(
+                    f"**Party Types ({len(party_types)} entities):** "
+                    f"{', '.join(sorted(party_types))}.\n\n"
+                )
+            if channel_types:
+                md.append(
+                    f"**Channel Types ({len(channel_types)} entities):** "
+                    f"{', '.join(sorted(channel_types))}.\n\n"
+                )
+            if account_types:
+                md.append(
+                    f"**Account Types ({len(account_types)} entities):** "
+                    f"{', '.join(sorted(account_types))}.\n\n"
+                )
+            if asset_types:
+                md.append(
+                    f"**Asset Types ({len(asset_types)} entities):** "
+                    f"{', '.join(sorted(asset_types))}.\n\n"
+                )
+            if other:
+                md.append(
+                    f"**Other Entities ({len(other)} entities):** "
+                    f"{', '.join(sorted(other))}.\n\n"
+                )
+            sections["additional_entities"] = "".join(md)
+
+        # ── Relationships: one headed section per relationship for clean chunking ──
+        if self.relationships:
+            md = []
+            md.append("# Entity Relationships — FA Enterprise Conceptual Data Model\n\n")
+            md.append(
+                f"This document lists all {len(self.relationships)} domain-level entity "
+                "relationships in the FA Enterprise Conceptual Data Model. "
+                "Each relationship section is self-contained: it names the source and target "
+                "domains, states the cardinality, and lists representative entities from each "
+                "domain so that any retrieved chunk carries full context.\n\n"
+            )
+
+            rels_by_source: Dict[str, List[LeanIXRelationship]] = defaultdict(list)
+            for rel in self.relationships:
+                rels_by_source[rel.source_label or rel.source_id].append(rel)
+
+            for source_label in sorted(rels_by_source.keys()):
+                for rel in sorted(rels_by_source[source_label], key=lambda r: r.target_label or ""):
+                    target_label = rel.target_label or rel.target_id
+                    cardinality_desc = self._describe_cardinality(rel.cardinality)
+
+                    source_members = sorted(
+                        a.label for a in self.assets.values()
+                        if a.parent_group == source_label and a.label.upper() != source_label.upper()
+                    )
+                    target_members = sorted(
+                        a.label for a in self.assets.values()
+                        if a.parent_group == target_label and a.label.upper() != target_label.upper()
+                    )
+
+                    md.append(f"## Relationship: {source_label} → {target_label}\n\n")
+                    md.append(
+                        f"**{source_label}** {cardinality_desc} **{target_label}**.\n\n"
+                    )
+                    if source_members:
+                        md.append(
+                            f"The **{source_label}** domain includes entities: "
+                            f"{', '.join(source_members[:12])}"
+                            f"{'...' if len(source_members) > 12 else ''}.\n\n"
+                        )
+                    if target_members:
+                        md.append(
+                            f"The **{target_label}** domain includes entities: "
+                            f"{', '.join(target_members[:12])}"
+                            f"{'...' if len(target_members) > 12 else ''}.\n\n"
+                        )
+            sections["relationships"] = "".join(md)
+
+        return sections
+
+    def save_sections(self, output_dir: str, prefix: str = "") -> Dict[str, str]:
+        """Write each section to a separate Markdown file in output_dir.
+
+        Args:
+            output_dir: Directory to write files into (created if it doesn't exist).
+            prefix: Optional filename prefix (e.g. 'leanix_').
+
+        Returns:
+            Dict mapping section_key → absolute file path.
+        """
+        output_dir_path = Path(output_dir)
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+
+        sections = self.to_section_files()
+        file_map: Dict[str, str] = {}
+
+        for section_key, content in sections.items():
+            filename = f"{prefix}{section_key}.md" if prefix else f"{section_key}.md"
+            file_path = output_dir_path / filename
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            file_map[section_key] = str(file_path)
+            print(f"  Saved section '{section_key}' → {file_path}")
+
+        return file_map
+
     def save(self, output_path: str, format: str = "both"):
         """Save extracted data to file(s).
         

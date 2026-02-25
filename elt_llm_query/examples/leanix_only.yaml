@@ -1,16 +1,33 @@
-# Query Config: LeanIX Enterprise Conceptual Data Model
+# Query Config: LeanIX Enterprise Conceptual Data Model — All Sections
+#
+# Queries all fa_leanix_* collections produced by the split preprocessor.
+# Use this for general questions about the FA conceptual model.
+#
+# For targeted relationship queries, use: leanix_relationships.yaml
+# For party/entity queries, use: leanix_entities.yaml
 
-# Collections to query
 collections:
-  - name: "fa_ea_leanix"
+  - name: "fa_leanix_overview"
+  - name: "fa_leanix_additional_entities"
+  - name: "fa_leanix_relationships"
+  - name: "fa_leanix_agreements"
+  - name: "fa_leanix_campaign"
+  - name: "fa_leanix_location"
+  - name: "fa_leanix_product"
+  - name: "fa_leanix_reference_data"
+  - name: "fa_leanix_static_data"
+  - name: "fa_leanix_time_bounded_groupings"
+  - name: "fa_leanix_transaction_and_events"
 
-# Query settings
 query:
-  similarity_top_k: 5
+  similarity_top_k: 10
   system_prompt: |
     You are a helpful enterprise data architect assistant.
-    You answer questions about the FA Enterprise Conceptual Data Model, which was extracted from a LeanIX diagram.
-    The model describes entity types (Party, Channel, Account, Asset, etc.) and their relationships.
+    You answer questions about the FA Enterprise Conceptual Data Model, extracted from LeanIX.
+    The model contains 217 entities organised into domain groups (AGREEMENTS, CAMPAIGN, LOCATION,
+    PRODUCT, REFERENCE DATA, TRANSACTION AND EVENTS, and more), plus party types (Club, Player,
+    Team, Match Official, etc.), channel types, accounts, and assets.
+    There are 16 domain-level relationships connecting the groups.
     Always ground your answers in the retrieved content.
     When listing entities or relationships, be explicit and complete.
     If the information is not available in the documents, say so clearly.

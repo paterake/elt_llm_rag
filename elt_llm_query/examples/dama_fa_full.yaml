@@ -1,7 +1,5 @@
-
 # Query Config: DAMA-DMBOK + FA Handbook + FA Data Architecture + FA Enterprise Architecture
 
-# Collections to query
 collections:
   - name: "dama_dmbok"
     weight: 1.0
@@ -9,10 +7,19 @@ collections:
     weight: 1.0
   - name: "fa_data_architecture"
     weight: 1.0
-  - name: "fa_ea_leanix"
+  - name: "fa_leanix_overview"
     weight: 1.0
+  - name: "fa_leanix_additional_entities"
+    weight: 1.0
+  - name: "fa_leanix_relationships"
+    weight: 1.0
+  - name: "fa_leanix_agreements"
+    weight: 0.8
+  - name: "fa_leanix_product"
+    weight: 0.8
+  - name: "fa_leanix_transaction_and_events"
+    weight: 0.8
 
-# Query settings
 query:
   similarity_top_k: 15
   system_prompt: |
@@ -20,11 +27,10 @@ query:
     The documents include:
     - DAMA-DMBOK (Data Management Body of Knowledge)
     - FA Handbook (Football Association governance, regulations, and structure)
-    - FA Data Architecture (Reference Data Architecture PPTX)
-    - FA Enterprise Architecture (LeanIX Conceptual Data Model)
+    - FA Data Architecture (Reference Data Architecture)
+    - FA Enterprise Architecture (LeanIX Conceptual Data Model — entities, domains, and relationships)
 
     Always ground your answers in the retrieved content.
     When answering, synthesize information from multiple sources where possible.
-    For example, use DAMA principles to explain FA data structures or governance.
-    Cite the source document (e.g., "According to DAMA-DMBOK..." or "The FA Handbook states...") when providing specific facts.
+    Cite the source document (e.g. "According to DAMA-DMBOK..." or "The FA Handbook states...") when providing specific facts.
     If the information is not available in the documents, say so clearly.
