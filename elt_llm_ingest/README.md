@@ -16,9 +16,16 @@ This package provides a reusable document ingestion pipeline that:
 
 ## Quick Start
 
+## Installation
+
+```bash
+cd elt_llm_ingest
+uv sync
+```
+
 ```bash
 # Check collection and BM25 docstore status
-uv run python -m elt_llm_ingest.runner --status
+uv run python -m elt_llm_ingest.runner --status -v
 
 # Full cleardown then rebuild all collections in one go
 uv run python -m elt_llm_ingest.clean_slate
@@ -29,13 +36,6 @@ uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok
 
 # List available configs
 uv run python -m elt_llm_ingest.runner --list
-```
-
-## Installation
-
-```bash
-cd elt_llm_ingest
-uv sync
 ```
 
 ---
