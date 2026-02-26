@@ -150,6 +150,10 @@ def _build_hybrid_retriever(
         from llama_index.core.retrievers import QueryFusionRetriever
         from llama_index.retrievers.bm25 import BM25Retriever
 
+        # bm25s resets its own logger to DEBUG on import — suppress it after the fact
+        import logging as _logging
+        _logging.getLogger("bm25s").setLevel(_logging.WARNING)
+
         docstore_storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
         nodes = list(docstore_storage.docstore.docs.values())
         logger.info("Loaded %d nodes from docstore at '%s'", len(nodes), docstore_path.resolve())
@@ -169,8 +173,10 @@ def _build_hybrid_retriever(
         from elt_llm_core.models import create_llm_model
         Settings.llm = create_llm_model(rag_config.ollama)
 
+        # BM25 requires k <= number of nodes; cap it to avoid a warning on small collections
+        bm25_top_k = min(top_k, len(nodes))
         vector_retriever = index.as_retriever(similarity_top_k=top_k)
-        bm25_retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=top_k)
+        bm25_retriever = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=bm25_top_k)
         logger.info("BM25Retriever created successfully for '%s'", collection_name)
 
         hybrid_retriever = QueryFusionRetriever(

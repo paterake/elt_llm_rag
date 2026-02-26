@@ -1,16 +1,26 @@
 # elt-llm-query
 
-Query interface for RAG systems with multi-collection support.
+Query interface for RAG systems with multi-collection and hybrid vector+keyword search.
 
 ## Overview
 
-This package provides a flexible query interface for RAG (Retrieval-Augmented Generation) systems:
+- Single-query and interactive (REPL) modes
+- Queries one or many ChromaDB collections in a single LLM call
+- Hybrid search: BM25 keyword retrieval fused with vector similarity (reciprocal rerank)
+- Collection prefix resolution — `fa_leanix` expands to all `fa_leanix_*` collections at runtime
+- Source attribution with similarity scores in every response
+- Query profiles (`llm_rag_profile/*.yaml`) configure which collections and system prompt to use
 
-- Query single or multiple collections
-- Load existing indices from ChromaDB
-- Interactive and single-query modes
-- Source attribution with scores
-- Configurable collection combinations
+## Prerequisites
+
+- Python 3.11, 3.12, or 3.13
+- Ollama running locally with the required models:
+  ```bash
+  ollama serve
+  ollama pull nomic-embed-text
+  ollama pull qwen2.5:14b
+  ```
+- Collections must be ingested before querying — see [elt_llm_ingest/README.md](../elt_llm_ingest/README.md)
 
 ## Installation
 
@@ -19,144 +29,180 @@ cd elt_llm_query
 uv sync
 ```
 
-## Usage
+---
 
-### List Available Configs
+## Commands
+
+**All commands are run from the repository root.**
+
+### List available profiles
 
 ```bash
 uv run python -m elt_llm_query.runner --list
 ```
 
-### Query Single Collection
+Shows each profile name, the collections it targets, and usage examples.
+
+### Single query
 
 ```bash
-# Interactive mode (DAMA only)
-uv run python -m elt_llm_query.runner --cfg dama_only
-
-# Single query
-uv run python -m elt_llm_query.runner --cfg dama_only -q "What is data governance?"
-
-# Verbose output
-uv run python -m elt_llm_query.runner --cfg dama_only -v
+uv run python -m elt_llm_query.runner --cfg <profile> -q "Your question here"
 ```
 
-### Query Multiple Collections
+### Interactive session
 
 ```bash
-# Query DAMA + FA Handbook together
-uv run python -m elt_llm_query.runner --cfg dama_fa_combined -q "How does data governance relate to financial controls?"
-
-# Query all collections
-uv run python -m elt_llm_query.runner --cfg all_collections -q "..."
-
-# Interactive mode with multiple collections
-uv run python -m elt_llm_query.runner --cfg dama_fa_combined
+uv run python -m elt_llm_query.runner --cfg <profile>
+# Type questions at the prompt — 'quit' or 'exit' to stop
 ```
 
-## Example Configs
+### Log level
 
-The `examples/` directory includes predefined query configs:
+```bash
+# Pipeline detail (retrieval, collection resolution)
+uv run python -m elt_llm_query.runner --cfg <profile> -q "..." --log-level INFO
 
-| Config | Collections | Use Case |
-|--------|-------------|----------|
-| `dama_only.yaml` | DAMA-DMBOK | Data management questions |
-| `fa_handbook_only.yaml` | FA Handbook | Financial accounting questions |
-| `dama_fa_combined.yaml` | DAMA + FA | Cross-domain questions |
-| `all_collections.yaml` | All | General queries across all docs |
-| `architecture_focus.yaml` | SAD + LeanIX | Architecture questions |
-| `vendor_assessment.yaml` | LeanIX + Supplier | Vendor evaluation |
+# Full debug (LlamaIndex internals, ChromaDB calls)
+uv run python -m elt_llm_query.runner --cfg <profile> -q "..." -v
+```
 
-## Configuration
+---
 
-### Query Config (`examples/*.yaml`)
+## Query Profiles
+
+Profiles live in `llm_rag_profile/`. See [QUERY.md](QUERY.md) for example queries for each profile.
+
+| Profile | Collections queried | Use for |
+|---------|-------------------|---------|
+| `leanix_relationships` | `fa_leanix_relationships`, `fa_leanix_overview` | The 16 domain-level relationships and cardinalities |
+| `leanix_only` | All `fa_leanix_*` (via prefix) | Broad FA conceptual model — entities, domains, structure |
+| `leanix_fa_combined` | All `fa_leanix_*` + `fa_handbook` | Gap analysis, handbook enrichment, governance-to-model mapping |
+| `fa_data_management` | All `fa_leanix_*` + `fa_handbook` + `fa_data_architecture` + `dama_dmbok` | Full data management programme queries |
+| `dama_fa_full` | `dama_dmbok` + `fa_handbook` + `fa_data_architecture` + key `fa_leanix_*` | DAMA-aligned queries with FA architecture context |
+| `dama_fa_combined` | `dama_dmbok` + `fa_handbook` | Data management vs FA governance |
+| `dama_only` | `dama_dmbok` | DAMA-DMBOK questions |
+| `fa_handbook_only` | `fa_handbook` | FA rules, governance, and regulations |
+| `all_collections` | All ingested collections | Broadest possible search |
+| `architecture_focus` | Specific `fa_leanix_*` | Architecture queries (partial — `fa_ea_sad` not yet ingested) |
+| `vendor_assessment` | Specific `fa_leanix_*` | Vendor queries (partial — `supplier_assess` not yet ingested) |
+
+---
+
+## Profile Configuration
+
+### Profile YAML format
 
 ```yaml
-# Collections to query
+# Explicit collections
 collections:
-  - name: "dama_dmbok"
-    weight: 1.0
   - name: "fa_handbook"
-    weight: 1.0
-
-# Query settings
-query:
-  similarity_top_k: 10
-  system_prompt: |
-    You are a helpful assistant that answers questions based on the provided documents.
-    Always ground your answers in the retrieved content.
-    Cite the source when relevant.
-```
-
-### Creating Custom Query Configs
-
-1. Create a new config in `examples/`:
-
-```yaml
-# examples/my_custom.yaml
-collections:
   - name: "dama_dmbok"
-  - name: "sad"
+
+# Prefix expansion — resolves to all matching collections at runtime
+collection_prefixes:
+  - name: "fa_leanix"       # → fa_leanix_agreements, fa_leanix_relationships, etc.
 
 query:
-  similarity_top_k: 10
+  similarity_top_k: 10      # chunks retrieved across all collections combined
   system_prompt: |
-    Answer based on DAMA-DMBOK and SAD documentation.
+    You are a helpful assistant...
 ```
 
-2. Query:
+| Field | Description |
+|-------|-------------|
+| `collections[].name` | Exact ChromaDB collection name |
+| `collection_prefixes[].name` | Prefix — resolves to all `{prefix}_*` collections at runtime |
+| `query.similarity_top_k` | Total chunks kept after merging results from all collections |
+| `query.system_prompt` | System prompt for every LLM call under this profile |
+
+### Creating a custom profile
 
 ```bash
-uv run python -m elt_llm_query.runner --cfg my_custom -q "..."
+cat > elt_llm_query/llm_rag_profile/my_profile.yaml << 'EOF'
+collections:
+  - name: "fa_handbook"
+
+collection_prefixes:
+  - name: "fa_leanix"
+
+query:
+  similarity_top_k: 10
+  system_prompt: |
+    You are a helpful assistant...
+EOF
+
+uv run python -m elt_llm_query.runner --cfg my_profile -q "Your question"
 ```
+
+---
+
+## How Multi-Collection Retrieval Works
+
+1. **Retrieve** — each collection is searched independently using hybrid BM25 + vector search
+2. **Merge** — chunks from all collections are combined and sorted by score
+3. **Trim** — the top `similarity_top_k` chunks are kept across all collections
+4. **Synthesise** — a single LLM call receives all combined chunks as context
+
+The Sources section in the output shows which collection each chunk came from and its similarity score, making it straightforward to verify which source drove each part of the response.
+
+---
 
 ## Module Structure
 
 ```
 elt_llm_query/
-├── examples/
-│   ├── dama_only.yaml           # Query DAMA only
-│   ├── fa_handbook_only.yaml    # Query FA only
-│   ├── dama_fa_combined.yaml    # Query both
-│   ├── all_collections.yaml     # Query all
-│   ├── architecture_focus.yaml  # Architecture docs
-│   └── vendor_assessment.yaml   # Vendor docs
+├── llm_rag_profile/
+│   ├── leanix_relationships.yaml    # 16 domain relationships — targeted retrieval
+│   ├── leanix_only.yaml             # All fa_leanix_* via prefix
+│   ├── leanix_fa_combined.yaml      # LeanIX + FA Handbook
+│   ├── fa_data_management.yaml      # LeanIX + Handbook + Data Arch + DAMA
+│   ├── dama_fa_full.yaml            # DAMA + Handbook + Data Arch + key LeanIX
+│   ├── dama_fa_combined.yaml        # DAMA + FA Handbook
+│   ├── dama_only.yaml
+│   ├── fa_handbook_only.yaml
+│   ├── all_collections.yaml
+│   ├── architecture_focus.yaml      # partial — fa_ea_sad not yet ingested
+│   └── vendor_assessment.yaml       # partial — supplier_assess not yet ingested
+├── QUERY.md                         # All example and validation queries
 ├── src/elt_llm_query/
-│   ├── __init__.py
-│   ├── runner.py                # Generic runner (--cfg parameter)
-│   └── query.py                 # Query functions
+│   ├── runner.py                    # Main CLI: --cfg, --list, -q, --log-level
+│   ├── query.py                     # Query functions, hybrid retriever, prefix resolution
+│   └── cli.py                       # Legacy CLI entry point (use runner.py)
 └── tests/
 ```
 
-## Multi-Collection Querying
+---
 
-When querying multiple collections:
+## Troubleshooting
 
-1. Each collection is searched independently
-2. Results are combined and sorted by relevance score
-3. Top-k results are returned across all collections
-4. The LLM response is based on the combined context
+### "No collections found" or empty response
 
-This allows you to:
-- Ask questions that span multiple domains
-- Get unified answers from diverse sources
-- Maintain separation of concerns in ingestion
+Check collections are ingested:
 
-## Dependencies
+```bash
+uv run python -m elt_llm_ingest.runner --status
+```
 
-- `elt_llm_core` - Core RAG infrastructure
-- `llama-index` - Index management
+### Relationships missing from response
 
-## Prerequisites
+`fa_leanix_relationships` should show 4 chunks and 4 BM25 nodes. If not, re-ingest:
 
-- Python 3.11, 3.12, or 3.13 (ChromaDB is not yet compatible with Python 3.14)
-- Ollama running locally: `ollama serve`
-- Required models:
-  ```bash
-  ollama pull nomic-embed-text
-  ollama pull llama3.2
-  ```
+```bash
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_ea_leanix
+```
 
-## Related Packages
+### FA Handbook absent from combined query sources
 
-- `elt_llm_ingest` - Document ingestion pipeline
-- `elt_llm_core` - Core RAG infrastructure
+With `leanix_fa_combined`, frame the question to explicitly span both sources — e.g. *"...and what does the FA Handbook say about..."*
+
+### Slow responses
+
+Response time is dominated by the Ollama LLM call. Reduce `similarity_top_k` in the profile to give the LLM less context.
+
+---
+
+## See Also
+
+- **[QUERY.md](QUERY.md)** — all example and validation queries, organised by profile
+- **[elt_llm_ingest/README.md](../elt_llm_ingest/README.md)** — ingestion, clean slate, batch rebuild, status
+- **elt_llm_core/** — ChromaDB client, query engine, BM25 hybrid retriever
