@@ -343,6 +343,10 @@ chunking:
 query:
   similarity_top_k: 10
   use_hybrid_search: true
+  use_reranker: true
+  reranker_strategy: "embedding"   # "embedding" (Ollama/local) | "cross-encoder" (requires HuggingFace)
+  reranker_retrieve_k: 20          # candidates fetched before reranking
+  reranker_top_k: 8                # chunks kept after reranking
 ```
 
 ---

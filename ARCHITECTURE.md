@@ -98,6 +98,12 @@ This RAG platform transforms how FA architecture knowledge is:
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                    ↓                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  Embedding Reranker                                              │    │
+│  │  - Cosine similarity re-scoring via nomic-embed-text (Ollama)   │    │
+│  │  - Replaces flat RRF scores with discriminative relevance scores │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                    ↓                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  LLM Synthesis (Ollama: llama3.2, qwen2.5:14b)                   │    │
 │  │  - Grounded responses with source attribution                    │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
@@ -154,8 +160,9 @@ elt_llm_rag/
 | **Embedding Model** | Ollama: `nomic-embed-text` | 768 dimensions |
 | **LLM** | Ollama: `llama3.2`, `qwen2.5:14b` | Context: 4096-32768 |
 | **Vector Store** | ChromaDB | Tenant/DB/Collection |
-| **Chunking** | LlamaIndex | Sentence transformers |
+| **Chunking** | LlamaIndex | Sentence splitter |
 | **Hybrid Search** | BM25 + Vector | QueryFusionRetriever |
+| **Reranker** | Ollama: `nomic-embed-text` | Embedding cosine similarity |
 | **Preprocessing** | Custom Python | LeanIX XML→Markdown |
 | **Dependency Mgmt** | uv | Python 3.11-3.13 |
 
@@ -226,7 +233,7 @@ The LeanIX conceptual model defines **domain groups** and **entities**:
 |-----------|--------|-------------|
 | **ChromaDB Integration** | ✅ Complete | Tenant/database/collection support |
 | **Ollama Models** | ✅ Complete | Embedding + LLM configuration |
-| **Query Engine** | ✅ Complete | Hybrid search (BM25 + vector) |
+| **Query Engine** | ✅ Complete | Hybrid search (BM25 + vector) + embedding reranker |
 | **Configuration** | ✅ Complete | YAML-based configs |
 | **Smart Ingest** | ✅ Complete | SHA256 file change detection |
 

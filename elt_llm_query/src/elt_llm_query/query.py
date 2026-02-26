@@ -287,42 +287,16 @@ def _rerank_nodes(
             logger.warning("Embedding reranker failed: %s — returning original nodes.", e)
             return nodes
 
-    # Default: cross-encoder via sentence-transformers
-    try:
-        from sentence_transformers import CrossEncoder
-        import logging as _logging
-        _logging.getLogger("sentence_transformers").setLevel(_logging.WARNING)
-        _logging.getLogger("huggingface_hub").setLevel(_logging.ERROR)
-
-        model_name = rag_config.query.reranker_model
-        logger.info("Reranking %d nodes with cross-encoder '%s'", len(nodes), model_name)
-
-        model = CrossEncoder(model_name)
-        pairs = [(query, n.node.text) for n in nodes]
-        scores = model.predict(pairs)
-
-        from llama_index.core.schema import NodeWithScore
-        ranked = sorted(zip(nodes, scores), key=lambda x: float(x[1]), reverse=True)
-        top_k = rag_config.query.reranker_top_k
-        result = [NodeWithScore(node=n.node, score=float(s)) for n, s in ranked[:top_k]]
-
-        logger.info(
-            "Reranker: kept top %d/%d nodes (scores %.4f – %.4f)",
-            len(result), len(nodes),
-            result[0].score if result else 0.0,
-            result[-1].score if result else 0.0,
-        )
-        return result
-
-    except ImportError:
-        logger.warning(
-            "sentence-transformers not installed; skipping reranker. "
-            "Run: uv add sentence-transformers"
-        )
-        return nodes
-    except Exception as e:
-        logger.warning("Reranker failed: %s — returning original nodes.", e, exc_info=True)
-        return nodes
+    # Cross-encoder strategy — requires sentence-transformers + HuggingFace model download.
+    # To enable: add "sentence-transformers>=3.0.0" to elt_llm_core/pyproject.toml,
+    # download the model (uv run python -c "from sentence_transformers import CrossEncoder;
+    # CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"), then set
+    # reranker_strategy: "cross-encoder" in rag_config.yaml.
+    logger.warning(
+        "reranker_strategy '%s' is not recognised or not enabled; returning original nodes.",
+        strategy,
+    )
+    return nodes
 
 
 def query_collection(

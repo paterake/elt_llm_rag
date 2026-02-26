@@ -113,6 +113,11 @@ query:
 | `collections[].name` | Exact ChromaDB collection name |
 | `collection_prefixes[].name` | Prefix — resolves to all `{prefix}_*` collections at runtime |
 | `query.similarity_top_k` | Total chunks kept after merging results from all collections |
+| `query.use_hybrid_search` | Enable BM25 + vector fusion (default: `true`) |
+| `query.use_reranker` | Enable embedding reranker after retrieval (default: `true`) |
+| `query.reranker_strategy` | `"embedding"` (Ollama cosine similarity, local) or `"cross-encoder"` (requires HuggingFace) |
+| `query.reranker_retrieve_k` | Number of candidates to retrieve before reranking (default: `20`) |
+| `query.reranker_top_k` | Number of chunks to keep after reranking (default: `8`) |
 | `query.system_prompt` | System prompt for every LLM call under this profile |
 
 ### Creating a custom profile
@@ -141,7 +146,8 @@ uv run python -m elt_llm_query.runner --cfg my_profile -q "Your question"
 1. **Retrieve** — each collection is searched independently using hybrid BM25 + vector search
 2. **Merge** — chunks from all collections are combined and sorted by score
 3. **Trim** — the top `similarity_top_k` chunks are kept across all collections
-4. **Synthesise** — a single LLM call receives all combined chunks as context
+4. **Rerank** — an embedding reranker re-scores candidates using fresh cosine similarity, replacing flat RRF scores with discriminative relevance scores
+5. **Synthesise** — a single LLM call receives all combined chunks as context
 
 The Sources section in the output shows which collection each chunk came from and its similarity score, making it straightforward to verify which source drove each part of the response.
 

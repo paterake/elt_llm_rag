@@ -47,6 +47,7 @@ This roadmap tracks the implementation of the ELT LLM RAG platform as defined in
 | FA Handbook ingestion | ✅ Complete | ~9,673 chunks indexed |
 | LeanIX split ingestion | ✅ Complete | 11 `fa_leanix_*` collections; 15 chunks (split by domain) |
 | Hybrid search (BM25 + vector) | ✅ Complete | QueryFusionRetriever implemented |
+| Embedding reranker | ✅ Complete | Post-retrieval cosine re-scoring via Ollama (`nomic-embed-text`) |
 | Split-mode preprocessor | ✅ Complete | One XML → N domain collections via `collection_prefix` |
 | `collection_prefixes` in profiles | ✅ Complete | Dynamic prefix resolution at query time from ChromaDB |
 | `llm_rag_profile/` RAG profiles | ✅ Complete | 12 profiles; renamed from `examples/`; mixed explicit + prefix |
@@ -509,6 +510,7 @@ file_paths:
 | LeanIX conceptual model | ✅ Ready | "What entities are in the PARTY domain?" |
 | Multi-collection queries | ✅ Ready | "How does DAMA define data governance vs FA Handbook?" |
 | Hybrid search (BM25 + vector) | ✅ Ready | "List all ISO country codes" |
+| Embedding reranker | ✅ Ready | Active by default — replaces flat RRF scores with cosine similarity |
 
 ### A.2 Upcoming Capabilities
 
