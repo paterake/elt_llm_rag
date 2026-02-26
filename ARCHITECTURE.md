@@ -19,6 +19,7 @@
   - [2.2 Module Structure](#22-module-structure)
   - [2.3 Technology Stack](#23-technology-stack)
   - [2.4 Retrieval vs Generation Architecture](#24-retrieval-vs-generation-architecture)
+  - [2.5 API / GUI Layer](#25-api--gui-layer-elt_llm_api)
 - [3. Conceptual Model Alignment](#3-conceptual-model-alignment)
 - [4. What's Built](#4-whats-built)
 - [5. What Needs to Be Built](#5-what-needs-to-be-built)
@@ -153,14 +154,17 @@ elt_llm_rag/
 │       ├── leanix_fa_combined.yaml
 │       └── ...
 │
-└── elt_llm_api/            # REST API (optional)
-    └── api.py
+└── elt_llm_api/            # Gradio GUI + programmatic API
+    └── src/elt_llm_api/
+        ├── app.py          # Gradio web application (port 7860)
+        └── api.py          # Programmatic API
 ```
 
 ### 2.3 Technology Stack
 
 | Component | Technology | Configuration |
 |-----------|------------|---------------|
+| **GUI** | Gradio 6.x | Browser: http://localhost:7860 |
 | **Embedding Model** | Ollama: `nomic-embed-text` | 768 dimensions |
 | **LLM** | Ollama: `qwen2.5:14b` | Context: 8192 |
 | **Vector Store** | ChromaDB | Tenant/DB/Collection |
@@ -278,6 +282,57 @@ Ollama is the local AI runtime. It serves both models with no cloud calls.
 `qwen2.5:14b` is called **once** per query — only at the synthesis step.
 
 **Consequence**: `nomic-embed-text` cannot be swapped without re-ingesting all collections (the stored vectors would be incompatible). Switching the LLM is a one-line config change with no data impact.
+
+---
+
+### 2.5 API / GUI Layer (`elt_llm_api`)
+
+A thin [Gradio](https://www.gradio.app/) web application that exposes the ingest and query pipelines as a browser interface. No RAG logic is reimplemented — `app.py` delegates entirely to the other three modules.
+
+#### Interface
+
+```
+Browser (http://localhost:7860)
+        ↓
+    app.py  (Gradio Blocks — two tabs)
+    ├── Query Tab
+    │   ├── Dropdown: profiles auto-discovered from llm_rag_profile/*.yaml
+    │   └── ChatInterface → load_profile() → query_collections()     [elt_llm_query]
+    └── Ingest Tab
+        ├── Dropdown: configs auto-discovered from elt_llm_ingest/config/*.yaml
+        ├── Run Ingest  → ingest_from_config()                        [elt_llm_ingest]
+        └── Refresh Status → chromadb.PersistentClient (direct)
+```
+
+#### Module Dependencies
+
+| `elt_llm_api` calls | From module | Purpose |
+|---------------------|-------------|---------|
+| `query_collection()` / `query_collections()` | `elt_llm_query` | Run RAG query against one or more collections |
+| `resolve_collection_prefixes()` | `elt_llm_query` | Expand prefix (e.g. `fa_leanix`) to matching collection names at runtime |
+| `ingest_from_config()` | `elt_llm_ingest` | Trigger document ingestion pipeline from a YAML config file |
+| `RagConfig.from_yaml()` | `elt_llm_core` | Load shared config (ChromaDB path, model names, query settings) |
+
+#### Path Resolution
+
+`app.py` locates sibling modules using `Path(__file__).parents[3]` which resolves to the workspace root:
+
+```
+elt_llm_rag/elt_llm_api/src/elt_llm_api/app.py
+                                         ↑ __file__
+                             parents[0] = elt_llm_api/src/elt_llm_api/
+                             parents[1] = elt_llm_api/src/
+                             parents[2] = elt_llm_api/
+                             parents[3] = elt_llm_rag/   ← workspace root
+```
+
+Config paths resolved at runtime:
+
+| Constant | Resolves to |
+|----------|------------|
+| `RAG_CONFIG_PATH` | `elt_llm_ingest/config/rag_config.yaml` |
+| `PROFILES_DIR` | `elt_llm_query/llm_rag_profile/` |
+| `INGEST_CONFIG_DIR` | `elt_llm_ingest/config/` |
 
 ---
 

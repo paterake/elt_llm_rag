@@ -1,6 +1,6 @@
 # elt-llm-api
 
-Gradio GUI and programmatic API for the RAG system. See [ARCHITECTURE.md](../ARCHITECTURE.md) for design documentation.
+Gradio GUI and programmatic API for the RAG system. See [ARCHITECTURE.md § 2.5](../ARCHITECTURE.md#25-api--gui-layer-elt_llm_api) for design documentation.
 
 **All commands run from the repository root.**
 
@@ -10,7 +10,7 @@ Gradio GUI and programmatic API for the RAG system. See [ARCHITECTURE.md](../ARC
 
 ```bash
 # Install
-cd elt_llm_api && uv sync && cd ..
+uv sync --all-packages
 
 # Launch
 uv run python -m elt_llm_api.app
