@@ -81,7 +81,7 @@ This RAG platform transforms how FA architecture knowledge is:
 │                                    ↓                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  Chunking + Embedding (Ollama: nomic-embed-text)                 │    │
-│  │  - Sentence transformers                                         │    │
+│  │  - Sentence splitter (LlamaIndex)                               │    │
 │  │  - Smart change detection (SHA256 file hashing)                  │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                    ↓                                     │
@@ -255,6 +255,29 @@ Retrieval (Top-20) → Reranker (re-scores by relevance) → Top-8 → LLM
 **Purpose**: The initial retrieval uses fast approximations (vector similarity + BM25 scores). The reranker does a more careful scoring pass to ensure the **most relevant** chunks reach the LLM.
 
 **Implementation**: Uses cosine similarity between query and chunk embeddings (via `nomic-embed-text` in Ollama). No external dependencies required.
+
+---
+
+#### Ollama: Two Models, Three Calls
+
+Ollama is the local AI runtime. It serves both models with no cloud calls.
+
+| Model | Size | Role |
+|-------|------|------|
+| `nomic-embed-text` | ~274MB | Embedding — converts text to 768-dim vectors |
+| `qwen2.5:14b` | ~9GB | LLM — synthesises the final answer |
+
+`nomic-embed-text` is called **three times** per query lifecycle:
+
+| Stage | When | Purpose |
+|-------|------|---------|
+| **Ingest** | Once per chunk (at ingest time) | Generate vectors stored in ChromaDB |
+| **Query** | Once per query | Embed the query for vector similarity search |
+| **Rerank** | Once per query (20 candidates) | Re-score retrieved chunks by cosine similarity |
+
+`qwen2.5:14b` is called **once** per query — only at the synthesis step.
+
+**Consequence**: `nomic-embed-text` cannot be swapped without re-ingesting all collections (the stored vectors would be incompatible). Switching the LLM is a one-line config change with no data impact.
 
 ---
 
