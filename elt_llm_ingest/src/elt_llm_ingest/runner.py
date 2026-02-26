@@ -74,8 +74,21 @@ def list_configs() -> int:
     return 0
 
 
+def _docstore_node_count(persist_dir: Path, collection_name: str) -> int | None:
+    """Return the number of nodes in a collection's BM25 docstore, or None if absent."""
+    import json
+    ds = persist_dir / "docstores" / collection_name / "docstore.json"
+    if not ds.exists():
+        return None
+    try:
+        data = json.loads(ds.read_text())
+        return len(data.get("docstore/data", {}))
+    except Exception:
+        return None
+
+
 def status(verbose: bool = False) -> int:
-    """Show status of all ChromaDB collections.
+    """Show status of all ChromaDB collections and their BM25 docstores.
 
     Args:
         verbose: Show detailed information including metadata.
@@ -111,30 +124,59 @@ def status(verbose: bool = False) -> int:
 
     print("\n=== ChromaDB Status ===\n")
     print(f"Persist directory: {persist_dir}\n")
-    print(f"{'Collection Name':<35} {'Documents':>12}  {'Metadata'}")
-    print("-" * 70)
 
-    for collection in collections:
+    if verbose:
+        print(f"{'Collection Name':<35} {'Chunks':>7}  {'BM25 nodes':>10}  {'BM25':>5}  Metadata")
+        print("-" * 90)
+    else:
+        print(f"{'Collection Name':<35} {'Chunks':>7}  {'BM25 nodes':>10}  {'BM25':>5}")
+        print("-" * 62)
+
+    total_docs = 0
+    missing_docstores = []
+
+    for collection in sorted(collections, key=lambda c: c.name):
         try:
             count = collection.count()
-            metadata = collection.metadata or {}
-            metadata_str = str(metadata) if verbose and metadata else "-"
+            total_docs += count
 
-            # Truncate metadata if too long
-            if len(metadata_str) > 50 and not verbose:
-                metadata_str = metadata_str[:47] + "..."
+            # Internal tracking collection — skip docstore check
+            is_internal = collection.name == "file_hashes"
 
-            print(f"{collection.name:<35} {count:>12}  {metadata_str}")
+            if is_internal:
+                bm25_str = "n/a"
+                bm25_nodes_str = "-"
+            else:
+                nodes = _docstore_node_count(persist_dir, collection.name)
+                if nodes is None:
+                    bm25_str = "❌"
+                    bm25_nodes_str = "-"
+                    missing_docstores.append(collection.name)
+                elif nodes == 0:
+                    bm25_str = "⚠️"
+                    bm25_nodes_str = "0"
+                else:
+                    bm25_str = "✅"
+                    bm25_nodes_str = str(nodes)
+
+            if verbose:
+                metadata = collection.metadata or {}
+                metadata_str = str(metadata) if metadata else "-"
+                print(f"{collection.name:<35} {count:>7}  {bm25_nodes_str:>10}  {bm25_str:>5}  {metadata_str}")
+            else:
+                print(f"{collection.name:<35} {count:>7}  {bm25_nodes_str:>10}  {bm25_str:>5}")
         except Exception as e:
-            print(f"{collection.name:<35} {'ERROR':>12}  {e}")
+            print(f"{collection.name:<35} {'ERROR':>7}  {'-':>10}  {'?':>5}  {e}")
 
     print()
+    print(f"Total: {len(collections)} collection(s), {total_docs} chunk(s)")
 
-    # Summary
-    total_docs = sum(c.count() for c in collections)
-    print(f"Total: {len(collections)} collection(s), {total_docs} document(s)")
+    if missing_docstores:
+        print(f"\n⚠️  Missing BM25 docstores (hybrid search will fall back to vector-only):")
+        for name in missing_docstores:
+            print(f"   - {name}")
+
     print()
-
     return 0
 
 

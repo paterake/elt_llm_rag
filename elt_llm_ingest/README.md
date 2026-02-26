@@ -7,26 +7,28 @@ Generic document ingestion pipeline for RAG systems with smart change detection 
 This package provides a reusable document ingestion pipeline that:
 
 - Loads documents from multiple formats (PDF, DOCX, TXT, HTML, etc.)
-- **Preprocesses documents** before embedding (e.g., XML to Markdown for LeanIX)
-- Chunks documents using LlamaIndex transformers
-- Embeds chunks using Ollama
+- **Preprocesses documents** before embedding (e.g., LeanIX XML split into per-domain collections)
+- Chunks documents using LlamaIndex sentence splitters (per-config chunk size override supported)
+- Embeds chunks using Ollama (`nomic-embed-text`)
 - Stores embeddings in ChromaDB
+- Persists a parallel BM25 docstore alongside every collection for hybrid vector+keyword search
 - **Smart ingest**: Automatically skips unchanged files using SHA256 hash detection
 
 ## Quick Start
 
 ```bash
-# Check collection status
+# Check collection and BM25 docstore status
 uv run python -m elt_llm_ingest.runner --status
+
+# Full cleardown then rebuild all collections in one go
+uv run python -m elt_llm_ingest.clean_slate
+uv run python -m elt_llm_ingest.runner --cfg load_rag
+
+# Ingest a single collection
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok
 
 # List available configs
 uv run python -m elt_llm_ingest.runner --list
-
-# Ingest a collection
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok
-
-# Re-run (only processes changed files)
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --no-rebuild
 ```
 
 ## Installation
@@ -36,152 +38,174 @@ cd elt_llm_ingest
 uv sync
 ```
 
-## Usage
+---
 
-**Note:** Run these commands from the `elt_llm_ingest` directory or use the full path.
+## Commands
+
+**All commands are run from the repository root.**
 
 ### Check Collection Status
 
+Shows every ChromaDB collection alongside its BM25 docstore node count. The `BM25` column tells you whether hybrid search is active.
+
 ```bash
-# Show all collections with document counts
+# Compact view — collection name, chunk count, BM25 node count
 uv run python -m elt_llm_ingest.runner --status
 
-# Show detailed metadata
+# Verbose view — also shows ChromaDB collection metadata
 uv run python -m elt_llm_ingest.runner --status -v
 ```
 
 Example output:
+
 ```
 === ChromaDB Status ===
 
 Persist directory: /path/to/chroma_db
 
-Collection Name                        Documents  Metadata
-----------------------------------------------------------------------
-fa_handbook                                 9673  -
-fa_data_architecture                        2261  -
-dama_dmbok                                 11943  -
-file_hashes                                    3  -
+Collection Name                      Chunks  BM25 nodes   BM25
+--------------------------------------------------------------
+dama_dmbok                             2649        2649      ✅
+fa_data_architecture                     66          66      ✅
+fa_handbook                            3537        3537      ✅
+fa_leanix_additional_entities             1           1      ✅
+fa_leanix_agreements                      2           2      ✅
+fa_leanix_campaign                        1           1      ✅
+fa_leanix_location                        1           1      ✅
+fa_leanix_overview                        1           1      ✅
+fa_leanix_product                         1           1      ✅
+fa_leanix_reference_data                  1           1      ✅
+fa_leanix_relationships                   4           4      ✅
+fa_leanix_static_data                     1           1      ✅
+fa_leanix_time_bounded_groupings          1           1      ✅
+fa_leanix_transaction_and_events          1           1      ✅
+file_hashes                               3           -    n/a
 
-Total: 4 collection(s), 23880 document(s)
+Total: 15 collection(s), 6270 chunk(s)
 ```
+
+**BM25 column legend:**
+
+| Symbol | Meaning |
+|--------|---------|
+| ✅ | Docstore present with nodes — hybrid search active |
+| ⚠️ | Docstore present but empty — hybrid search will fall back to vector-only |
+| ❌ | No docstore found — hybrid search will fall back to vector-only |
+| `n/a` | Internal collection (`file_hashes`) — no docstore expected |
+
+---
 
 ### List Available Configs
 
 ```bash
-cd elt_llm_ingest
 uv run python -m elt_llm_ingest.runner --list
-```
-
-### Ingest Documents
-
-```bash
-# Ingest DAMA-DMBOK
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --force
-
-# Ingest FA Handbook
-uv run python -m elt_llm_ingest.runner --cfg fa_handbook --force
-
-# Ingest FA Handbook
-uv run python -m elt_llm_ingest.runner --cfg fa_data_architecture --force
-
-# Ingest SAD
-uv run python -m elt_llm_ingest.runner --cfg sad
-
-# Ingest LeanIX (XML files are preprocessed to Markdown)
-uv run python -m elt_llm_ingest.runner --cfg leanix
-
-# Ingest Supplier Assessment
-uv run python -m elt_llm_ingest.runner --cfg supplier_assess
-```
-
-### Ingest with Options
-
-```bash
-# Verbose output
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok -v
-
-# Append mode (don't rebuild collection, skip unchanged files)
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --no-rebuild
-
-# Verbose + append mode
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok -v --no-rebuild
-
-# Force re-ingestion (bypass hash checking)
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --force
-```
-
-**Smart Ingest Behavior:**
-
-| Mode | Command | Behavior |
-|------|---------|----------|
-| Rebuild (default) | `--cfg dama_dmbok` | Clears collection, re-ingests all files, resets hash tracking |
-| Append | `--cfg dama_dmbok --no-rebuild` | Only ingests changed/new files, preserves existing data |
-| Force | `--cfg dama_dmbok --force` | Bypasses hash check, re-ingests everything |
-
-### Smart Ingest (Change Detection)
-
-The ingestion system uses **file-level SHA256 hash detection** to avoid re-processing unchanged files:
-
-1. **First run**: All files are ingested; hashes stored in `file_hashes` collection
-2. **Subsequent runs**: Only files with changed hashes are re-ingested
-3. **Hash storage**: Uses a dedicated `file_hashes` ChromaDB collection (key-value style)
-
-**Example workflow:**
-
-```bash
-# Initial ingest
-$ uv run python -m elt_llm_ingest.runner --cfg dama_dmbok
-✅ Ingestion complete: 11943 chunks indexed
-
-# Re-run without rebuild (file unchanged)
-$ uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --no-rebuild
-✅ No changes detected - collection unchanged
-
-# Re-run with force (re-process everything)
-$ uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --no-rebuild --force
-✅ Ingestion complete: 11943 chunks indexed
 ```
 
 ---
 
-## Delete Collections
+### Full Cleardown and Rebuild
+
+To wipe all ChromaDB data and reload everything from scratch:
 
 ```bash
-# Delete DAMA-DMBOK (with confirmation)
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --delete
+# Step 1: Delete the entire chroma_db directory
+uv run python -m elt_llm_ingest.clean_slate
 
-# Delete DAMA-DMBOK (force, no confirmation)
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --delete -f
-
-# Delete FA Handbook
-uv run python -m elt_llm_ingest.runner --cfg fa_handbook --delete
-
-# Delete SAD
-uv run python -m elt_llm_ingest.runner --cfg sad --delete
-
-# Delete LeanIX
-uv run python -m elt_llm_ingest.runner --cfg leanix --delete
-
-# Delete Supplier Assessment
-uv run python -m elt_llm_ingest.runner --cfg supplier_assess --delete
+# Step 2: Re-ingest all collections via the batch config
+uv run python -m elt_llm_ingest.runner --cfg load_rag
 ```
 
-### Available Configs
+`clean_slate` reads `config/rag_config.yaml` to locate the persist directory and deletes it entirely — removing all collections and docstores in one operation.
 
-The `config/` directory includes predefined configs:
+`load_rag` is a batch meta-config (`config/load_rag.yaml`) that lists the individual ingest configs to run in sequence. Edit that file to control which collections are included in a full rebuild.
 
-| Config | Description |
-|--------|-------------|
-| `dama_dmbok.yaml` | DAMA-DMBOK2R Data Management Body of Knowledge |
-| `fa_handbook.yaml` | Financial Accounting Handbook |
-| `sad.yaml` | Solution Architecture Definition |
-| `leanix.yaml` | LeanIX Platform Documentation |
-| `supplier_assess.yaml` | Supplier Assessment Documentation |
+---
+
+### Ingest a Single Collection
+
+```bash
+# Standard rebuild (clears collection, re-ingests all files)
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok
+
+# Verbose output
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok -v
+
+# Append mode — only re-ingests files whose SHA256 hash has changed
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --no-rebuild
+
+# Force re-ingest everything regardless of hashes
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --force
+```
+
+**Ingest mode summary:**
+
+| Mode | Flags | Behaviour |
+|------|-------|-----------|
+| Rebuild (default) | *(none)* | Clears collection and docstore, re-ingests all files, resets hash tracking |
+| Append | `--no-rebuild` | Keeps existing data, only ingests changed or new files |
+| Force | `--force` | Bypasses hash check — re-ingests all files regardless of changes |
+| Force append | `--no-rebuild --force` | Keeps existing data but re-ingests every file unconditionally |
+
+---
+
+### Batch Ingest (Multiple Collections)
+
+`load_rag.yaml` is a meta-config that runs multiple ingest configs in sequence:
+
+```bash
+uv run python -m elt_llm_ingest.runner --cfg load_rag
+```
+
+Contents of `config/load_rag.yaml`:
+
+```yaml
+file_paths:
+  - "ingest_dama_dmbok.yaml"
+  - "ingest_fa_data_architecture.yaml"
+  - "ingest_fa_ea_leanix.yaml"
+  - "ingest_fa_handbook.yaml"
+```
+
+Add or remove entries to control which collections are included in a batch run.
+
+---
+
+### Delete a Collection
+
+```bash
+# Delete with confirmation prompt
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --delete
+
+# Delete without confirmation
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --delete -f
+```
+
+For **split-mode configs** (e.g. `ingest_fa_ea_leanix`), `--delete` removes all collections matching the prefix (`fa_leanix_*`) in a single operation:
+
+```bash
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_ea_leanix --delete -f
+# Deletes: fa_leanix_overview, fa_leanix_agreements, fa_leanix_relationships, ...
+```
+
+---
+
+## Available Configs
+
+| Config name | Collection(s) produced | Notes |
+|-------------|------------------------|-------|
+| `ingest_dama_dmbok` | `dama_dmbok` | DAMA-DMBOK2R PDF |
+| `ingest_fa_data_architecture` | `fa_data_architecture` | FA Data Architecture docs |
+| `ingest_fa_ea_leanix` | `fa_leanix_*` (11 collections) | LeanIX XML — split mode, one collection per domain |
+| `ingest_fa_handbook` | `fa_handbook` | FA Handbook 2025–26 PDF |
+| `load_rag` | All of the above | Batch meta-config, runs all four in sequence |
+
+---
 
 ## Configuration
 
-### Ingestion Config (`config/*.yaml`)
+### Ingestion Config (`config/ingest_*.yaml`)
+
+**Standard single-collection config:**
 
 ```yaml
 collection_name: "dama_dmbok"
@@ -193,153 +217,209 @@ metadata:
   domain: "data_management"
   type: "body_of_knowledge"
 
-rebuild: true  # Rebuild collection on each run (default: true)
+# Optional: override global chunking for this collection
+chunking:
+  chunk_size: 512
+  chunk_overlap: 64
+
+rebuild: true
 ```
 
-**Options:**
+**Config fields:**
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `collection_name` | string | required | Name of the ChromaDB collection |
-| `file_paths` | list | required | List of file paths to ingest |
-| `metadata` | dict | optional | Metadata to attach to all documents |
-| `rebuild` | bool | `true` | Whether to rebuild collection on each run |
-| `preprocessor` | dict | `null` | Preprocessor configuration (see below) |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `collection_name` | string | yes* | ChromaDB collection name. Mutually exclusive with `collection_prefix`. |
+| `collection_prefix` | string | yes* | Prefix for split-mode ingestion (see below). Mutually exclusive with `collection_name`. |
+| `file_paths` | list | yes | Source files to ingest |
+| `metadata` | dict | no | Metadata attached to every chunk |
+| `chunking.chunk_size` | int | no | Overrides global `rag_config.yaml` chunk size for this collection |
+| `chunking.chunk_overlap` | int | no | Overrides global chunk overlap |
+| `rebuild` | bool | no | Default `true`. Clears and rebuilds the collection each run |
+| `preprocessor` | dict | no | Preprocessor config (see below) |
 
-### Preprocessor Configuration
+*Exactly one of `collection_name` or `collection_prefix` must be set.
 
-For certain file types, preprocessing can improve embedding quality by transforming the source format into a more RAG-friendly format. The preprocessor runs **before** the document is loaded and embedded.
+---
 
-**Example: LeanIX XML Preprocessing**
+### Split-Mode Ingestion (LeanIX)
+
+When `collection_prefix` is set and the preprocessor uses `output_format: "split"`, one ChromaDB collection is created per logical section of the source document. This avoids chunking fragmentation when entity lists and relationships are interleaved.
 
 ```yaml
-collection_name: "leanix"
+collection_prefix: "fa_leanix"
 
-# Preprocess LeanIX XML files to structured Markdown
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
   class: "LeanIXPreprocessor"
-  output_format: "markdown"  # Options: "markdown", "json", "both"
-  output_suffix: "_leanix_processed"
+  output_format: "split"
   enabled: true
 
 file_paths:
-  - "~/Documents/__data/books/DAT_V00.01_FA_Enterprise_Conceptual_Data_Model.xml"
+  - "~/Documents/__data/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 
 metadata:
   domain: "architecture"
   type: "enterprise_architecture"
   source: "LeanIX"
 
-rebuild: true
+chunking:
+  chunk_size: 512
+  chunk_overlap: 64
 ```
 
-**Preprocessor Options:**
+Collections produced (prefix `fa_leanix`):
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `module` | string | required | Python module containing the preprocessor class |
-| `class` | string | required | Preprocessor class name |
-| `output_format` | string | `"markdown"` | Output format (format-specific) |
-| `output_suffix` | string | `"_processed"` | Suffix for generated output files |
-| `enabled` | bool | `true` | Enable/disable preprocessing |
+| Collection | Content |
+|------------|---------|
+| `fa_leanix_overview` | Model summary and domain list |
+| `fa_leanix_agreements` | AGREEMENTS domain entities |
+| `fa_leanix_campaign` | CAMPAIGN domain entities |
+| `fa_leanix_location` | LOCATION domain entities |
+| `fa_leanix_product` | PRODUCT domain entities |
+| `fa_leanix_reference_data` | REFERENCE DATA domain entities |
+| `fa_leanix_static_data` | Static Data domain entities |
+| `fa_leanix_time_bounded_groupings` | Time Bounded Groupings domain |
+| `fa_leanix_transaction_and_events` | TRANSACTION AND EVENTS domain |
+| `fa_leanix_additional_entities` | Party types, channel types, accounts, assets |
+| `fa_leanix_relationships` | All domain-level relationships (dedicated collection) |
 
-**How Preprocessing Works:**
+---
 
-1. **Input**: Original file (e.g., `model.xml`)
-2. **Preprocess**: Transform to RAG-friendly format (e.g., `model_leanix_processed.md`)
-3. **Embed**: The generated Markdown is chunked and embedded
-4. **Store**: Embeddings stored in ChromaDB with path to processed file
+### Preprocessor Configuration
 
-**Flow:**
-```
-XML File → Preprocessor → Markdown → Chunking → Embedding → ChromaDB
-           (doc_leanix_parser)      (existing pipeline)
-```
+Preprocessors transform source files into a RAG-friendly format before chunking and embedding.
 
-**Available Preprocessors:**
+**Available preprocessors:**
 
-| Preprocessor | Module | Class | Description |
-|--------------|--------|-------|-------------|
-| LeanIX | `elt_llm_ingest.preprocessor` | `LeanIXPreprocessor` | Extracts assets and relationships from LeanIX draw.io XML exports |
-| Identity | `elt_llm_ingest.preprocessor` | `IdentityPreprocessor` | Pass-through (no transformation) |
+| Class | Output formats | Description |
+|-------|---------------|-------------|
+| `LeanIXPreprocessor` | `markdown`, `json`, `both`, `split` | Extracts entities and relationships from LeanIX draw.io XML exports |
+| `IdentityPreprocessor` | *(n/a)* | Pass-through — no transformation applied |
 
-**Creating Custom Preprocessors:**
+**LeanIX output formats:**
 
-1. Create a class that inherits from `BasePreprocessor`:
+| `output_format` | Behaviour |
+|-----------------|-----------|
+| `markdown` | Single Markdown file, all domains and relationships combined |
+| `json` | Single JSON file |
+| `both` | Both Markdown and JSON |
+| `split` | One Markdown file per domain section + one for relationships; each loaded into its own collection. Requires `collection_prefix`. |
 
-```python
-from elt_llm_ingest.preprocessor import BasePreprocessor, PreprocessorResult
+**Preprocessor config fields:**
 
-class MyPreprocessor(BasePreprocessor):
-    def preprocess(self, input_file: str, output_path: str, **kwargs) -> PreprocessorResult:
-        # Your transformation logic here
-        # Return PreprocessorResult with output file paths
-        return PreprocessorResult(
-            original_file=input_file,
-            output_files=[output_path],
-            success=True
-        )
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `module` | string | Python module containing the preprocessor class |
+| `class` | string | Class name |
+| `output_format` | string | Format-specific output mode (default: `markdown`) |
+| `output_suffix` | string | Suffix for generated files in single-file modes (default: `_processed`) |
+| `enabled` | bool | Set `false` to disable preprocessing (defaults to `IdentityPreprocessor`) |
 
-2. Configure in YAML:
-
-```yaml
-preprocessor:
-  module: "my_package.preprocessors"
-  class: "MyPreprocessor"
-  output_format: "markdown"
-  enabled: true
-```
+---
 
 ### RAG Config (`config/rag_config.yaml`)
 
-Shared settings for ChromaDB, Ollama, and chunking:
+Shared settings for ChromaDB, Ollama, and chunking. These are the global defaults; individual ingest configs can override `chunking` per collection.
 
 ```yaml
 chroma:
-  persist_dir: "./chroma_db"
+  persist_dir: "../chroma_db"
   tenant: "rag_tenants"
   database: "knowledge_base"
 
 ollama:
   base_url: "http://localhost:11434"
   embedding_model: "nomic-embed-text"
-  llm_model: "llama3.2"
+  llm_model: "qwen2.5:14b"
+  embed_batch_size: 1
+  context_window: 8192
 
 chunking:
   strategy: "sentence"
-  chunk_size: 1024
-  chunk_overlap: 200
+  chunk_size: 256
+  chunk_overlap: 32
+
+query:
+  similarity_top_k: 10
+  use_hybrid_search: true
 ```
 
-## Adding New Document Types
+---
 
-1. Create a new config file in `config/`:
+### Smart Ingest (Change Detection)
 
-```yaml
-# config/my_docs.yaml
-collection_name: "my_docs"
+The ingestion system uses **file-level SHA256 hash detection** to avoid re-processing unchanged files:
 
-file_paths:
-  - "~/Documents/my_book.pdf"
-
-metadata:
-  domain: "my_domain"
-  type: "handbook"
-
-rebuild: true
-```
-
-2. Ingest:
+1. **First run**: All files are ingested; hashes stored in the `file_hashes` ChromaDB collection
+2. **Subsequent runs**: Only files whose hash has changed are re-ingested
+3. **Rebuild mode** (default): Hashes are cleared and all files are re-processed regardless
 
 ```bash
-elt-llm-ingest --config config/my_docs.yaml
+# Initial ingest
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok
+# ✅ Ingestion complete: 2649 chunks indexed
+
+# Re-run in append mode (file unchanged — nothing to do)
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --no-rebuild
+# ✅ No changes detected - collection unchanged
+
+# Force re-process everything in append mode
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --no-rebuild --force
+# ✅ Ingestion complete: 2649 chunks indexed
 ```
 
-## Supported Formats
+---
 
-**Via LlamaIndex readers:**
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `RAG_CHROMA_DIR` | Override the ChromaDB persist directory from `rag_config.yaml` |
+| `RAG_DOCS_DIR` | Override the base directory for source document resolution |
+
+---
+
+## Module Structure
+
+```
+elt_llm_ingest/
+├── config/
+│   ├── rag_config.yaml               # Shared RAG settings (ChromaDB, Ollama, chunking)
+│   ├── load_rag.yaml                 # Batch meta-config — lists all ingest configs to run
+│   ├── ingest_dama_dmbok.yaml        # DAMA-DMBOK ingestion config
+│   ├── ingest_fa_data_architecture.yaml
+│   ├── ingest_fa_ea_leanix.yaml      # LeanIX XML — split mode (11 collections)
+│   └── ingest_fa_handbook.yaml
+├── src/elt_llm_ingest/
+│   ├── runner.py                     # Main CLI: --cfg, --status, --list, --delete
+│   ├── clean_slate.py                # Wipe entire chroma_db directory
+│   ├── batch_loader.py               # Parses batch meta-configs (load_rag.yaml)
+│   ├── ingest.py                     # Ingestion pipeline (load → chunk → embed → store)
+│   ├── preprocessor.py               # Preprocessor framework and LeanIXPreprocessor
+│   ├── doc_leanix_parser.py          # LeanIX XML parser (entities + relationships)
+│   ├── file_hash.py                  # SHA256 hash tracking for smart ingest
+│   └── cli.py                        # Legacy CLI entry point (use runner.py instead)
+└── tests/
+```
+
+---
+
+## Prerequisites
+
+- Python 3.11, 3.12, or 3.13
+- Ollama running locally:
+  ```bash
+  ollama serve
+  ollama pull nomic-embed-text
+  ollama pull qwen2.5:14b
+  ```
+
+---
+
+## Supported Source Formats
+
+**Via LlamaIndex readers (direct):**
 - PDF (`.pdf`)
 - Word (`.docx`)
 - Text (`.txt`)
@@ -347,86 +427,53 @@ elt-llm-ingest --config config/my_docs.yaml
 - Markdown (`.md`)
 - CSV (`.csv`)
 - JSON (`.json`)
-- And more...
 
-**Via Preprocessors:**
-- LeanIX draw.io XML (`.xml`) → Structured Markdown (assets + relationships)
+**Via preprocessors:**
+- LeanIX draw.io XML (`.xml`) → structured Markdown (single file or one file per domain section)
 
-To use a preprocessor, add a `preprocessor` section to your ingestion config. See [Preprocessor Configuration](#preprocessor-configuration) for details.
-
-## Module Structure
-
-```
-elt_llm_ingest/
-├── config/
-│   ├── rag_config.yaml           # Shared RAG settings
-│   ├── dama_dmbok.yaml           # DAMA-DMBOK ingestion config
-│   ├── fa_handbook.yaml          # FA Handbook ingestion config
-│   ├── fa_data_architecture.yaml # FA Data Architecture config
-│   ├── sad.yaml                  # SAD ingestion config
-│   ├── leanix.yaml               # LeanIX ingestion config (with preprocessor)
-│   └── supplier_assess.yaml      # Supplier assessment config
-├── src/elt_llm_ingest/
-│   ├── __init__.py
-│   ├── runner.py                 # Generic runner (--cfg parameter)
-│   ├── cli.py                    # CLI entry point
-│   ├── ingest.py                 # Ingestion pipeline
-│   ├── preprocessor.py           # Preprocessor framework
-│   ├── doc_leanix_parser.py      # LeanIX XML parser
-│   └── file_hash.py              # File hash utilities (smart ingest)
-└── tests/
-```
-
-## Dependencies
-
-- `elt_llm_core` - Core RAG infrastructure
-- `llama-index` - Document processing
-- `llama-index-readers-file` - File format support
-- `chromadb` - Vector database
-
-## Prerequisites
-
-- Python 3.11, 3.12, or 3.13 (ChromaDB is not yet compatible with Python 3.14)
-- Ollama running locally: `ollama serve`
-- Required models:
-  ```bash
-  ollama pull nomic-embed-text
-  ollama pull llama3.2
-  ```
+---
 
 ## Troubleshooting
 
-### Collection shows 0 documents after ingest
+### BM25 column shows ❌ or ⚠️ after ingest
 
-Check if the source files exist and are accessible:
+The docstore is written during ingestion. If missing or empty, hybrid search silently falls back to vector-only. Fix by re-ingesting with rebuild:
+
 ```bash
-uv run python -m elt_llm_ingest.runner --cfg <config> -v
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok
+uv run python -m elt_llm_ingest.runner --status
 ```
 
-### "No changes detected" but expected updates
+### "No changes detected" but updates were expected
 
-The file hash hasn't changed. Use `--force` to re-ingest:
+The file hash matches the stored hash. Use `--force` to bypass:
+
 ```bash
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --force
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --no-rebuild --force
+```
+
+### Collection shows 0 chunks after ingest
+
+Check file paths are accessible and Ollama is running, then re-run with verbose output:
+
+```bash
+uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok -v
+```
+
+### Reset everything and start clean
+
+```bash
+uv run python -m elt_llm_ingest.clean_slate
+uv run python -m elt_llm_ingest.runner --cfg load_rag
 ```
 
 ### ChromaDB connection errors
 
-Check the persist directory path in `config/rag_config.yaml`:
-```bash
-uv run python -m elt_llm_ingest.runner --status -v
-```
+Check the `persist_dir` in `config/rag_config.yaml` is writable and the path resolves correctly relative to the config file location.
 
-### Reset hash tracking
-
-Delete and re-ingest to reset hash tracking:
-```bash
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok --delete -f
-uv run python -m elt_llm_ingest.runner --cfg dama_dmbok
-```
+---
 
 ## See Also
 
-- **RUNNERS.md** - Detailed command reference and workflows
-- **elt_llm_query/** - Query module for searching ingested documents
-- **elt_llm_core/** - Core RAG utilities and configuration
+- **elt_llm_query/** — Query module (interactive and single-shot queries, multi-collection profiles)
+- **elt_llm_core/** — Core RAG utilities, ChromaDB client, query engine
