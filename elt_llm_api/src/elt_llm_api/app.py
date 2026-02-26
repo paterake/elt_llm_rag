@@ -6,6 +6,7 @@ Launch:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -120,11 +121,13 @@ def get_status() -> str:
 # Query tab
 # ---------------------------------------------------------------------------
 
-def run_query(message: str, history: list, profile_name: str):
-    """Generator — yields a 'Searching…' status first, then the final answer.
+async def run_query(message: str, history: list, profile_name: str):
+    """Async generator — yields a 'Searching…' status first, then the final answer.
 
-    Using a generator causes Gradio to show a Stop button automatically,
-    allowing the user to cancel an accidental or slow submission.
+    Using an async generator causes Gradio 6.x to show a Stop button and allows
+    it to properly cancel the query via aclose() when Stop is clicked.
+    The underlying query functions are synchronous, so they run in a thread pool
+    to avoid blocking the event loop.
     """
     if not profile_name:
         yield "⚠️ Select a profile first."
@@ -144,9 +147,13 @@ def run_query(message: str, history: list, profile_name: str):
 
     try:
         if n == 1:
-            result = query_collection(collection_names[0], message, rag_config)
+            result = await asyncio.to_thread(
+                query_collection, collection_names[0], message, rag_config
+            )
         else:
-            result = query_collections(collection_names, message, rag_config)
+            result = await asyncio.to_thread(
+                query_collections, collection_names, message, rag_config
+            )
     except Exception as e:
         yield f"❌ Query failed: {e}"
         return
@@ -208,7 +215,7 @@ def build_app() -> gr.Blocks:
                     fn=run_query,
                     additional_inputs=[profile_dd],
                     chatbot=gr.Chatbot(height=500, render_markdown=True),
-                    textbox=gr.Textbox(placeholder="Ask a question...", lines=2, submit_btn="Ask"),
+                    textbox=gr.Textbox(placeholder="Ask a question...", lines=2, submit_btn="Ask", stop_btn=True),
                 )
 
             # ── Ingest tab ─────────────────────────────────────────────────
