@@ -15,6 +15,10 @@
 
 - [1. Executive Summary](#1-executive-summary)
 - [2. Current Architecture](#2-current-architecture)
+  - [2.1 High-Level Overview](#21-high-level-overview)
+  - [2.2 Module Structure](#22-module-structure)
+  - [2.3 Technology Stack](#23-technology-stack)
+  - [2.4 Retrieval vs Generation Architecture](#24-retrieval-vs-generation-architecture)
 - [3. Conceptual Model Alignment](#3-conceptual-model-alignment)
 - [4. What's Built](#4-whats-built)
 - [5. What Needs to Be Built](#5-what-needs-to-be-built)
@@ -104,7 +108,7 @@ This RAG platform transforms how FA architecture knowledge is:
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                    ↓                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  LLM Synthesis (Ollama: llama3.2, qwen2.5:14b)                   │    │
+│  │  LLM Synthesis (Ollama: qwen2.5:14b)                              │    │
 │  │  - Grounded responses with source attribution                    │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -158,13 +162,99 @@ elt_llm_rag/
 | Component | Technology | Configuration |
 |-----------|------------|---------------|
 | **Embedding Model** | Ollama: `nomic-embed-text` | 768 dimensions |
-| **LLM** | Ollama: `llama3.2`, `qwen2.5:14b` | Context: 4096-32768 |
+| **LLM** | Ollama: `qwen2.5:14b` | Context: 8192 |
 | **Vector Store** | ChromaDB | Tenant/DB/Collection |
 | **Chunking** | LlamaIndex | Sentence splitter |
 | **Hybrid Search** | BM25 + Vector | QueryFusionRetriever |
 | **Reranker** | Ollama: `nomic-embed-text` | Embedding cosine similarity |
 | **Preprocessing** | Custom Python | LeanIX XML→Markdown |
 | **Dependency Mgmt** | uv | Python 3.11-3.13 |
+
+---
+
+### 2.4 Retrieval vs Generation Architecture
+
+The RAG system has two distinct layers with a clear separation of concerns:
+
+#### Layer 1: Retrieval (Find the Right Information)
+
+**Technologies**: LlamaIndex + ChromaDB + BM25
+
+**Purpose**: Search your document collections to find the most relevant chunks.
+
+**Output**: Top-K chunks with relevance scores — **NOT an answer**.
+
+| Component | Role | Analogy |
+|-----------|------|---------|
+| ChromaDB | Vector (semantic) search | Google for meaning |
+| BM25 | Keyword (exact) search | Ctrl+F for terms |
+| LlamaIndex | Orchestrates retrieval | Librarian finding books |
+
+**Why Hybrid Search?**
+
+Your documents have two types of queries:
+
+1. **Semantic queries** (Vector excels):
+   ```
+   Query: "How does the FA handle data quality?"
+   Vector finds: "Data quality management ensures fitness for purpose..."
+   (Semantically similar, even though exact words differ)
+   ```
+
+2. **Keyword queries** (BM25 excels):
+   ```
+   Query: "What does Chapter 7 Section 4.2 say about Club affiliations?"
+   BM25 finds: "Chapter 7, Section 4.2: Club affiliations must..."
+   (Exact term matching — vectors might miss specific section references)
+   ```
+
+**Hybrid = Best of both worlds**
+
+#### Layer 2: Generation (Synthesize an Answer)
+
+**Technology**: Ollama LLM (`qwen2.5:14b`)
+
+**Purpose**: Read the retrieved chunks and generate a grounded answer.
+
+**Input**: Query + Top-K chunks from Layer 1
+
+**Output**: Natural language response with source citations.
+
+**Example**:
+```
+Query: "What are the FA's data governance responsibilities?"
+
+LLM Response:
+"The Data Working Group is responsible for:
+1. Defining data policies and standards (FA Handbook, Chapter 7)
+2. Establishing decision rights and accountabilities (DAMA-DMBOK, Ch.3)
+3. Maintaining traceability from business terms to systems"
+
+[Sources: fa_handbook, dama_dmbok, fa_leanix_relationships]
+```
+
+#### Why This Separation Matters
+
+| Without Retrieval (LLM Only) | With Retrieval (RAG) |
+|------------------------------|----------------------|
+| Generic knowledge from training | Specific to YOUR documents |
+| May hallucinate details | Grounded in actual content |
+| No citations | Source attribution |
+| "Data governance typically involves..." | "The Data Working Group is responsible for..." |
+
+**The key insight**: Your LLM is only as good as the retrieval layer feeding it. Garbage in = garbage out. That's why you invest in hybrid search + reranking — to ensure the LLM sees the **most relevant** context before generating an answer.
+
+#### The Reranker's Role
+
+The **embedding reranker** sits between Layer 1 and Layer 2:
+
+```
+Retrieval (Top-20) → Reranker (re-scores by relevance) → Top-8 → LLM
+```
+
+**Purpose**: The initial retrieval uses fast approximations (vector similarity + BM25 scores). The reranker does a more careful scoring pass to ensure the **most relevant** chunks reach the LLM.
+
+**Implementation**: Uses cosine similarity between query and chunk embeddings (via `nomic-embed-text` in Ollama). No external dependencies required.
 
 ---
 
@@ -229,15 +319,20 @@ The LeanIX conceptual model defines **domain groups** and **entities**:
 
 ### 4.1 Core Infrastructure ✅
 
+See [Section 2.4](#24-retrieval-vs-generation-architecture) for the retrieval and generation architecture.
+
 | Component | Status | Description |
 |-----------|--------|-------------|
 | **ChromaDB Integration** | ✅ Complete | Tenant/database/collection support |
 | **Ollama Models** | ✅ Complete | Embedding + LLM configuration |
-| **Query Engine** | ✅ Complete | Hybrid search (BM25 + vector) + embedding reranker |
+| **Hybrid Search** | ✅ Complete | BM25 + Vector via QueryFusionRetriever |
+| **Embedding Reranker** | ✅ Complete | Cosine similarity re-scoring (no external dependencies) |
 | **Configuration** | ✅ Complete | YAML-based configs |
 | **Smart Ingest** | ✅ Complete | SHA256 file change detection |
 
 ### 4.2 Ingestion Pipelines ✅
+
+For detailed ingestion documentation, see [elt_llm_ingest/README.md](../elt_llm_ingest/README.md).
 
 | Collection | Documents | Chunks | Status |
 |------------|-----------|--------|--------|
@@ -246,58 +341,22 @@ The LeanIX conceptual model defines **domain groups** and **entities**:
 | `fa_leanix_*` (11 collections) | LeanIX XML (draw.io) — split by domain | 15 | ✅ Ingested |
 | `fa_ea_sad` | SAD (PDF) | TBD | ⏳ Config ready |
 | `supplier_assess` | Supplier docs | TBD | ⏳ Config ready |
-| `fa_fdm` | FDM (Excel/PDF) | TBD | ⏳ Planned |
-| `confluence` | Confluence pages (HTML scrape) | TBD | ⏳ Planned |
 
-### 4.3 Preprocessors ✅
+### 4.3 Query Configs ✅
 
-| Preprocessor | Input | Output | Status |
-|--------------|-------|--------|--------|
-| **LeanIXPreprocessor** | draw.io XML | Markdown + JSON | ✅ Complete |
-| **IdentityPreprocessor** | Any | Pass-through | ✅ Complete |
-| **FAGlossaryPreprocessor** | FA Handbook PDF/HTML | Structured glossary | ⏳ TODO |
-| **ReferenceDataPreprocessor** | CSV (ISO/ONS) | Catalogue entries | ⏳ TODO |
-
-### 4.4 Query Configs ✅
+For detailed query documentation, see [elt_llm_query/README.md](../elt_llm_query/README.md).
 
 | Config | Collections | Use Case |
 |--------|-------------|----------|
 | `dama_only.yaml` | DAMA-DMBOK | Data management queries |
 | `fa_handbook_only.yaml` | FA Handbook | Policy/glossary queries |
 | `leanix_only.yaml` | LeanIX | Architecture queries |
+| `leanix_relationships.yaml` | `fa_leanix_relationships`, `fa_leanix_overview` | Domain-level relationships |
 | `architecture_focus.yaml` | SAD + LeanIX | Architecture decisions |
 | `vendor_assessment.yaml` | LeanIX + Supplier | Vendor evaluation |
 | `dama_fa_combined.yaml` | DAMA + FA Handbook | Cross-domain queries |
 | `leanix_fa_combined.yaml` | LeanIX + FA Handbook | Business-aligned architecture |
-
-### 4.5 LeanIX Parser Capabilities ✅
-
-The `doc_leanix_parser.py` extracts:
-
-- **Assets**: Fact sheets with type, label, parent group, coordinates
-- **Relationships**: Cardinality (ER notation), source→target
-- **Domain Groupings**: PARTY, AGREEMENT, PRODUCT, TRANSACTION, etc.
-- **Output Formats**: 
-  - **Markdown**: RAG-optimized natural language (UUIDs omitted)
-  - **JSON**: Full fidelity for LeanIX roundtrip
-
-**Example Markdown Output**:
-```markdown
-# FA Enterprise Conceptual Data Model
-
-The FA Enterprise Conceptual Data Model contains 156 entities organised into 9 domain groups: 
-AGREEMENT, ASSET, CHANNEL, EVENT, LOCATION, PARTY, PRODUCT, REFERENCE DATA, TRANSACTION.
-
-## PARTY Domain
-
-The PARTY domain contains 24 entities in the FA Enterprise Conceptual Data Model. 
-The entities within this domain are: Club, County FA, Individual, Organisation, Team, ...
-
-## Entity Relationships
-
-PARTY relates to (zero or more to zero or more) AGREEMENT (including Contract, Policy, Rule...).
-PRODUCT relates to (one or more to zero or more) TRANSACTION (including Match, Application, Payment...).
-```
+| `fa_data_management.yaml` | All collections | Full data management queries |
 
 ---
 
