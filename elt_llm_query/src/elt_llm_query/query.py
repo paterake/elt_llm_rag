@@ -418,9 +418,14 @@ def query_collections(
     if not all_nodes:
         return QueryResult(response="No relevant content found in any collection.", source_nodes=[])
 
-    # Step 2: Merge and keep the best chunks across all collections
+    # Step 2: Merge candidates from all collections.
+    # When reranker is enabled, do NOT pre-truncate to top_k here — pass all candidates to
+    # the reranker so every collection stays represented in the scoring pool.
+    # The reranker itself trims to reranker_top_k.
+    # When reranker is disabled, truncate to similarity_top_k for the LLM.
     all_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
-    all_nodes = all_nodes[:top_k]
+    if not rag_config.query.use_reranker:
+        all_nodes = all_nodes[:top_k]
 
     # Step 2b: Cross-encoder reranking — replaces flat RRF scores with genuine relevance scores
     all_nodes = _rerank_nodes(query, all_nodes, rag_config)

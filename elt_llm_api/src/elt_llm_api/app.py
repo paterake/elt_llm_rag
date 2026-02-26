@@ -120,24 +120,36 @@ def get_status() -> str:
 # Query tab
 # ---------------------------------------------------------------------------
 
-def run_query(message: str, history: list, profile_name: str) -> str:
+def run_query(message: str, history: list, profile_name: str):
+    """Generator — yields a 'Searching…' status first, then the final answer.
+
+    Using a generator causes Gradio to show a Stop button automatically,
+    allowing the user to cancel an accidental or slow submission.
+    """
     if not profile_name:
-        return "⚠️ Select a profile first."
+        yield "⚠️ Select a profile first."
+        return
     try:
         collection_names, rag_config = load_profile(profile_name)
     except Exception as e:
-        return f"❌ Failed to load profile '{profile_name}': {e}"
+        yield f"❌ Failed to load profile '{profile_name}': {e}"
+        return
 
     if not collection_names:
-        return "⚠️ No collections found for this profile. Check ChromaDB status tab."
+        yield "⚠️ No collections found for this profile. Check ChromaDB status tab."
+        return
+
+    n = len(collection_names)
+    yield f"⏳ Searching {n} collection{'s' if n != 1 else ''}…"
 
     try:
-        if len(collection_names) == 1:
+        if n == 1:
             result = query_collection(collection_names[0], message, rag_config)
         else:
             result = query_collections(collection_names, message, rag_config)
     except Exception as e:
-        return f"❌ Query failed: {e}"
+        yield f"❌ Query failed: {e}"
+        return
 
     # Format sources
     source_lines = []
@@ -152,7 +164,7 @@ def run_query(message: str, history: list, profile_name: str) -> str:
     if source_lines:
         sources_block = "\n\n---\n**Sources**\n\n" + "\n\n".join(source_lines)
 
-    return result.response + sources_block
+    yield result.response + sources_block
 
 
 # ---------------------------------------------------------------------------
