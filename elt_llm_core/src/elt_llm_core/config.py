@@ -73,11 +73,20 @@ class QueryConfig:
         similarity_top_k: Number of similar chunks to retrieve.
         system_prompt: Optional system prompt for the LLM.
         use_hybrid_search: Whether to combine BM25 keyword search with vector search.
+        use_reranker: Whether to apply cross-encoder reranking after retrieval.
+        reranker_model: HuggingFace cross-encoder model name.
+        reranker_retrieve_k: Candidates fetched before reranking (should be > reranker_top_k).
+        reranker_top_k: Chunks kept after reranking and passed to LLM synthesis.
     """
 
     similarity_top_k: int = 5
     system_prompt: str | None = None
     use_hybrid_search: bool = True
+    use_reranker: bool = False
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_retrieve_k: int = 20
+    reranker_top_k: int = 8
+    reranker_strategy: str = "cross-encoder"
 
 
 @dataclass
@@ -135,6 +144,11 @@ class RagConfig:
                 similarity_top_k=query_data.get("similarity_top_k", 5),
                 system_prompt=query_data.get("system_prompt"),
                 use_hybrid_search=query_data.get("use_hybrid_search", True),
+                use_reranker=query_data.get("use_reranker", False),
+                reranker_model=query_data.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+                reranker_retrieve_k=query_data.get("reranker_retrieve_k", 20),
+                reranker_top_k=query_data.get("reranker_top_k", 8),
+                reranker_strategy=query_data.get("reranker_strategy", "cross-encoder"),
             ),
         )
 

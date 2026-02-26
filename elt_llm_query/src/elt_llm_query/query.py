@@ -204,6 +204,127 @@ def _build_hybrid_retriever(
         return index.as_retriever(similarity_top_k=top_k)
 
 
+def _rerank_nodes_embedding(
+    query: str,
+    nodes: list,
+    rag_config: RagConfig,
+) -> list:
+    """Rerank nodes by query-document cosine similarity using the Ollama embedding model.
+
+    Uses the same nomic-embed-text model already running locally — no external downloads.
+    Computes a fresh embedding for the query and each candidate chunk, then re-sorts by
+    cosine similarity and trims to reranker_top_k.
+
+    Args:
+        query: The query string.
+        nodes: List of NodeWithScore to rerank.
+        rag_config: RAG configuration.
+
+    Returns:
+        Reranked list of NodeWithScore with cosine similarity as score.
+    """
+    import numpy as np
+    from llama_index.core.schema import NodeWithScore
+
+    embed_model = create_embedding_model(rag_config.ollama)
+    logger.info(
+        "Embedding reranker: scoring %d nodes with '%s'",
+        len(nodes), rag_config.ollama.embedding_model,
+    )
+
+    query_emb = np.array(embed_model.get_text_embedding(query))
+    texts = [n.node.text for n in nodes]
+    doc_embs = np.array(embed_model.get_text_embedding_batch(texts))
+
+    # Cosine similarity: dot(q_norm, d_norm) per row
+    query_norm = query_emb / (np.linalg.norm(query_emb) + 1e-9)
+    doc_norms = doc_embs / (np.linalg.norm(doc_embs, axis=1, keepdims=True) + 1e-9)
+    scores = doc_norms @ query_norm
+
+    top_k = rag_config.query.reranker_top_k
+    ranked = sorted(zip(nodes, scores), key=lambda x: float(x[1]), reverse=True)
+    result = [NodeWithScore(node=n.node, score=float(s)) for n, s in ranked[:top_k]]
+
+    logger.info(
+        "Embedding reranker: kept top %d/%d nodes (scores %.4f – %.4f)",
+        len(result), len(nodes),
+        result[0].score if result else 0.0,
+        result[-1].score if result else 0.0,
+    )
+    return result
+
+
+def _rerank_nodes(
+    query: str,
+    nodes: list,
+    rag_config: RagConfig,
+) -> list:
+    """Rerank retrieved nodes using the configured reranker strategy.
+
+    Dispatches to the appropriate reranker based on rag_config.query.reranker_strategy:
+      - "embedding": cosine similarity via Ollama (no external downloads required)
+      - "cross-encoder": sentence-transformers CrossEncoder (requires HuggingFace model)
+
+    Falls back to the original node list if the reranker is disabled or fails.
+
+    Args:
+        query: The query string.
+        nodes: List of NodeWithScore from prior retrieval.
+        rag_config: RAG configuration.
+
+    Returns:
+        Reranked and trimmed list of NodeWithScore, or original list unchanged.
+    """
+    if not rag_config.query.use_reranker or not nodes:
+        return nodes
+
+    strategy = rag_config.query.reranker_strategy
+
+    if strategy == "embedding":
+        try:
+            return _rerank_nodes_embedding(query, nodes, rag_config)
+        except Exception as e:
+            logger.warning("Embedding reranker failed: %s — returning original nodes.", e)
+            return nodes
+
+    # Default: cross-encoder via sentence-transformers
+    try:
+        from sentence_transformers import CrossEncoder
+        import logging as _logging
+        _logging.getLogger("sentence_transformers").setLevel(_logging.WARNING)
+        _logging.getLogger("huggingface_hub").setLevel(_logging.ERROR)
+
+        model_name = rag_config.query.reranker_model
+        logger.info("Reranking %d nodes with cross-encoder '%s'", len(nodes), model_name)
+
+        model = CrossEncoder(model_name)
+        pairs = [(query, n.node.text) for n in nodes]
+        scores = model.predict(pairs)
+
+        from llama_index.core.schema import NodeWithScore
+        ranked = sorted(zip(nodes, scores), key=lambda x: float(x[1]), reverse=True)
+        top_k = rag_config.query.reranker_top_k
+        result = [NodeWithScore(node=n.node, score=float(s)) for n, s in ranked[:top_k]]
+
+        logger.info(
+            "Reranker: kept top %d/%d nodes (scores %.4f – %.4f)",
+            len(result), len(nodes),
+            result[0].score if result else 0.0,
+            result[-1].score if result else 0.0,
+        )
+        return result
+
+    except ImportError:
+        logger.warning(
+            "sentence-transformers not installed; skipping reranker. "
+            "Run: uv add sentence-transformers"
+        )
+        return nodes
+    except Exception as e:
+        logger.warning("Reranker failed: %s — returning original nodes.", e, exc_info=True)
+        return nodes
+
+
 def query_collection(
     collection_name: str,
     query: str,
@@ -224,22 +345,46 @@ def query_collection(
     # Load index
     index = load_index(collection_name, rag_config)
 
-    top_k = rag_config.query.similarity_top_k
+    # When reranker is enabled, retrieve more candidates upfront before filtering
+    retrieve_k = (
+        rag_config.query.reranker_retrieve_k
+        if rag_config.query.use_reranker
+        else rag_config.query.similarity_top_k
+    )
 
     # Build retriever — hybrid (BM25 + vector) when enabled and docstore exists
     retriever = None
     if rag_config.query.use_hybrid_search:
-        retriever = _build_hybrid_retriever(index, collection_name, rag_config, top_k)
+        retriever = _build_hybrid_retriever(index, collection_name, rag_config, retrieve_k)
 
-    # Create query config
+    if rag_config.query.use_reranker:
+        from llama_index.core.response_synthesizers import get_response_synthesizer
+        if retriever is None:
+            retriever = index.as_retriever(similarity_top_k=retrieve_k)
+        nodes = retriever.retrieve(query)
+        nodes = _rerank_nodes(query, nodes, rag_config)
+
+        llm = create_llm_model(rag_config.ollama)
+        system_prompt = rag_config.query.system_prompt
+        if system_prompt:
+            llm.system_prompt = system_prompt
+        Settings.llm = llm
+
+        synthesizer = get_response_synthesizer(llm=llm)
+        response = synthesizer.synthesize(query, nodes=nodes)
+        source_nodes = [
+            {"text": n.node.text, "metadata": n.node.metadata, "score": n.score}
+            for n in nodes
+        ]
+        logger.info("Query complete")
+        return QueryResult(response=str(response), source_nodes=source_nodes)
+
+    # Reranker disabled — original path unchanged
     query_config = QueryConfig(
-        similarity_top_k=top_k,
+        similarity_top_k=rag_config.query.similarity_top_k,
         system_prompt=rag_config.query.system_prompt,
     )
-
-    # Execute query
     result = query_index(index, query, rag_config, query_config, retriever=retriever)
-
     logger.info("Query complete")
     return result
 
@@ -278,8 +423,12 @@ def query_collections(
         )
 
     top_k = rag_config.query.similarity_top_k
-    # Retrieve more per collection so the best chunks survive the final merge
-    per_collection_k = max(top_k, 5)
+    # When reranker is on, fetch more per collection so the reranker has real candidates to score
+    per_collection_k = (
+        max(rag_config.query.reranker_retrieve_k // max(len(collection_names), 1), 5)
+        if rag_config.query.use_reranker
+        else max(top_k, 5)
+    )
 
     # Step 1: Retrieve chunks from every collection — hybrid or vector search, no LLM yet
     all_nodes = []
@@ -298,6 +447,9 @@ def query_collections(
     # Step 2: Merge and keep the best chunks across all collections
     all_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
     all_nodes = all_nodes[:top_k]
+
+    # Step 2b: Cross-encoder reranking — replaces flat RRF scores with genuine relevance scores
+    all_nodes = _rerank_nodes(query, all_nodes, rag_config)
 
     # Step 3: Single LLM synthesis call with all combined context
     llm = create_llm_model(rag_config.ollama)

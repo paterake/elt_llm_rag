@@ -25,6 +25,11 @@ chunking:
 query:
   similarity_top_k: 10
   use_hybrid_search: true  # Combine BM25 keyword + vector search (fixes structured/list content)
+  use_reranker: true        # Re-score retrieved chunks before LLM synthesis
+  reranker_strategy: "embedding"  # "embedding" (Ollama/local) | "cross-encoder" (needs HuggingFace)
+  reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"  # used only when strategy=cross-encoder
+  reranker_retrieve_k: 20  # Candidates fetched before reranking
+  reranker_top_k: 8        # Chunks kept after reranking and passed to LLM
   system_prompt: |
     You are a helpful assistant that answers questions based on the provided documents.
     Always ground your answers in the retrieved content.

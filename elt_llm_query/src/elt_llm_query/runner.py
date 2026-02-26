@@ -147,7 +147,8 @@ def query(config_name: str, query_text: str | None = None, log_level: str = "CRI
     # Suppress noisy libraries unless in DEBUG mode
     if numeric_level > logging.DEBUG:
         for lib in ["httpx", "httpcore", "chromadb", "llama_index", "urllib3", "bm25s",
-                    "llama_index.retrievers.bm25"]:
+                    "llama_index.retrievers.bm25", "sentence_transformers",
+                    "huggingface_hub"]:
             logging.getLogger(lib).setLevel(logging.WARNING)
 
     examples_dir = get_examples_dir()
