@@ -13,6 +13,7 @@ ollama:
   llm_model: "qwen2.5:14b"      # ~9GB — strong document synthesis and instruction following
   embed_batch_size: 1
   context_window: 8192          # enough for 10-15 retrieved chunks
+  request_timeout: 300.0        # 5 minutes for complex multi-collection queries
 
 # Chunking settings
 chunking:

@@ -21,6 +21,9 @@ Collections must be ingested first — see [elt_llm_ingest/README.md](../elt_llm
 ## Query
 
 ```bash
+cd elt_llm_query
+uv sync
+
 # List available profiles
 uv run python -m elt_llm_query.runner --list
 

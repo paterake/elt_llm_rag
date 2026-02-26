@@ -18,13 +18,16 @@ ollama pull qwen2.5:14b
 ## Quick Start
 
 ```bash
-uv sync
+uv sync --all-packages
 
 # Ingest all collections
 uv run python -m elt_llm_ingest.runner --cfg load_rag
 
-# Query
+# Query (CLI)
 uv run python -m elt_llm_query.runner --cfg leanix_fa_combined
+
+# Query (GUI — http://localhost:7860)
+uv run python -m elt_llm_api.app
 ```
 
 ---
