@@ -179,7 +179,7 @@ def build_app() -> gr.Blocks:
     profiles = list_profiles()
     ingest_configs = list_ingest_configs()
 
-    with gr.Blocks(title="ELT LLM RAG", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="ELT LLM RAG") as app:
         gr.Markdown("# ELT LLM RAG")
 
         with gr.Tabs():
@@ -196,10 +196,7 @@ def build_app() -> gr.Blocks:
                     fn=run_query,
                     additional_inputs=[profile_dd],
                     chatbot=gr.Chatbot(height=500, render_markdown=True),
-                    textbox=gr.Textbox(placeholder="Ask a question...", lines=2),
-                    submit_btn="Ask",
-                    retry_btn=None,
-                    undo_btn=None,
+                    textbox=gr.Textbox(placeholder="Ask a question...", lines=2, submit_btn="Ask"),
                 )
 
             # ── Ingest tab ─────────────────────────────────────────────────
@@ -237,7 +234,7 @@ def build_app() -> gr.Blocks:
 
 def main() -> None:
     app = build_app()
-    app.launch(server_name="127.0.0.1", server_port=7860, show_api=False)
+    app.launch(server_name="127.0.0.1", server_port=7860)
 
 
 if __name__ == "__main__":
