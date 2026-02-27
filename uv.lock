@@ -666,6 +666,7 @@ version = "0.1.0"
 source = { editable = "elt_llm_consumer" }
 dependencies = [
     { name = "elt-llm-core" },
+    { name = "elt-llm-ingest" },
     { name = "elt-llm-query" },
     { name = "openpyxl" },
     { name = "pandas" },
@@ -680,6 +681,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "elt-llm-core", editable = "elt_llm_core" },
+    { name = "elt-llm-ingest", editable = "elt_llm_ingest" },
     { name = "elt-llm-query", editable = "elt_llm_query" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "pandas", specifier = ">=2.0.0" },

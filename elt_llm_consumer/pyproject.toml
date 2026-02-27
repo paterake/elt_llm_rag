@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "elt-llm-core>=0.1.0",
+    "elt-llm-ingest>=0.1.0",
     "elt-llm-query>=0.1.0",
     "pandas>=2.0.0",
     "openpyxl>=3.1.0",
@@ -13,6 +14,8 @@ dependencies = [
 
 [project.scripts]
 elt-llm-consumer-glossary = "elt_llm_consumer.business_glossary:main"
+elt-llm-consumer-handbook-model = "elt_llm_consumer.fa_handbook_model_builder:main"
+elt-llm-consumer-integrated-catalog = "elt_llm_consumer.fa_integrated_catalog:main"
 
 [build-system]
 requires = ["uv_build>=0.9.15,<0.10.0"]
@@ -26,4 +29,5 @@ dev = [
 
 [tool.uv.sources]
 elt-llm-core = { workspace = true }
+elt-llm-ingest = { workspace = true }
 elt-llm-query = { workspace = true }

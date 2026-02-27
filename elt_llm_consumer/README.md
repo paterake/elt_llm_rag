@@ -27,77 +27,103 @@ uv run python -m elt_llm_ingest.runner --cfg load_rag
 
 ---
 
-## Business Glossary Generator
+## Consumers
 
-Generates a business catalogue CSV by joining the LeanIX inventory (Excel) with FA Handbook and conceptual model content retrieved from RAG.
+| Script | Entry Point | What It Does |
+|--------|-------------|--------------|
+| `business_glossary.py` | `elt-llm-consumer-glossary` | LeanIX inventory (Excel) → batch catalog CSV via all FA RAG collections |
+| `fa_handbook_model_builder.py` | `elt-llm-consumer-handbook-model` | FA Handbook only → candidate entities, relationships, and terms of reference |
+| `fa_integrated_catalog.py` | `elt-llm-consumer-integrated-catalog` | Conceptual model (XML) as frame + inventory descriptions + FA Handbook → integrated ToR and catalog |
 
-**Sources queried per entity**:
-- `fa_leanix_dat_enterprise_conceptual_model_*` — entity definitions, domain groupings, relationships
-- `fa_leanix_global_inventory_*` — descriptions from LeanIX inventory (DataObjects, Interfaces, Applications)
-- `fa_handbook` — SME governance content, business rules, definitions
-- `fa_data_architecture` — data architecture context
+---
 
-### Run
+## 1. Business Glossary Generator
+
+Driven by the **LeanIX inventory Excel**. Queries all FA collections per entity to produce a catalog entry.
 
 ```bash
-# Default: all entity types, qwen2.5:14b model
 uv run --package elt-llm-consumer elt-llm-consumer-glossary
-
-# Specify model
 uv run --package elt-llm-consumer elt-llm-consumer-glossary --model mistral-nemo:12b
-uv run --package elt-llm-consumer elt-llm-consumer-glossary --model llama3.1:8b
-uv run --package elt-llm-consumer elt-llm-consumer-glossary --model granite3.1-dense:8b
-
-# Only DataObjects (229 entities)
 uv run --package elt-llm-consumer elt-llm-consumer-glossary --type dataobjects
-
-# Only Interfaces (271 data flows)
-uv run --package elt-llm-consumer elt-llm-consumer-glossary --type interfaces
-
-# Custom paths
-uv run --package elt-llm-consumer elt-llm-consumer-glossary \
-  --excel ~/Documents/__data/resources/thefa/LeanIX_inventory.xlsx \
-  --output-dir ~/Documents/__data/outputs/glossary
+RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-glossary
 ```
 
-### Output
+**Output**: `fa_business_catalog_dataobjects.csv`, `fa_business_catalog_interfaces.csv`
 
-Written to `~/Documents/__data/resources/thefa/`:
+Re-running overwrites the files. Use `RESUME=1` to append to an existing run.
 
+**Columns** (DataObjects): `fact_sheet_id`, `entity_name`, `domain_group`, `hierarchy_level`, `leanix_description`, `catalog_entry`, `model_used`
+
+**Runtime**: ~229 DataObjects × ~10s ≈ 35–40 min on `qwen2.5:14b`
+
+---
+
+## 2. FA Handbook Model Builder
+
+Builds a candidate conceptual model from the **FA Handbook alone** — no LeanIX required. Useful for bootstrapping or validating the LeanIX model against the governance text.
+
+Two-pass process:
+- **Pass 1**: Query `fa_handbook` per seed topic → extract defined terms, roles, and concepts
+- **Pass 2**: For entity pairs that co-appeared in the same topic → infer relationships
+- **Pass 3**: Consolidate → terms of reference per unique term
+
+```bash
+# Full run (14 default seed topics)
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
+
+# Subset of topics
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model \
+  --topics Club Player Competition Registration
+
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
+RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
 ```
-fa_business_catalog_dataobjects.csv   ← DataObject entities
-fa_business_catalog_interfaces.csv    ← Interface data flows
+
+**Output** (written to `~/Documents/__data/resources/thefa/`):
+```
+fa_handbook_candidate_entities.csv       ← term, definition, category, source_topic
+fa_handbook_candidate_relationships.csv  ← entity_a, entity_b, relationship description
+fa_handbook_terms_of_reference.csv       ← consolidated ToR per unique term
 ```
 
-Re-running overwrites the files. Use `RESUME=1` to append to an existing run instead of starting over.
+**Default seed topics** (14): Club, Player, Official, Referee, Competition, County FA, Registration, Transfer, Affiliation, Discipline, Safeguarding, Governance, Eligibility, Licence
 
-**DataObjects CSV columns**:
+---
 
-| Column | Source |
-|--------|--------|
-| `fact_sheet_id` | LeanIX |
-| `entity_name` | LeanIX conceptual model |
-| `domain_group` | LeanIX (PARTY, AGREEMENTS, PRODUCT, etc.) |
-| `hierarchy_level` | LeanIX inventory |
-| `leanix_description` | LeanIX inventory (blank for ~99 entities) |
-| `catalog_entry` | LLM synthesis from RAG (all FA collections) |
-| `model_used` | Ollama model name |
+## 3. FA Integrated Catalog
 
-**Interfaces CSV columns**:
+The direct implementation of: *"the conceptual model is the frame, the handbook providing the SME content."*
 
-| Column | Source |
-|--------|--------|
-| `fact_sheet_id` | LeanIX |
-| `interface_name` | LeanIX inventory |
-| `source_system` | LeanIX inventory |
-| `target_system` | LeanIX inventory |
-| `flow_description` | LeanIX inventory |
-| `catalog_entry` | LLM synthesis from RAG |
-| `model_used` | Ollama model name |
+Three-source join:
+1. **LeanIX Conceptual Model (XML)** — canonical entity frame: all modelled entities with domain, hierarchy, and relationships
+2. **LeanIX Inventory (Excel)** — descriptions joined directly by `fact_sheet_id` (not via RAG)
+3. **FA Handbook + Conceptual Model RAG** — governance rules, obligations, domain context per entity
 
-### Runtime
+Every entity in the conceptual model gets a terms of reference entry, regardless of whether it has an inventory description.
 
-~229 DataObjects × ~10s each ≈ **35-40 minutes** on `qwen2.5:14b`.
-Results are checkpointed every 10 entities — safe to interrupt and resume.
+```bash
+uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
+uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qwen2.5:14b
+RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
+```
 
-Smaller/faster models (`llama3.1:8b`, `granite3.1-dense:8b`) reduce runtime at the cost of response depth.
+**Output** (written to `~/Documents/__data/resources/thefa/`):
+```
+fa_terms_of_reference.csv   ← structured: definition + domain context + governance per entity
+fa_integrated_catalog.csv   ← combined catalog_entry column for bulk use
+```
+
+**ToR columns**: `fact_sheet_id`, `entity_name`, `domain`, `hierarchy_level`, `related_entities`, `leanix_description`, `formal_definition`, `domain_context`, `governance_rules`, `model_used`
+
+**Runtime**: ~217 conceptual model entities × ~10–20s ≈ 35–70 min on `qwen2.5:14b`
+
+---
+
+## Model Options
+
+| Model | Speed | Quality | Notes |
+|-------|-------|---------|-------|
+| `qwen2.5:14b` | ~10s/entity | Best | Default — strongest structured output |
+| `mistral-nemo:12b` | ~8s/entity | Good | Solid alternative |
+| `llama3.1:8b` | ~5s/entity | Medium | Fast iteration / dev use |
+| `granite3.1-dense:8b` | ~5s/entity | Medium | IBM enterprise tuning |

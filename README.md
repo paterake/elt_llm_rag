@@ -73,6 +73,12 @@ uv run python -m elt_llm_ingest.clean_slate --prefix fa_leanix
 uv run python -m elt_llm_ingest.clean_slate
 uv run python -m elt_llm_ingest.runner --cfg load_rag
 
-# Generate business catalog (LeanIX entities enriched via RAG)
+# Generate business catalog (LeanIX inventory as driver, all FA RAG collections)
 uv run --package elt-llm-consumer elt-llm-consumer-glossary --model qwen2.5:14b
+
+# Generate integrated catalog (conceptual model as frame + inventory join + FA Handbook)
+uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qwen2.5:14b
+
+# Build candidate model and ToR from FA Handbook only (no LeanIX)
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
 ```
