@@ -1,0 +1,43 @@
+# Ingestion Config: LeanIX Full Inventory Export — Split Mode
+#
+# Reads the LeanIX full-inventory Excel export and generates one ChromaDB
+# collection per fact-sheet type. This mirrors the split-mode approach used
+# for the LeanIX Conceptual Model (ingest_fa_ea_leanix.yaml).
+#
+# Collections produced (prefix = 'fa_leanix_inv'):
+#   fa_leanix_inv_dataobject    — 229 DataObject entities with business definitions
+#   fa_leanix_inv_interface     — 271 Interface fact sheets (system data flows)
+#   fa_leanix_inv_application   — 215 Application fact sheets
+#   fa_leanix_inv_capability    — 272 BusinessCapability fact sheets
+#   fa_leanix_inv_organization  — 115 Organization fact sheets
+#   fa_leanix_inv_itcomponent   — 180 IT Component fact sheets
+#   fa_leanix_inv_provider      — 74  Provider fact sheets
+#   fa_leanix_inv_objective     — 59  Objective fact sheets
+#
+# Source: Full inventory Excel export from LeanIX → Inventory → Export All
+# Update file_paths when a new export is downloaded.
+#
+# Run:
+#   uv run python -m elt_llm_ingest.runner ingest ingest_fa_leanix_inventory
+
+collection_prefix: "fa_leanix_inv"
+
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "LeanIXInventoryPreprocessor"
+  output_format: "split"
+  enabled: true
+
+file_paths:
+  - "~/Downloads/20260227_085233_UtvKD_inventory.xlsx"
+
+metadata:
+  domain: "architecture"
+  type: "enterprise_architecture"
+  source: "LeanIX Inventory"
+
+chunking:
+  chunk_size: 512
+  chunk_overlap: 64
+
+rebuild: true

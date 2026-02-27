@@ -1,6 +1,6 @@
 # Query Config: LeanIX Relationships — Targeted Retrieval
 #
-# Queries ONLY the fa_leanix_relationships collection plus overview.
+# Queries ONLY the fa_leanix_cm_relationships collection plus overview.
 # Each relationship chunk is self-contained: it names source and target domains,
 # states cardinality, and lists representative entities — so retrieval is
 # precise even with high similarity_top_k.
@@ -11,8 +11,8 @@
 #   - "Which domains connect to TRANSACTION AND EVENTS?"
 
 collections:
-  - name: "fa_leanix_relationships"
-  - name: "fa_leanix_overview"
+  - name: "fa_leanix_cm_relationships"
+  - name: "fa_leanix_cm_overview"
 
 query:
   similarity_top_k: 16

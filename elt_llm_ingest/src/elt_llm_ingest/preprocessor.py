@@ -7,8 +7,11 @@ they are ingested into the RAG system. Preprocessors can transform files
 
 from __future__ import annotations
 
+import csv
 import logging
+import re
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -172,6 +175,192 @@ class LeanIXPreprocessor(BasePreprocessor):
                 success=False,
                 message=str(e),
             )
+
+
+class LeanIXInventoryPreprocessor(BasePreprocessor):
+    """Preprocessor for the LeanIX full-inventory Excel export.
+
+    Reads the LeanIX inventory Excel file (exported from LeanIX → Inventory →
+    Export) and generates one Markdown file per fact-sheet type, then maps each
+    file to its own ChromaDB collection via ``section_collection_map``.
+
+    This mirrors the split-mode behaviour of ``LeanIXPreprocessor`` so that:
+    - ``ingest_fa_ea_leanix.yaml`` → ``fa_leanix_cm_*`` (conceptual model, from XML)
+    - ``ingest_fa_leanix_inventory.yaml`` → ``fa_leanix_inv_*`` (inventory, from Excel)
+
+    Collections produced (prefix = collection_prefix, default 'fa_leanix_inv'):
+        fa_leanix_inv_dataobject    — 229 DataObject fact sheets with definitions
+        fa_leanix_inv_interface     — 271 Interface fact sheets (data flows)
+        fa_leanix_inv_application   — 215 Application fact sheets
+        fa_leanix_inv_capability    — 272 BusinessCapability fact sheets
+        fa_leanix_inv_organization  — 115 Organization fact sheets
+        fa_leanix_inv_itcomponent   — 180 ITComponent fact sheets
+        fa_leanix_inv_provider      — 74  Provider fact sheets
+        fa_leanix_inv_objective     — 59  Objective fact sheets
+
+    Excel format expected (LeanIX standard inventory export):
+        Columns: id, type, name, displayName, description, level, status, lxState
+        Sheet:   first non-'ReadMe' sheet (name includes export timestamp)
+    """
+
+    # Maps LeanIX type → (collection_suffix, human_label)
+    _TYPE_MAP: Dict[str, Tuple[str, str]] = {
+        "DataObject":        ("dataobject",   "DataObject Inventory"),
+        "Interface":         ("interface",    "Interface Inventory (Data Flows)"),
+        "Application":       ("application",  "Application Inventory"),
+        "BusinessCapability":("capability",   "Business Capability Inventory"),
+        "Organization":      ("organization", "Organization Inventory"),
+        "ITComponent":       ("itcomponent",  "IT Component Inventory"),
+        "Provider":          ("provider",     "Provider Inventory"),
+        "Objective":         ("objective",    "Objective Inventory"),
+    }
+
+    def __init__(self, output_format: str = "split", collection_prefix: Optional[str] = None):
+        self.output_format = output_format  # kept for interface compatibility; always split
+        self.collection_prefix = collection_prefix or "fa_leanix_inv"
+
+    def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
+        input_path = Path(input_file).expanduser().resolve()
+        output_path_obj = Path(output_path).expanduser().resolve()
+        section_dir = output_path_obj.parent / f"{output_path_obj.stem}_sections"
+        section_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Preprocessing LeanIX inventory Excel: %s", input_path)
+
+        try:
+            rows = self._read_excel(input_path)
+            logger.info("Read %d rows from Excel", len(rows))
+
+            # Group by type
+            by_type: Dict[str, List[dict]] = defaultdict(list)
+            for row in rows:
+                fs_type = row.get("type", "Unknown")
+                if fs_type in self._TYPE_MAP:
+                    by_type[fs_type].append(row)
+
+            section_collection_map: Dict[str, str] = {}
+            output_files: List[str] = []
+            total = 0
+
+            for fs_type, type_rows in sorted(by_type.items()):
+                suffix, label = self._TYPE_MAP[fs_type]
+                collection_name = f"{self.collection_prefix}_{suffix}"
+
+                md_content = self._type_to_markdown(fs_type, label, type_rows)
+                out_file = section_dir / f"{suffix}.md"
+                out_file.write_text(md_content, encoding="utf-8")
+
+                section_collection_map[str(out_file)] = collection_name
+                output_files.append(str(out_file))
+                total += len(type_rows)
+                logger.info("  %s → %s (%d rows)", out_file.name, collection_name, len(type_rows))
+
+            return PreprocessorResult(
+                original_file=str(input_path),
+                output_files=output_files,
+                success=True,
+                message=(
+                    f"Split {total} fact sheets across {len(output_files)} collections "
+                    f"(prefix: {self.collection_prefix})"
+                ),
+                section_collection_map=section_collection_map,
+            )
+
+        except Exception as e:
+            logger.error("Failed to preprocess LeanIX inventory Excel: %s", e)
+            return PreprocessorResult(
+                original_file=str(input_path),
+                output_files=[],
+                success=False,
+                message=str(e),
+            )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _read_excel(xlsx_path: Path) -> List[dict]:
+        """Read the LeanIX inventory Excel export → list of row dicts.
+
+        Finds the first non-'ReadMe' sheet (the export sheet has a
+        timestamp-based name that changes with every export).
+        """
+        try:
+            import openpyxl
+        except ImportError as exc:
+            raise ImportError(
+                "openpyxl is required to read LeanIX Excel exports. "
+                "Add it to elt_llm_ingest dependencies: uv add openpyxl"
+            ) from exc
+
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        sheet_name = next(
+            (name for name in wb.sheetnames if name.lower() != "readme"),
+            wb.sheetnames[0],
+        )
+        ws = wb[sheet_name]
+
+        headers: List[str] = []
+        rows: List[dict] = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i == 0:
+                headers = [str(h) if h is not None else f"col_{j}" for j, h in enumerate(row)]
+            else:
+                if any(cell is not None for cell in row):
+                    rows.append(dict(zip(headers, row)))
+        return rows
+
+    def _type_to_markdown(self, fs_type: str, label: str, rows: List[dict]) -> str:
+        """Generate Markdown for a single fact-sheet type."""
+        md: List[str] = []
+        md.append(f"# LeanIX {label}\n\n")
+        md.append(
+            f"The FA LeanIX inventory contains {len(rows)} {fs_type} fact sheets. "
+            "Each entry below includes the name, LeanIX identifier, hierarchy level, "
+            "and a description where recorded.\n\n"
+        )
+        md.append("---\n\n")
+
+        for row in rows:
+            name = (row.get("name") or row.get("displayName") or "Unknown")
+            fsid = row.get("id", "")
+            level = row.get("level", "")
+            lx_state = row.get("lxState", "")
+            description = (row.get("description") or "").strip()
+
+            md.append(f"## {name}\n\n")
+            md.append(f"**LeanIX ID**: `{fsid}`  \n")
+            if level:
+                md.append(f"**Level**: {level}  \n")
+            if lx_state:
+                md.append(f"**Quality State**: {lx_state}  \n")
+
+            if fs_type == "Interface":
+                source, target = self._parse_interface_endpoints(str(name))
+                if source and target:
+                    md.append(f"**Data flow**: {source} → {target}  \n")
+
+            md.append("\n")
+
+            if description:
+                if len(description) > 800:
+                    description = description[:800] + "…"
+                md.append(f"{description}\n\n")
+            else:
+                md.append("_No description recorded in LeanIX._\n\n")
+
+            md.append("---\n\n")
+
+        return "".join(md)
+
+    @staticmethod
+    def _parse_interface_endpoints(name: str) -> Tuple[Optional[str], Optional[str]]:
+        """Try to extract source and target from an interface name like 'A to B'."""
+        match = re.match(r"^(.+?)\s+to\s+(.+?)(?:\s+LI)?$", name, re.IGNORECASE)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+        return None, None
 
 
 class IdentityPreprocessor(BasePreprocessor):

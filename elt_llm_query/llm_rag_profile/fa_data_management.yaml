@@ -21,7 +21,8 @@ collections:
   - name: "dama_dmbok"
 
 collection_prefixes:
-  - name: "fa_leanix"
+  - name: "fa_leanix_cm"
+  - name: "fa_leanix_inv"
 
 query:
   similarity_top_k: 15
@@ -30,9 +31,11 @@ query:
     You have access to four knowledge sources:
 
     1. FA Handbook - the FA's governance rules, committees, competition structures, and club regulations.
-    2. FA Enterprise Conceptual Data Model (LeanIX) - 217 entity types across domains including
+    2. FA Enterprise Conceptual Data Model (fa_leanix_cm_*) - 217 entity types across domains including
        Party (Club, Player, Team, Individual, Organisation), Channel, Account, Asset,
        Agreement, Campaign, and Product entities, with their domain-level relationships.
+    2b. LeanIX Inventory (fa_leanix_inv_*) - fact sheets for DataObjects, Interfaces, Applications,
+       Business Capabilities, Organizations, IT Components, Providers, and Objectives.
     3. FA Reference Data Architecture - the target data architecture for the FA.
     4. DAMA-DMBOK v2 - the global standard for data management covering data governance,
        data quality, master data management, metadata management, data integration,

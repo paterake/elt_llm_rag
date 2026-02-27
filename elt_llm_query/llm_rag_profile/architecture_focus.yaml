@@ -3,13 +3,13 @@
 collections:
   - name: "fa_ea_sad"
     weight: 1.0
-  - name: "fa_leanix_relationships"
+  - name: "fa_leanix_cm_relationships"
     weight: 1.0
-  - name: "fa_leanix_additional_entities"
+  - name: "fa_leanix_cm_additional_entities"
     weight: 1.0
-  - name: "fa_leanix_overview"
+  - name: "fa_leanix_cm_overview"
     weight: 0.8
-  - name: "fa_leanix_agreements"
+  - name: "fa_leanix_cm_agreements"
     weight: 0.8
 
 query:

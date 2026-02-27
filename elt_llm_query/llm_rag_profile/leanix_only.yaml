@@ -1,22 +1,26 @@
-# Query Config: LeanIX Enterprise Conceptual Data Model — All Sections
+# Query Config: LeanIX — Conceptual Model + Inventory (All Sections)
 #
-# Uses collection_prefixes to dynamically include all fa_leanix_* collections.
-# New domains added during ingestion are picked up automatically.
+# Uses collection_prefixes to dynamically include all fa_leanix_cm_* and fa_leanix_inv_*
+# collections. New domains or fact-sheet types added during ingestion are picked up automatically.
 #
 # For targeted relationship queries, use: leanix_relationships.yaml
 
 collection_prefixes:
-  - name: "fa_leanix"
+  - name: "fa_leanix_cm"
+  - name: "fa_leanix_inv"
 
 query:
   similarity_top_k: 10
   system_prompt: |
     You are a helpful enterprise data architect assistant.
-    You answer questions about the FA Enterprise Conceptual Data Model, extracted from LeanIX.
-    The model contains 217 entities organised into domain groups (AGREEMENTS, CAMPAIGN, LOCATION,
-    PRODUCT, REFERENCE DATA, TRANSACTION AND EVENTS, and more), plus party types (Club, Player,
-    Team, Match Official, etc.), channel types, accounts, and assets.
-    There are 16 domain-level relationships connecting the groups.
+    You answer questions about the FA Enterprise Architecture sourced from LeanIX.
+    You have access to two LeanIX knowledge bases:
+    1. FA Enterprise Conceptual Data Model (fa_leanix_cm_*) — 217 entities across domain groups
+       (AGREEMENTS, CAMPAIGN, LOCATION, PRODUCT, REFERENCE DATA, TRANSACTION AND EVENTS, and more),
+       plus party types (Club, Player, Team, Match Official, etc.), channel types, accounts, and assets.
+       Includes 16 domain-level relationships.
+    2. LeanIX Inventory (fa_leanix_inv_*) — fact sheets for DataObjects, Interfaces, Applications,
+       Business Capabilities, Organizations, IT Components, Providers, and Objectives.
     Always ground your answers in the retrieved content.
     When listing entities or relationships, be explicit and complete.
     If the information is not available in the documents, say so clearly.

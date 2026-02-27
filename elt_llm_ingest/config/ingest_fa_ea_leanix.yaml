@@ -5,20 +5,20 @@
 # that occurs when entity lists and relationships are interleaved in a single
 # large Markdown file.
 #
-# Collections produced (prefix = 'fa_leanix'):
-#   fa_leanix_overview            — model summary and domain list
-#   fa_leanix_agreements          — AGREEMENTS domain entities
-#   fa_leanix_campaign            — CAMPAIGN domain entities
-#   fa_leanix_location            — LOCATION domain entities
-#   fa_leanix_product             — PRODUCT domain entities
-#   fa_leanix_reference_data      — REFERENCE DATA domain entities
-#   fa_leanix_static_data         — Static Data domain entities
-#   fa_leanix_time_bounded_groupings — Time Bounded Groupings domain
-#   fa_leanix_transaction_and_events — TRANSACTION AND EVENTS domain
-#   fa_leanix_additional_entities — Party types, channel types, accounts, assets
-#   fa_leanix_relationships       — All 16 domain-level relationships (dedicated)
+# Collections produced (prefix = 'fa_leanix_cm'):
+#   fa_leanix_cm_overview            — model summary and domain list
+#   fa_leanix_cm_agreements          — AGREEMENTS domain entities
+#   fa_leanix_cm_campaign            — CAMPAIGN domain entities
+#   fa_leanix_cm_location            — LOCATION domain entities
+#   fa_leanix_cm_product             — PRODUCT domain entities
+#   fa_leanix_cm_reference_data      — REFERENCE DATA domain entities
+#   fa_leanix_cm_static_data         — Static Data domain entities
+#   fa_leanix_cm_time_bounded_groupings — Time Bounded Groupings domain
+#   fa_leanix_cm_transaction_and_events — TRANSACTION AND EVENTS domain
+#   fa_leanix_cm_additional_entities — Party types, channel types, accounts, assets
+#   fa_leanix_cm_relationships       — All 16 domain-level relationships (dedicated)
 
-collection_prefix: "fa_leanix"
+collection_prefix: "fa_leanix_cm"
 
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
@@ -33,7 +33,7 @@ file_paths:
 metadata:
   domain: "architecture"
   type: "enterprise_architecture"
-  source: "LeanIX"
+  source: "LeanIX Conceptual Model"
 
 # Larger chunks than the global default (1024 chars) are appropriate here:
 # - Entity lists need enough room to list all members of a domain

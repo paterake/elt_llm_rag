@@ -1,13 +1,13 @@
 # Query Config: Vendor Assessment Focus (LeanIX + Supplier Assessment)
 
 collections:
-  - name: "fa_leanix_relationships"
+  - name: "fa_leanix_cm_relationships"
     weight: 1.0
-  - name: "fa_leanix_additional_entities"
+  - name: "fa_leanix_cm_additional_entities"
     weight: 1.0
-  - name: "fa_leanix_product"
+  - name: "fa_leanix_cm_product"
     weight: 1.0
-  - name: "fa_leanix_agreements"
+  - name: "fa_leanix_cm_agreements"
     weight: 0.8
   - name: "supplier_assess"
     weight: 1.0
