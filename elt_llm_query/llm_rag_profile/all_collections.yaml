@@ -5,8 +5,6 @@ collections:
   - name: "dama_dmbok"
   - name: "fa_handbook"
   - name: "fa_data_architecture"
-  - name: "fa_ea_sad"
-  - name: "supplier_assess"
 
 collection_prefixes:
   - name: "fa_leanix"
@@ -20,8 +18,7 @@ query:
     - FA Handbook (Football Association governance and regulations)
     - FA Data Architecture (Football Association data architecture)
     - FA Enterprise Conceptual Data Model — LeanIX (entities, domains, relationships)
-    - SAD (Solution Architecture Definition)
-    - Supplier Assessment (procurement)
+    - LeanIX Global Inventory (DataObjects, Interfaces, Applications, Capabilities, and more)
 
     Always ground your answers in the retrieved content.
     Cite the source document when relevant.

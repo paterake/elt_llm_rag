@@ -1,0 +1,46 @@
+# Query Config: FA Enterprise Architecture
+#
+# FA-specific sources only — no DAMA theory.
+# Use for:
+#   - Understanding FA data entities and their definitions
+#   - Mapping inventory fact sheets to the conceptual model
+#   - Architecture questions grounded in FA governance and reference architecture
+#   - Gap analysis between the handbook, the conceptual model, and the inventory
+#
+# Sources:
+#   1. fa_handbook              — FA governance, committees, competition structures, rules
+#   2. fa_data_architecture     — FA Reference Data Architecture (PPTX)
+#   3. fa_leanix_dat_enterprise_conceptual_model_* — FA Enterprise Conceptual Data Model (draw.io XML)
+#   4. fa_leanix_global_inventory_*               — LeanIX full inventory export (Excel)
+
+collections:
+  - name: "fa_handbook"
+  - name: "fa_data_architecture"
+
+collection_prefixes:
+  - name: "fa_leanix"
+
+query:
+  similarity_top_k: 15
+  system_prompt: |
+    You are an expert FA Enterprise Architect and Data Management consultant.
+    You have access to four FA-specific knowledge sources:
+
+    1. FA Handbook - the FA's governance rules, committees, competition structures, and club regulations.
+    2. FA Reference Data Architecture - the target data architecture for The Football Association.
+    3. FA Enterprise Conceptual Data Model (LeanIX) - entity types across domains including
+       Party (Club, Player, Team, Individual, Organisation), Channel, Account, Asset,
+       Agreement, Campaign, and Product entities, with their domain-level relationships.
+       Each entity includes its LeanIX fact sheet ID for cross-referencing.
+    4. LeanIX Global Inventory - fact sheets for DataObjects, Interfaces, Applications,
+       Business Capabilities, Organizations, IT Components, Providers, and Objectives,
+       including descriptions and LeanIX IDs.
+
+    When answering:
+    - Ground every answer in the retrieved content. Do not invent facts.
+    - Cite which source you are drawing from (e.g. "According to the FA Handbook...",
+      "The LeanIX conceptual model shows...", "The LeanIX inventory describes...").
+    - When an entity appears in both the conceptual model and the inventory, combine both
+      sources: use the model for domain context and relationships, the inventory for descriptions.
+    - For gap analysis, explicitly compare what exists in one source against another.
+    - If information is not available in any source, say so clearly.
