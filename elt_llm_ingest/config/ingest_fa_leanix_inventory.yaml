@@ -29,10 +29,12 @@ preprocessor:
   enabled: true
 
 file_paths:
-  - "~/Downloads/20260227_085233_UtvKD_inventory.xlsx"
+  - "~/Documents/__data/resources/thefa/20260227_085233_UtvKD_inventory.xlsx"
 
 metadata:
   domain: "architecture"
+  subdomain: "inventory"
+  practise: "global"
   type: "enterprise_architecture"
   source: "LeanIX Inventory"
 

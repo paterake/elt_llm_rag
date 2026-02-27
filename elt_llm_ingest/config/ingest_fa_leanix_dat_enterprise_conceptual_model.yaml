@@ -18,7 +18,7 @@
 #   fa_leanix_cm_additional_entities — Party types, channel types, accounts, assets
 #   fa_leanix_cm_relationships       — All 16 domain-level relationships (dedicated)
 
-collection_prefix: "fa_leanix_cm"
+collection_prefix: "fa_leanix_dat_enterprise_conceptual_model"
 
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
@@ -32,8 +32,10 @@ file_paths:
 # Metadata attached to all chunks in every section collection
 metadata:
   domain: "architecture"
+  subdomain: "diagrams"
+  practise: "data"
   type: "enterprise_architecture"
-  source: "LeanIX Conceptual Model"
+  source: "LeanIX Enterprise Conceptual Model"
 
 # Larger chunks than the global default (1024 chars) are appropriate here:
 # - Entity lists need enough room to list all members of a domain
