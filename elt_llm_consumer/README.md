@@ -65,9 +65,11 @@ uv run --package elt-llm-consumer elt-llm-consumer-glossary \
 Written to `~/Documents/__data/resources/thefa/`:
 
 ```
-fa_business_glossary_dataobjects_<timestamp>.csv   ← 229 DataObject entities
-fa_business_glossary_interfaces_<timestamp>.csv    ← 271 Interface data flows
+fa_business_catalog_dataobjects.csv   ← DataObject entities
+fa_business_catalog_interfaces.csv    ← Interface data flows
 ```
+
+Re-running overwrites the files. Use `RESUME=1` to append to an existing run instead of starting over.
 
 **DataObjects CSV columns**:
 

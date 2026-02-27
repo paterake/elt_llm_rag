@@ -81,9 +81,9 @@ This roadmap tracks the implementation of the ELT LLM RAG platform as defined in
 uv run --package elt-llm-consumer elt-llm-consumer-glossary --model qwen2.5:14b
 ```
 
-**Output**: `~/Documents/__data/resources/thefa/fa_business_glossary_*.csv`
-- DataObjects (229 entities) — entity name, domain, LeanIX description, RAG catalog entry
-- Interfaces (271 data flows) — source/target systems, flow description, RAG catalog entry
+**Output**: `~/Documents/__data/resources/thefa/`
+- `fa_business_catalog_dataobjects.csv` — DataObject entities (name, domain, LeanIX description, RAG catalog entry)
+- `fa_business_catalog_interfaces.csv` — Interface data flows (source/target, flow description, RAG catalog entry)
 
 **Status**: ✅ Complete
 
