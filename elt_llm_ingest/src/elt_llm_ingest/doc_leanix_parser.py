@@ -470,7 +470,8 @@ class LeanIXExtractor:
         # ── One section per domain ────────────────────────────────────────────
         for group_name in domain_names:
             group_assets = sorted(assets_by_group[group_name], key=lambda a: a.label)
-            members = [a.label for a in group_assets if a.label.upper() != group_name.upper()]
+            domain_entities = [a for a in group_assets if a.label.upper() != group_name.upper()]
+            members = [a.label for a in domain_entities]
 
             md = []
             md.append(f"# {group_name} Domain — FA Enterprise Conceptual Data Model\n\n")
@@ -478,10 +479,11 @@ class LeanIXExtractor:
                 f"The {group_name} domain is part of the FA Enterprise Conceptual Data Model. "
                 f"It contains {len(members)} entities.\n\n"
             )
-            if members:
+            if domain_entities:
                 md.append(f"The entities within the {group_name} domain are:\n\n")
-                for member in members:
-                    md.append(f"- **{member}**\n")
+                for asset in domain_entities:
+                    fsid = f" *(LeanIX ID: `{asset.fact_sheet_id}`)*" if asset.fact_sheet_id else ""
+                    md.append(f"- **{asset.label}**{fsid}\n")
                 md.append("\n")
 
             # Include relationships that touch this domain (for co-location context)
