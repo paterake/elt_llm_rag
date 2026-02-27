@@ -1,0 +1,29 @@
+[project]
+name = "elt-llm-consumer"
+version = "0.1.0"
+description = "Purpose-built products that consume the LLM+RAG infrastructure"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "elt-llm-core>=0.1.0",
+    "elt-llm-query>=0.1.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+]
+
+[project.scripts]
+elt-llm-consumer-glossary = "elt_llm_consumer.business_glossary:main"
+
+[build-system]
+requires = ["uv_build>=0.9.15,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=4.0.0",
+]
+
+[tool.uv.sources]
+elt-llm-core = { workspace = true }
+elt-llm-query = { workspace = true }

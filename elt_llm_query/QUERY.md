@@ -8,97 +8,35 @@ For an interactive session drop the `-q` flag. See [README.md](README.md) for co
 
 ---
 
-## LeanIX — Validating Partitioned Retrieval
+## FA Enterprise Architecture (`fa_enterprise_architecture`)
 
-The LeanIX conceptual model is ingested as **11 separate ChromaDB collections** (one per domain, plus a dedicated relationships collection). The queries below confirm that the partition routing is working correctly — check the Sources section of each response to verify chunks are coming from the expected collection.
-
-### 1. Relationships (`leanix_relationships`)
-
-Profile targets `fa_leanix_relationships` + `fa_leanix_overview` only. The relationships collection holds 4 self-contained chunks covering all 16 domain-level relationships. A pre-partitioning bug caused chunking to split the relationship list, so some were missed; these queries confirm that is fixed.
+All `fa_leanix_*` collections + `fa_handbook` + `fa_data_architecture`. The primary profile for FA architecture questions — combines the LeanIX conceptual model, global inventory, handbook governance content, and data architecture documentation.
 
 ```bash
-# Full list — should return all 16 relationships with cardinalities
-uv run python -m elt_llm_query.runner --cfg leanix_relationships \
-  -q "What are all the relationships in the FA Enterprise Conceptual Data Model? List each one with its cardinality."
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture
 
-# Point query — specific relationship between two domains
-uv run python -m elt_llm_query.runner --cfg leanix_relationships \
-  -q "How does PARTY relate to AGREEMENTS? What is the cardinality?"
+# Conceptual model structure
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
+  -q "What are the 10 enterprise domains in the FA conceptual model?"
 
-# Fan-out query — all domains connecting to a given domain
-uv run python -m elt_llm_query.runner --cfg leanix_relationships \
-  -q "Which domains have a relationship with TRANSACTION AND EVENTS?"
-
-# Self-referential — PARTY → PARTY
-uv run python -m elt_llm_query.runner --cfg leanix_relationships \
-  -q "Is there a relationship between PARTY and itself?"
-```
-
-**Expected:** Sources come from `fa_leanix_relationships`. Full-list query returns all 16.
-
----
-
-### 2. Domain Entities (`leanix_only`)
-
-Profile uses `collection_prefixes: fa_leanix` to expand to all `fa_leanix_*` collections at runtime. Domain-specific questions should retrieve from the matching per-domain collection, not from the relationships collection.
-
-```bash
-# AGREEMENTS domain (42 entities) → fa_leanix_agreements
-uv run python -m elt_llm_query.runner --cfg leanix_only \
-  -q "What entities are in the AGREEMENTS domain of the FA conceptual model?"
-
-# PRODUCT domain (42 entities) → fa_leanix_product
-uv run python -m elt_llm_query.runner --cfg leanix_only \
-  -q "List all entities in the PRODUCT domain."
-
-# Party types, channel types, accounts, assets → fa_leanix_additional_entities
-uv run python -m elt_llm_query.runner --cfg leanix_only \
-  -q "What party types are defined in the FA conceptual model? List them all."
-
-# Model summary (217 entities, 8 domain groups) → fa_leanix_overview
-uv run python -m elt_llm_query.runner --cfg leanix_only \
-  -q "How many entities and domains are in the FA Enterprise Conceptual Data Model?"
-
-# TRANSACTION AND EVENTS domain → fa_leanix_transaction_and_events
-uv run python -m elt_llm_query.runner --cfg leanix_only \
-  -q "What events and transactions does the model track?"
-
-# CAMPAIGN domain → fa_leanix_campaign
-uv run python -m elt_llm_query.runner --cfg leanix_only \
-  -q "What campaign-related entities are in the model?"
-
-# LOCATION domain → fa_leanix_location
-uv run python -m elt_llm_query.runner --cfg leanix_only \
-  -q "What location entities are defined in the FA conceptual model?"
-```
-
-**Expected:** Each query sources from the matching domain collection. Entity lists are complete (pre-partitioning these were often truncated mid-chunk).
-
----
-
-### 3. Handbook Enrichment (`leanix_fa_combined`)
-
-Profile combines all `fa_leanix_*` with `fa_handbook`. Responses should draw from both sources — check the Sources section for at least one `fa_handbook` chunk alongside LeanIX chunks.
-
-```bash
-# Agreements domain + Handbook legal definitions for player agreements
-uv run python -m elt_llm_query.runner --cfg leanix_fa_combined \
-  -q "The conceptual model has an AGREEMENTS domain. What rules does the FA Handbook define around player registration or transfer agreements that would map to those entities?"
-
-# Party types in the model vs Handbook description of clubs and members
-uv run python -m elt_llm_query.runner --cfg leanix_fa_combined \
+# Entity lookup + handbook cross-reference
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
   -q "What does the FA Handbook say about clubs and member organisations, and how do those map to the PARTY entities in the conceptual model?"
 
-# Gap analysis — Handbook concepts not in the model
-uv run python -m elt_llm_query.runner --cfg leanix_fa_combined \
+# Inventory — what applications and interfaces exist
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
+  -q "What data interfaces does Workday have in the LeanIX inventory?"
+
+# Gap analysis
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
   -q "Are there governance structures or roles described in the FA Handbook that don't appear as entities in the conceptual model?"
 
-# Competition structures in Handbook vs Transaction/Events domain
-uv run python -m elt_llm_query.runner --cfg leanix_fa_combined \
-  -q "How do the competition structures described in the FA Handbook relate to the TRANSACTION AND EVENTS domain in the conceptual model?"
+# Data flows
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
+  -q "How does data flow from Workday to Purview?"
 ```
 
-**Expected:** Sources include at least one `fa_handbook` chunk. LLM response attributes claims to the correct source.
+**Expected:** Sources drawn from `fa_leanix_dat_enterprise_conceptual_model_*`, `fa_leanix_global_inventory_*`, `fa_handbook`, and `fa_data_architecture` collections.
 
 ---
 
@@ -109,7 +47,6 @@ uv run python -m elt_llm_query.runner --cfg leanix_fa_combined \
 ```bash
 uv run python -m elt_llm_query.runner --cfg fa_handbook_only
 
-# Example queries
 uv run python -m elt_llm_query.runner --cfg fa_handbook_only \
   -q "What are the FA's rules around player eligibility?"
 
@@ -129,7 +66,6 @@ uv run python -m elt_llm_query.runner --cfg fa_handbook_only \
 ```bash
 uv run python -m elt_llm_query.runner --cfg dama_only
 
-# Example queries
 uv run python -m elt_llm_query.runner --cfg dama_only \
   -q "What is data governance and what are its key components?"
 
@@ -147,15 +83,15 @@ uv run python -m elt_llm_query.runner --cfg dama_only \
 
 ## Combined Sources
 
-### DAMA + FA Handbook (`dama_fa_combined`)
+### DAMA + FA Handbook (`dama_fa_handbook`)
 
 ```bash
-uv run python -m elt_llm_query.runner --cfg dama_fa_combined
+uv run python -m elt_llm_query.runner --cfg dama_fa_handbook
 
-uv run python -m elt_llm_query.runner --cfg dama_fa_combined \
+uv run python -m elt_llm_query.runner --cfg dama_fa_handbook \
   -q "How do the FA's governance committees map to the data governance roles described in DAMA-DMBOK?"
 
-uv run python -m elt_llm_query.runner --cfg dama_fa_combined \
+uv run python -m elt_llm_query.runner --cfg dama_fa_handbook \
   -q "How does data quality impact the FA's player registration process?"
 ```
 
@@ -187,18 +123,6 @@ uv run python -m elt_llm_query.runner --cfg fa_data_management \
   -q "What metadata should we capture for the AGREEMENTS domain entities, grounded in DAMA-DMBOK metadata management guidance?"
 ```
 
-### DAMA + Handbook + Data Architecture + Key LeanIX (`dama_fa_full`)
-
-```bash
-uv run python -m elt_llm_query.runner --cfg dama_fa_full
-
-uv run python -m elt_llm_query.runner --cfg dama_fa_full \
-  -q "How does the FA reference data architecture align with DAMA-DMBOK data architecture best practices?"
-
-uv run python -m elt_llm_query.runner --cfg dama_fa_full \
-  -q "What are the key data integration patterns recommended by DAMA, and how do they apply to the FA's conceptual model?"
-```
-
 ### All Collections (`all_collections`)
 
 Broadest search across everything ingested.
@@ -217,8 +141,8 @@ uv run python -m elt_llm_query.runner --cfg all_collections \
 
 ## Tips
 
-- **Start narrow** — use `leanix_relationships` or a single-collection profile before going broad
-- **Check Sources** — the collection name in each source tells you whether the partition routing worked correctly
+- **Start with `fa_enterprise_architecture`** — covers LeanIX conceptual model + inventory + FA Handbook + data architecture in one profile
+- **Check Sources** — the collection name in each source tells you which knowledge base the chunk came from
 - **Increase `similarity_top_k`** in the profile YAML if you think relevant chunks are being cut off
-- **Frame combined queries explicitly** — e.g. *"...and what does the FA Handbook say about..."* helps the retriever surface both sources when using `leanix_fa_combined`
+- **Frame combined queries explicitly** — e.g. *"...and what does the FA Handbook say about..."* helps the retriever surface both sources
 - **Interactive mode** for exploration, `-q` flag for reproducible validation runs

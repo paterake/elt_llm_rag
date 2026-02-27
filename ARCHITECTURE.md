@@ -140,24 +140,32 @@ elt_llm_rag/
 │   ├── doc_leanix_parser.py # LeanIX XML extraction
 │   ├── file_hash.py        # Smart change detection
 │   └── config/             # Ingestion configs
-│       ├── ingest_fa_ea_leanix.yaml
+│       ├── ingest_fa_leanix_dat_enterprise_conceptual_model.yaml
+│       ├── ingest_fa_leanix_global_inventory.yaml
 │       ├── ingest_dama_dmbok.yaml
 │       ├── ingest_fa_handbook.yaml
-│       └── ...
+│       ├── ingest_fa_data_architecture.yaml
+│       └── load_rag.yaml   # Batch ingest all collections
 │
 ├── elt_llm_query/          # Query interface
 │   ├── runner.py           # Generic runner (--cfg parameter)
 │   ├── query.py            # Single/multi-collection queries
 │   └── llm_rag_profile/    # RAG profiles (collections + persona + settings)
-│       ├── architecture_focus.yaml
-│       ├── vendor_assessment.yaml
-│       ├── leanix_fa_combined.yaml
-│       └── ...
+│       ├── fa_enterprise_architecture.yaml  # Primary FA profile
+│       ├── fa_data_management.yaml
+│       ├── dama_fa_handbook.yaml
+│       ├── dama_only.yaml
+│       ├── fa_handbook_only.yaml
+│       └── all_collections.yaml
 │
-└── elt_llm_api/            # Gradio GUI + programmatic API
-    └── src/elt_llm_api/
-        ├── app.py          # Gradio web application (port 7860)
-        └── api.py          # Programmatic API
+├── elt_llm_api/            # Gradio GUI + programmatic API
+│   └── src/elt_llm_api/
+│       ├── app.py          # Gradio web application (port 7860)
+│       └── api.py          # Programmatic API
+│
+└── elt_llm_consumer/       # Purpose-built products over the RAG system
+    └── src/elt_llm_consumer/
+        └── business_glossary.py  # Batch glossary CSV generator
 ```
 
 ### 2.3 Technology Stack

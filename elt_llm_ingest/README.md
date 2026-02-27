@@ -40,7 +40,8 @@ uv run python -m elt_llm_ingest.runner --cfg load_rag
 # Ingest a single collection
 uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_ea_leanix
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_data_architecture
 
 # Verbose output

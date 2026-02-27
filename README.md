@@ -24,21 +24,26 @@ uv sync --all-packages
 uv run python -m elt_llm_ingest.runner --cfg load_rag
 
 # Query (CLI)
-uv run python -m elt_llm_query.runner --cfg leanix_fa_combined
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture
 
 # Query (GUI — http://localhost:7860)
 uv run python -m elt_llm_api.app
+
+# Generate business catalog CSV
+uv run --package elt-llm-consumer elt-llm-consumer-glossary
 ```
 
 ---
 
 ## Modules
 
-| Module | Purpose | Commands |
-|--------|---------|----------|
-| `elt_llm_ingest/` | Document ingestion | [README](elt_llm_ingest/README.md) |
-| `elt_llm_query/` | Query interface | [README](elt_llm_query/README.md) |
-| `elt_llm_core/` | Core RAG infrastructure | [README](elt_llm_core/README.md) |
+| Module | Purpose | Docs |
+|--------|---------|------|
+| `elt_llm_core/` | Shared RAG infrastructure (ChromaDB, Ollama, config) | [README](elt_llm_core/README.md) |
+| `elt_llm_ingest/` | Document ingestion pipeline | [README](elt_llm_ingest/README.md) |
+| `elt_llm_query/` | Query interface (CLI + multi-collection) | [README](elt_llm_query/README.md) |
+| `elt_llm_api/` | Gradio GUI + programmatic API | [README](elt_llm_api/README.md) |
+| `elt_llm_consumer/` | Purpose-built products over the RAG system | [README](elt_llm_consumer/README.md) |
 
 ## Common Commands
 
@@ -52,13 +57,22 @@ uv run python -m elt_llm_ingest.runner --list
 # List query profiles
 uv run python -m elt_llm_query.runner --list
 
-# Single query
-uv run python -m elt_llm_query.runner --cfg leanix_fa_combined -q "What is a Club?"
+# Single query — FA sources (LeanIX CM + Inventory + Handbook + Data Architecture)
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture -q "What is a Club?"
+
+# Single query — Full data management programme (all sources)
+uv run python -m elt_llm_query.runner --cfg fa_data_management -q "What are the key PARTY domain entities?"
 
 # Interactive session
-uv run python -m elt_llm_query.runner --cfg fa_data_management
+uv run python -m elt_llm_query.runner --cfg fa_handbook_only
+
+# Selective collection reset (e.g. LeanIX only)
+uv run python -m elt_llm_ingest.clean_slate --prefix fa_leanix
 
 # Full reset
 uv run python -m elt_llm_ingest.clean_slate
 uv run python -m elt_llm_ingest.runner --cfg load_rag
+
+# Generate business catalog (LeanIX entities enriched via RAG)
+uv run --package elt-llm-consumer elt-llm-consumer-glossary --model qwen2.5:14b
 ```

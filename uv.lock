@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "elt-llm-api",
+    "elt-llm-consumer",
     "elt-llm-core",
     "elt-llm-ingest",
     "elt-llm-query",
@@ -651,6 +652,37 @@ requires-dist = [
     { name = "elt-llm-ingest", editable = "elt_llm_ingest" },
     { name = "elt-llm-query", editable = "elt_llm_query" },
     { name = "gradio", specifier = ">=4.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-cov", specifier = ">=4.0.0" },
+]
+
+[[package]]
+name = "elt-llm-consumer"
+version = "0.1.0"
+source = { editable = "elt_llm_consumer" }
+dependencies = [
+    { name = "elt-llm-core" },
+    { name = "elt-llm-query" },
+    { name = "openpyxl" },
+    { name = "pandas" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "elt-llm-core", editable = "elt_llm_core" },
+    { name = "elt-llm-query", editable = "elt_llm_query" },
+    { name = "openpyxl", specifier = ">=3.1.0" },
+    { name = "pandas", specifier = ">=2.0.0" },
 ]
 
 [package.metadata.requires-dev]

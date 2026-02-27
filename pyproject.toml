@@ -11,6 +11,7 @@ members = [
     "elt_llm_ingest",
     "elt_llm_query",
     "elt_llm_api",
+    "elt_llm_consumer",
 ]
 
 [tool.uv.sources]
@@ -18,6 +19,7 @@ elt-llm-core = { workspace = true }
 elt-llm-ingest = { workspace = true }
 elt-llm-query = { workspace = true }
 elt-llm-api = { workspace = true }
+elt-llm-consumer = { workspace = true }
 
 [dependency-groups]
 dev = [

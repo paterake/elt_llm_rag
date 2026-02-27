@@ -23,7 +23,7 @@ This roadmap tracks the implementation of the ELT LLM RAG platform as defined in
 | Phase | Focus | Weeks | Status | Completion |
 |-------|-------|-------|--------|------------|
 | **Phase 0: Foundation** | Core infrastructure | Done | ✅ Complete | 100% |
-| **Phase 1: Business Catalogues** | Glossary + Reference Data | 1-4 | 🟡 In Progress | 40% |
+| **Phase 1: Business Catalogues** | Glossary + Reference Data | 1-4 | 🟡 In Progress | 60% |
 | **Phase 2: SAD Generator** | Auto-generated SADs | 5-8 | ⏳ Pending | 0% |
 | **Phase 3: ERD Automation** | Diagram generation | 9-12 | ⏳ Pending | 0% |
 | **Phase 4: Purview Integration** | Microsoft ecosystem | 13-16 | ⏳ Pending | 0% |
@@ -42,15 +42,17 @@ This roadmap tracks the implementation of the ELT LLM RAG platform as defined in
 | Core RAG infrastructure (`elt_llm_core`) | ✅ Complete | ChromaDB, Ollama, config, query engine |
 | Ingestion pipeline (`elt_llm_ingest`) | ✅ Complete | Smart ingest, preprocessors, LeanIX parser |
 | Query interface (`elt_llm_query`) | ✅ Complete | Single/multi-collection, hybrid search |
-| API module (`elt_llm_api`) | 🟡 Partial | Basic convenience functions only |
+| Consumer module (`elt_llm_consumer`) | ✅ Complete | Business glossary generator (batch RAG → CSV) |
+| API module (`elt_llm_api`) | 🟡 Partial | Gradio GUI + basic programmatic API |
 | DAMA-DMBOK ingestion | ✅ Complete | ~11,943 chunks indexed |
 | FA Handbook ingestion | ✅ Complete | ~9,673 chunks indexed |
-| LeanIX split ingestion | ✅ Complete | 11 `fa_leanix_*` collections; 15 chunks (split by domain) |
+| LeanIX conceptual model ingestion | ✅ Complete | `fa_leanix_dat_enterprise_conceptual_model_*` (split by domain) |
+| LeanIX global inventory ingestion | ✅ Complete | `fa_leanix_global_inventory_*` (split by fact sheet type) |
 | Hybrid search (BM25 + vector) | ✅ Complete | QueryFusionRetriever implemented |
 | Embedding reranker | ✅ Complete | Post-retrieval cosine re-scoring via Ollama (`nomic-embed-text`) |
-| Split-mode preprocessor | ✅ Complete | One XML → N domain collections via `collection_prefix` |
+| Split-mode preprocessor | ✅ Complete | One source → N collections via `collection_prefix` |
 | `collection_prefixes` in profiles | ✅ Complete | Dynamic prefix resolution at query time from ChromaDB |
-| `llm_rag_profile/` RAG profiles | ✅ Complete | 12 profiles; renamed from `examples/`; mixed explicit + prefix |
+| `llm_rag_profile/` RAG profiles | ✅ Complete | 6 profiles; `fa_enterprise_architecture` as primary |
 
 ### Documentation
 
@@ -58,8 +60,7 @@ This roadmap tracks the implementation of the ELT LLM RAG platform as defined in
 |----------|--------|
 | README.md | ✅ Complete |
 | ARCHITECTURE.md | ✅ Complete |
-| MODULE READMEs (core, ingest, query) | ✅ Complete |
-| PROJECT_REVIEW.md | ✅ Complete |
+| MODULE READMEs (core, ingest, query, consumer) | ✅ Complete |
 | ROADMAP.md (this file) | ✅ Complete |
 
 ---
@@ -69,33 +70,26 @@ This roadmap tracks the implementation of the ELT LLM RAG platform as defined in
 **Timeline**: Weeks 1-4 (February-March 2026)  
 **Owner**: R. Patel
 
-### 1.1 FAGlossaryPreprocessor
+### 1.1 Business Catalogue CSV Generator ✅ COMPLETE
 
-**Purpose**: Extract glossary terms from FA Handbook for catalogue integration.
+**Purpose**: Generate structured business catalogue CSVs from RAG — joining the LeanIX inventory with FA Handbook SME content retrieved via query.
 
-**Implementation**:
-- [ ] Create `FAGlossaryPreprocessor` class in `preprocessor.py`
-- [ ] Parse FA Handbook PDF/HTML
-- [ ] Extract term, definition, cross-references
-- [ ] Link to LeanIX entities (by name matching)
-- [ ] Output structured Markdown
+**Implementation**: `elt_llm_consumer` module — `business_glossary.py`
 
-**Config**:
-```yaml
-# config/ingest_fa_glossary.yaml
-collection_name: "fa_glossary"
-preprocessor:
-  module: "elt_llm_ingest.preprocessor"
-  class: "FAGlossaryPreprocessor"
-  output_format: "markdown"
-  enabled: true
-file_paths:
-  - "~/Documents/__data/fa_handbook.pdf"
+**Run**:
+```bash
+uv run --package elt-llm-consumer elt-llm-consumer-glossary --model qwen2.5:14b
 ```
 
-**Status**: ⏳ Not started
+**Output**: `~/Documents/__data/resources/thefa/fa_business_glossary_*.csv`
+- DataObjects (229 entities) — entity name, domain, LeanIX description, RAG catalog entry
+- Interfaces (271 data flows) — source/target systems, flow description, RAG catalog entry
 
-**Dependencies**: FA Handbook source (PDF or HTML)
+**Status**: ✅ Complete
+
+**Notes**:
+- The FA Handbook is queried via the existing `fa_handbook` RAG collection — no dedicated glossary preprocessor is required. The LlamaIndex hybrid search (BM25 + vector) surfaces relevant definitions per entity.
+- A dedicated `FAGlossaryPreprocessor` (to extract and index only the `means` definitions) remains an option for improved precision but is not required for the current deliverable.
 
 ---
 
@@ -164,7 +158,7 @@ file_paths:
 
 ### Phase 1 Exit Criteria
 
-- [ ] FAGlossaryPreprocessor implemented and tested
+- [x] Business catalogue CSV generator implemented (`elt_llm_consumer`)
 - [ ] ISO reference data ingested and queryable
 - [ ] DAMA/ISO licensing clarified
 - [ ] Test coverage >60% for core modules
@@ -508,15 +502,16 @@ file_paths:
 | DAMA-DMBOK queries | ✅ Ready | "What is data governance?" |
 | FA Handbook queries | ✅ Ready | "What are the rules for Club affiliation?" |
 | LeanIX conceptual model | ✅ Ready | "What entities are in the PARTY domain?" |
+| LeanIX global inventory | ✅ Ready | "What interfaces does Workday have?" |
 | Multi-collection queries | ✅ Ready | "How does DAMA define data governance vs FA Handbook?" |
-| Hybrid search (BM25 + vector) | ✅ Ready | "List all ISO country codes" |
-| Embedding reranker | ✅ Ready | Active by default — replaces flat RRF scores with cosine similarity |
+| Hybrid search (BM25 + vector) | ✅ Ready | Active by default — BM25 + vector + cosine reranker |
+| Business catalogue CSV export | ✅ Ready | `elt-llm-consumer-glossary --model qwen2.5:14b` |
 
 ### A.2 Upcoming Capabilities
 
 | Capability | Phase | Expected |
 |------------|-------|----------|
-| FA Glossary extraction | Phase 1 | Week 4 |
+| FA Glossary extraction (dedicated preprocessor) | Phase 1 | Week 4 (optional enhancement) |
 | ISO reference data catalogue | Phase 1 | Week 4 |
 | SAD Generator PoC | Phase 2 | Week 8 |
 | ERD Generator (PlantUML) | Phase 3 | Week 12 |
