@@ -20,7 +20,7 @@
 # Run:
 #   uv run python -m elt_llm_ingest.runner ingest ingest_fa_leanix_inventory
 
-collection_prefix: "fa_leanix_inv"
+collection_prefix: "fa_leanix_global_inventory"
 
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
