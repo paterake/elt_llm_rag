@@ -3,14 +3,10 @@
 collections:
   - name: "fa_ea_sad"
     weight: 1.0
-  - name: "fa_leanix_dat_enterprise_conceptual_model_relationships"
-    weight: 1.0
-  - name: "fa_leanix_dat_enterprise_conceptual_model_additional_entities"
-    weight: 1.0
-  - name: "fa_leanix_dat_enterprise_conceptual_model_overview"
-    weight: 0.8
-  - name: "fa_leanix_dat_enterprise_conceptual_model_agreements"
-    weight: 0.8
+
+collection_prefixes:
+  - name: "fa_leanix"
+
 
 query:
   similarity_top_k: 10
