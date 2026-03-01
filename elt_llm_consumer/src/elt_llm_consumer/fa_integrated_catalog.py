@@ -25,6 +25,10 @@ Usage:
 
     RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
 
+    # Targeted re-run for specific entities (merges with existing output):
+    uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog \\
+        --entities 'Club,Player,Referee,Competition,Match'
+
 Available models:
     qwen2.5:14b (default), mistral-nemo:12b, llama3.1:8b,
     granite3.1-dense:8b, michaelborck/refuled
@@ -91,11 +95,16 @@ Context from LeanIX:
 - Related entities (from conceptual model): {related_entities}
 - Hierarchy level: {hierarchy}
 
-Structure your response as:
+Structure your response using exactly these three headings on their own lines, each followed by one or more paragraphs:
 
-FORMAL_DEFINITION: [What is this entity? Combine the LeanIX description with any Handbook definition.]
-DOMAIN_CONTEXT: [What role does it play within the {domain} domain? How does it relate to {related_entities}?]
-GOVERNANCE: [What FA Handbook rules, obligations, or regulatory requirements apply to this entity?]"""
+FORMAL_DEFINITION:
+[What is this entity? Combine the LeanIX description with any FA Handbook definition. Quote the exact FA Handbook definition if one exists, including the defined term (e.g. 'Club means any club which plays the game of football in England and is recognised as such by The Association').]
+
+DOMAIN_CONTEXT:
+[What role does it play within the {domain} domain? How does it relate to {related_entities}?]
+
+GOVERNANCE:
+[What specific FA Handbook rules, obligations, or regulatory requirements apply to this entity? Cite the section and rule number where possible (e.g. Rule A3.1, Section C Player Status Rules, Section 23 Referees). If the FA Handbook contains a formal definition or regulation for this entity, quote it directly. If no handbook rules apply to this entity, state 'Not documented in FA Handbook — outside governance scope'.]"""
 
 # ---------------------------------------------------------------------------
 # Source loading
@@ -200,14 +209,34 @@ def run_query(query: str, collections: list[str], rag_config: RagConfig) -> str:
 
 
 def parse_integrated_response(response: str) -> dict[str, str]:
-    """Extract FORMAL_DEFINITION, DOMAIN_CONTEXT, GOVERNANCE from response."""
+    """Extract FORMAL_DEFINITION, DOMAIN_CONTEXT, GOVERNANCE from response.
+
+    Captures full multi-paragraph content for each section, not just the first line.
+    The GOVERNANCE section maps to the 'governance_rules' key used by the ToR writer.
+    """
+    import re
+
+    keys = ("FORMAL_DEFINITION", "DOMAIN_CONTEXT", "GOVERNANCE")
+    # Map each raw key to the output dict key expected by the CSV writer
+    key_map = {
+        "FORMAL_DEFINITION": "formal_definition",
+        "DOMAIN_CONTEXT": "domain_context",
+        "GOVERNANCE": "governance_rules",
+    }
+
+    positions: dict[str, tuple[int, int]] = {}
+    for key in keys:
+        m = re.search(rf"^{key}:\s*", response, re.MULTILINE)
+        if m:
+            positions[key] = (m.start(), m.end())
+
     parsed: dict[str, str] = {}
-    for line in response.splitlines():
-        line = line.strip()
-        for key in ("FORMAL_DEFINITION", "DOMAIN_CONTEXT", "GOVERNANCE"):
-            if line.startswith(f"{key}:"):
-                parsed[key.lower()] = line[len(key) + 1:].strip()
-                break
+    sorted_keys = sorted(positions.items(), key=lambda x: x[1][0])
+    for idx, (key, (kstart, content_start)) in enumerate(sorted_keys):
+        end = sorted_keys[idx + 1][1][0] if idx + 1 < len(sorted_keys) else len(response)
+        text = response[content_start:end].strip()
+        parsed[key_map[key]] = text
+
     return parsed
 
 
@@ -223,9 +252,34 @@ def generate_integrated_catalog(
     rag_config: RagConfig,
     output_dir: Path,
     resume: bool,
+    only_entities: set[str] | None = None,
 ) -> None:
+    """Generate (or partially update) the integrated catalog CSVs.
+
+    Args:
+        only_entities: When provided, only regenerate rows for these entity
+            names (case-insensitive). Existing rows for other entities are
+            preserved.  The output CSVs are rewritten atomically so that
+            in-place updates don't corrupt the checkpoint state.
+    """
     tor_path = output_dir / "fa_terms_of_reference.csv"
     catalog_path = output_dir / "fa_integrated_catalog.csv"
+
+    # When targeting specific entities, load existing rows first so we can
+    # merge new results in-place rather than appending.
+    if only_entities:
+        only_lower = {n.lower() for n in only_entities}
+        existing_tor: dict[str, dict] = {}
+        existing_cat: dict[str, dict] = {}
+        if tor_path.exists():
+            with open(tor_path, newline="", encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    existing_tor[row["fact_sheet_id"]] = row
+        if catalog_path.exists():
+            with open(catalog_path, newline="", encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    existing_cat[row["fact_sheet_id"]] = row
+        resume = False  # force full rewrite of both files after merging
 
     done = load_checkpoint(tor_path) if resume else set()
 
@@ -246,75 +300,112 @@ def generate_integrated_catalog(
     written = 0
     model = rag_config.ollama.llm_model
 
-    print(f"\n=== Integrated Catalog ({total} entities) ===")
-    with (
-        open(tor_path, tor_mode, newline="", encoding="utf-8") as tor_f,
-        open(catalog_path, cat_mode, newline="", encoding="utf-8") as cat_f,
-    ):
-        tor_writer = csv.DictWriter(tor_f, fieldnames=tor_fields)
-        cat_writer = csv.DictWriter(cat_f, fieldnames=catalog_fields)
-        if tor_mode == "w":
+    mode_label = "TARGETED" if only_entities else ("RESUME" if resume else "FULL")
+    print(f"\n=== Integrated Catalog ({total} entities, mode={mode_label}) ===")
+    if only_entities:
+        print(f"  Targeting {len(only_entities)} entities: {', '.join(sorted(only_entities))}")
+
+    # --- First pass: process (or skip) each entity ---
+    new_tor_rows: dict[str, dict] = {}
+    new_cat_rows: dict[str, dict] = {}
+
+    for i, entity in enumerate(entities, 1):
+        fsid = entity["fact_sheet_id"]
+        name = entity["entity_name"]
+
+        # Skip if not in the targeted set
+        if only_entities and name.lower() not in only_lower:
+            continue
+        if fsid in done:
+            continue
+
+        domain = entity["domain"]
+        related = entity["related_entities"]
+
+        # Direct join from inventory (no RAG for inventory descriptions)
+        inv = inventory.get(fsid, {})
+        leanix_description = inv.get("description") or "Not documented"
+        hierarchy_level = inv.get("level") or ""
+        lx_state = inv.get("lx_state") or ""
+
+        print(f"  [{i}/{total}] {name} ({domain})…", end=" ", flush=True)
+
+        response = run_query(
+            _INTEGRATED_QUERY.format(
+                name=name,
+                domain=domain,
+                leanix_description=leanix_description,
+                related_entities=related,
+                hierarchy=hierarchy_level or "Not specified",
+            ),
+            collections,
+            rag_config,
+        )
+        parsed = parse_integrated_response(response)
+        print("done")
+
+        new_tor_rows[fsid] = {
+            "fact_sheet_id": fsid,
+            "entity_name": name,
+            "domain": domain,
+            "hierarchy_level": hierarchy_level,
+            "lx_state": lx_state,
+            "related_entities": related,
+            "leanix_description": leanix_description,
+            "formal_definition": parsed.get("formal_definition", ""),
+            "domain_context": parsed.get("domain_context", ""),
+            "governance_rules": parsed.get("governance_rules", ""),
+            "model_used": model,
+        }
+        new_cat_rows[fsid] = {
+            "fact_sheet_id": fsid,
+            "entity_name": name,
+            "domain": domain,
+            "hierarchy_level": hierarchy_level,
+            "lx_state": lx_state,
+            "leanix_description": leanix_description,
+            "catalog_entry": response,
+            "model_used": model,
+        }
+        written += 1
+
+    # --- Second pass: write output (merge for targeted mode, append for resume/full) ---
+    if only_entities:
+        # Merge: existing rows + new rows (new rows take precedence)
+        merged_tor = {**existing_tor, **new_tor_rows}
+        merged_cat = {**existing_cat, **new_cat_rows}
+        # Preserve original entity order from the entity list
+        ordered_fsids = [e["fact_sheet_id"] for e in entities]
+
+        with open(tor_path, "w", newline="", encoding="utf-8") as tor_f:
+            tor_writer = csv.DictWriter(tor_f, fieldnames=tor_fields)
             tor_writer.writeheader()
-        if cat_mode == "w":
+            for fsid in ordered_fsids:
+                if fsid in merged_tor:
+                    tor_writer.writerow(merged_tor[fsid])
+
+        with open(catalog_path, "w", newline="", encoding="utf-8") as cat_f:
+            cat_writer = csv.DictWriter(cat_f, fieldnames=catalog_fields)
             cat_writer.writeheader()
-
-        for i, entity in enumerate(entities, 1):
-            fsid = entity["fact_sheet_id"]
-            if fsid in done:
-                continue
-
-            name = entity["entity_name"]
-            domain = entity["domain"]
-            related = entity["related_entities"]
-
-            # Direct join from inventory (no RAG for inventory descriptions)
-            inv = inventory.get(fsid, {})
-            leanix_description = inv.get("description") or "Not documented"
-            hierarchy_level = inv.get("level") or ""
-            lx_state = inv.get("lx_state") or ""
-
-            print(f"  [{i}/{total}] {name} ({domain})…", end=" ", flush=True)
-
-            response = run_query(
-                _INTEGRATED_QUERY.format(
-                    name=name,
-                    domain=domain,
-                    leanix_description=leanix_description,
-                    related_entities=related,
-                    hierarchy=hierarchy_level or "Not specified",
-                ),
-                collections,
-                rag_config,
-            )
-            parsed = parse_integrated_response(response)
-            print("done")
-
-            tor_writer.writerow({
-                "fact_sheet_id": fsid,
-                "entity_name": name,
-                "domain": domain,
-                "hierarchy_level": hierarchy_level,
-                "lx_state": lx_state,
-                "related_entities": related,
-                "leanix_description": leanix_description,
-                "formal_definition": parsed.get("formal_definition", ""),
-                "domain_context": parsed.get("domain_context", ""),
-                "governance_rules": parsed.get("governance_rules", ""),
-                "model_used": model,
-            })
-            cat_writer.writerow({
-                "fact_sheet_id": fsid,
-                "entity_name": name,
-                "domain": domain,
-                "hierarchy_level": hierarchy_level,
-                "lx_state": lx_state,
-                "leanix_description": leanix_description,
-                "catalog_entry": response,
-                "model_used": model,
-            })
-            tor_f.flush()
-            cat_f.flush()
-            written += 1
+            for fsid in ordered_fsids:
+                if fsid in merged_cat:
+                    cat_writer.writerow(merged_cat[fsid])
+    else:
+        with (
+            open(tor_path, tor_mode, newline="", encoding="utf-8") as tor_f,
+            open(catalog_path, cat_mode, newline="", encoding="utf-8") as cat_f,
+        ):
+            tor_writer = csv.DictWriter(tor_f, fieldnames=tor_fields)
+            cat_writer = csv.DictWriter(cat_f, fieldnames=catalog_fields)
+            if tor_mode == "w":
+                tor_writer.writeheader()
+                cat_writer.writeheader()
+            for fsid, row in new_tor_rows.items():
+                tor_writer.writerow(row)
+                tor_f.flush()
+            for fsid, row in new_cat_rows.items():
+                cat_writer.writerow(row)
+                cat_f.flush()
 
     print(f"\n  Written: {written} new rows")
     print(f"  Terms of Reference → {tor_path}")
@@ -336,7 +427,8 @@ def main() -> None:
         epilog=(
             "Models: qwen2.5:14b (default), mistral-nemo:12b, "
             "llama3.1:8b, granite3.1-dense:8b, michaelborck/refuled\n"
-            "Resume:  RESUME=1 elt-llm-consumer-integrated-catalog"
+            "Resume:  RESUME=1 elt-llm-consumer-integrated-catalog\n"
+            "Targeted re-run: --entities 'Club,Player,Referee'"
         ),
     )
     parser.add_argument(
@@ -358,6 +450,14 @@ def main() -> None:
     parser.add_argument(
         "--output-dir", type=Path, default=_DEFAULT_OUTPUT_DIR,
         help=f"Output directory (default: {_DEFAULT_OUTPUT_DIR})",
+    )
+    parser.add_argument(
+        "--entities", default=None,
+        help=(
+            "Comma-separated list of entity names to re-process (case-insensitive). "
+            "Other entities are preserved unchanged. Useful for targeted re-runs "
+            "after prompt improvements. Example: --entities 'Club,Player,Referee'"
+        ),
     )
     args = parser.parse_args()
     resume = os.environ.get("RESUME", "0") == "1"
@@ -381,6 +481,11 @@ def main() -> None:
     if args.model:
         rag_config.ollama.llm_model = args.model
         print(f"  Model override: {args.model}")
+
+    only_entities: set[str] | None = None
+    if args.entities:
+        only_entities = {e.strip() for e in args.entities.split(",") if e.strip()}
+        print(f"  Targeting {len(only_entities)} entities: {', '.join(sorted(only_entities))}")
 
     rag_config.query.system_prompt = _SYSTEM_PROMPT
     print(f"  LLM:    {rag_config.ollama.llm_model}")
@@ -407,7 +512,10 @@ def main() -> None:
     inventory_matched = sum(1 for e in entities if e["fact_sheet_id"] in inventory)
     print(f"  Inventory match: {inventory_matched}/{len(entities)} entities have descriptions")
 
-    generate_integrated_catalog(entities, inventory, collections, rag_config, output_dir, resume)
+    generate_integrated_catalog(
+        entities, inventory, collections, rag_config, output_dir, resume,
+        only_entities=only_entities,
+    )
 
     print("\n=== Complete ===")
     print(f"  Terms of Reference → {output_dir / 'fa_terms_of_reference.csv'}")
