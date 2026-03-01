@@ -14,3 +14,19 @@ metadata:
 
 # Whether to rebuild the collection on each run
 rebuild: true
+
+# Chunking override: regulatory text needs larger chunks to preserve full
+# rule context.  256 tokens (global default) splits rules mid-sentence.
+# 512 tokens keeps complete rule paragraphs together; 64-token overlap
+# ensures cross-boundary rules are still retrievable.
+chunking:
+  strategy: "sentence"
+  chunk_size: 512
+  chunk_overlap: 64
+
+# Preprocessor: cleans PDF noise and extracts structured definition nodes
+# before embedding, improving both BM25 and vector retrieval quality.
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "RegulatoryPDFPreprocessor"
+  output_format: "markdown"

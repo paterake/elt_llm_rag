@@ -743,6 +743,7 @@ dependencies = [
     { name = "llama-index" },
     { name = "llama-index-readers-file" },
     { name = "openpyxl" },
+    { name = "pypdf" },
     { name = "python-pptx" },
 ]
 
@@ -758,6 +759,7 @@ requires-dist = [
     { name = "llama-index", specifier = ">=0.12.0" },
     { name = "llama-index-readers-file", specifier = ">=0.4.0" },
     { name = "openpyxl", specifier = ">=3.1.0" },
+    { name = "pypdf", specifier = ">=4.0.0" },
     { name = "python-pptx", specifier = ">=0.6.23" },
 ]
 

@@ -3,6 +3,8 @@
 **Module**: `elt_llm_consumer`
 **Role**: Structured output layer over the RAG+LLM pipeline
 
+**See also**: [RAG_STRATEGY.md](../RAG_STRATEGY.md) for detailed documentation on the hybrid retrieval and reranking strategy used by the query layer.
+
 ---
 
 ## Table of Contents

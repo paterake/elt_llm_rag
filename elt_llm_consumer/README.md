@@ -181,3 +181,19 @@ fa_gap_analysis.csv     ← normalized_name, model_name, handbook_name, status
 | `mistral-nemo:12b` | ~8s/entity | Good | Solid alternative |
 | `llama3.1:8b` | ~5s/entity | Medium | Fast iteration / dev use |
 | `granite3.1-dense:8b` | ~5s/entity | Medium | IBM enterprise tuning |
+
+---
+
+## What You Already Have (Summary)
+- Three datasets combined end-to-end:
+  - FA Handbook (RAG) — SME definitions, governance rules, obligations
+  - LeanIX Conceptual Model (XML) — the canonical entity frame
+  - LeanIX Inventory (Excel) — system descriptions and metadata
+- Deliverables:
+  - `fa_terms_of_reference.csv` / `fa_integrated_catalog.csv` (Integrated Catalog)
+  - `fa_handbook_candidate_entities.csv` / `fa_handbook_candidate_relationships.csv` (Handbook Model Builder)
+  - `fa_coverage_report.csv` / `fa_gap_analysis.csv` (Coverage Validator)
+- Recommended workflow:
+  1) Run `elt-llm-consumer-integrated-catalog` for the full ToR per entity  
+  2) Run `elt-llm-consumer-handbook-model` to discover handbook-only entities  
+  3) Run `elt-llm-consumer-coverage-validator --gap-analysis` to identify model enhancement opportunities

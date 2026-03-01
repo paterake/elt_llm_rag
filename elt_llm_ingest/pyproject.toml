@@ -9,6 +9,7 @@ dependencies = [
     "llama-index>=0.12.0",
     "llama-index-readers-file>=0.4.0",
     "openpyxl>=3.1.0",
+    "pypdf>=4.0.0",
     "python-pptx>=0.6.23",
 ]
 

@@ -198,89 +198,27 @@ elt_llm_rag/
 
 ---
 
-### 2.4 Retrieval vs Generation Architecture
+### 2.4 RAG Strategy
 
-The RAG system has two distinct layers with a clear separation of concerns:
+The RAG system employs a **hybrid retrieval + reranking** strategy to maximize retrieval quality before LLM synthesis.
 
-#### Layer 1: Retrieval (Find the Right Information)
-
-**Technologies**: LlamaIndex + ChromaDB + BM25
-
-**Purpose**: Search your document collections to find the most relevant chunks.
-
-**Output**: Top-K chunks with relevance scores — **NOT an answer**.
-
-| Component | Role | Analogy |
-|-----------|------|---------|
-| ChromaDB | Vector (semantic) search | Google for meaning |
-| BM25 | Keyword (exact) search | Ctrl+F for terms |
-| LlamaIndex | Orchestrates retrieval | Librarian finding books |
-
-**Why Hybrid Search?**
-
-Your documents have two types of queries:
-
-1. **Semantic queries** (Vector excels):
-   ```
-   Query: "How does the FA handle data quality?"
-   Vector finds: "Data quality management ensures fitness for purpose..."
-   (Semantically similar, even though exact words differ)
-   ```
-
-2. **Keyword queries** (BM25 excels):
-   ```
-   Query: "What does Chapter 7 Section 4.2 say about Club affiliations?"
-   BM25 finds: "Chapter 7, Section 4.2: Club affiliations must..."
-   (Exact term matching — vectors might miss specific section references)
-   ```
-
-**Hybrid = Best of both worlds**
-
-#### Layer 2: Generation (Synthesize an Answer)
-
-**Technology**: Ollama LLM (`qwen2.5:14b`)
-
-**Purpose**: Read the retrieved chunks and generate a grounded answer.
-
-**Input**: Query + Top-K chunks from Layer 1
-
-**Output**: Natural language response with source citations.
-
-**Example**:
+**High-level flow**:
 ```
-Query: "What are the FA's data governance responsibilities?"
-
-LLM Response:
-"The Data Working Group is responsible for:
-1. Defining data policies and standards (FA Handbook, Chapter 7)
-2. Establishing decision rights and accountabilities (DAMA-DMBOK, Ch.3)
-3. Maintaining traceability from business terms to systems"
-
-[Sources: fa_handbook, dama_dmbok, fa_leanix_relationships]
+Query → Hybrid Retrieval (BM25 + Vector) → Embedding Reranker → Top-K Chunks → LLM → Answer
 ```
 
-#### Why This Separation Matters
+**Key components**:
+- **Dense vector search** (ChromaDB): Semantic similarity
+- **Sparse keyword search** (BM25): Exact term matching
+- **Embedding reranker**: Re-scores candidates by query-document cosine similarity
 
-| Without Retrieval (LLM Only) | With Retrieval (RAG) |
-|------------------------------|----------------------|
-| Generic knowledge from training | Specific to YOUR documents |
-| May hallucinate details | Grounded in actual content |
-| No citations | Source attribution |
-| "Data governance typically involves..." | "The Data Working Group is responsible for..." |
+For detailed documentation on the RAG strategy, including:
+- Retrieval architecture and fusion logic
+- Reranker configuration and behavior
+- Technology stack and fallback modes
+- Performance characteristics
 
-**The key insight**: Your LLM is only as good as the retrieval layer feeding it. Garbage in = garbage out. That's why you invest in hybrid search + reranking — to ensure the LLM sees the **most relevant** context before generating an answer.
-
-#### The Reranker's Role
-
-The **embedding reranker** sits between Layer 1 and Layer 2:
-
-```
-Retrieval (Top-20) → Reranker (re-scores by relevance) → Top-8 → LLM
-```
-
-**Purpose**: The initial retrieval uses fast approximations (vector similarity + BM25 scores). The reranker does a more careful scoring pass to ensure the **most relevant** chunks reach the LLM.
-
-**Implementation**: Uses cosine similarity between query and chunk embeddings (via `nomic-embed-text` in Ollama). No external dependencies required.
+→ See **[RAG_STRATEGY.md](RAG_STRATEGY.md)**
 
 ---
 
@@ -357,6 +295,38 @@ Config paths resolved at runtime:
 | `INGEST_CONFIG_DIR` | `elt_llm_ingest/config/` |
 
 ---
+
+## 8. Implementation Roadmap (Consolidated)
+
+High-level phases:
+- Phase 0 — Foundation: Core infra, ingestion, query, hybrid retrieval, embedding reranker, profiles, and LeanIX integrations — complete.
+- Phase 1 — Business Catalogues: Glossary and integrated catalog generators; coverage validator — in progress.
+- Phase 2 — SAD Generator; Phase 3 — ERD automation; Phase 4 — Purview integration; Phase 5 — Vendor assessment — pending.
+
+Completed highlights:
+- DAMA-DMBOK, FA Handbook, LeanIX conceptual model, and LeanIX inventory ingested and queryable.
+- Hybrid retrieval and embedding reranker in production.
+- Consumer scripts for catalog generation and coverage validation.
+
+Planned next:
+- ISO/ONS reference data ingestion and conformance checks.
+- Licensing review and broader test coverage.
+
+---
+
+## 9. Requirements & Outcomes (Consolidated)
+
+Business requirements addressed:
+- Conceptual model as the frame (LeanIX XML) with FA Handbook as SME content.
+- LeanIX inventory (Excel) used for authoritative descriptions.
+- CSV deliverables for glossary, integrated catalog, and coverage/gap analysis.
+
+Key outputs:
+- `fa_terms_of_reference.csv` / `fa_integrated_catalog.csv`
+- `fa_handbook_candidate_entities.csv` / `fa_handbook_candidate_relationships.csv`
+- `fa_coverage_report.csv` / `fa_gap_analysis.csv`
+
+These files enable a repeatable workflow for conceptual model refinement and governance traceability.
 
 ## 3. Conceptual Model Alignment
 

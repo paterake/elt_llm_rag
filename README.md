@@ -2,7 +2,7 @@
 
 RAG platform for FA architecture knowledge, data governance, and automated documentation generation.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full system documentation and [ROADMAP.md](ROADMAP.md) for implementation phases.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for full system documentation and [RAG_STRATEGY.md](RAG_STRATEGY.md) for retrieval strategy details.
 
 ---
 
@@ -45,7 +45,33 @@ uv run --package elt-llm-consumer elt-llm-consumer-glossary
 | `elt_llm_api/` | Gradio GUI + programmatic API | [README](elt_llm_api/README.md) |
 | `elt_llm_consumer/` | Purpose-built products over the RAG system | [README](elt_llm_consumer/README.md) |
 
+---
+
+## Documentation Index
+
+- Root
+  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/README.md)
+  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/ARCHITECTURE.md)
+  - [RAG_STRATEGY.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/RAG_STRATEGY.md)
+- elt_llm_core
+  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/README.md)
+  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/ARCHITECTURE.md)
+- elt_llm_ingest
+  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/README.md)
+  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/ARCHITECTURE.md)
+- elt_llm_query
+  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_query/README.md)
+  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_query/ARCHITECTURE.md)
+- elt_llm_api
+  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_api/README.md)
+  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_api/ARCHITECTURE.md)
+- elt_llm_consumer
+  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_consumer/README.md)
+  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_consumer/ARCHITECTURE.md)
+
 ## Common Commands
+
+```bash
 
 ```bash
 # Check collection status
