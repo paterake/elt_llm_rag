@@ -177,13 +177,105 @@ This ensures each collection has representation in the candidate pool while the 
 3. **Precision over recall**: Reranking ensures only the most relevant chunks reach the LLM
 4. **Transparency**: Retrieval scores and sources logged for debugging
 
-## Future Enhancements
+## Enhancement Backlog
 
-- [ ] Cross-encoder reranker support (higher quality, slower)
-- [ ] Query rewriting/expansion before retrieval
-- [ ] Metadata filtering (date ranges, document types, section numbers)
-- [ ] Caching for repeated queries
-- [ ] Evaluation harness for retrieval quality metrics
+Strategies are grouped by pipeline stage and prioritised for this stack (FA Handbook regulatory text + LeanIX structured EA data).
+
+### Priority
+
+| Priority | Strategy | Stage | Effort | Why it matters here |
+|----------|----------|-------|--------|---------------------|
+| **High** | Query decomposition / multi-query | Query | Low — `num_queries` config | Consumer queries are compound (multi-entity, multi-domain) |
+| **High** | MMR (Maximal Marginal Relevance) | Query | Low — mode flag | Prevents top-8 being near-duplicate adjacent paragraphs |
+| **High** | Metadata filtering | Ingest + Query | Medium | Scoped queries: "search only FA Handbook Section 8" |
+| **Medium** | Parent-child chunking | Ingest | Medium — re-ingest | Preserves full rule context for regulatory text |
+| **Medium** | Cross-encoder reranker | Query | Medium — local model | Higher reranking quality than embedding cosine similarity |
+| **Medium** | RAGAS evaluation harness | Eval | Medium | Objective quality baseline; measures impact of config changes |
+| **Lower** | HyDE (query-time) | Query | Low — one extra LLM call | Helps vague/exploratory queries; BM25 already handles keyword queries |
+| **Lower** | Context compression | Context assembly | Medium | Reduces token noise in top-K chunks before LLM sees them |
+| **Lower** | Structured output + citations | LLM | Low — prompt change | Improves consumer parsing reliability; adds auditability |
+| **Lower** | Self-RAG / CRAG | LLM | High | Corrective re-retrieval for multi-hop questions spanning Handbook + LeanIX |
+
+---
+
+### Ingestion Strategies
+
+**Hierarchical / Parent-Child Chunking**
+Store small chunks for precise retrieval; expand to the parent chunk for LLM context. LlamaIndex supports this natively (`HierarchicalNodeParser` + `AutoMergingRetriever`). High value for FA Handbook where rules span multiple sentences.
+
+**Sentence Window Retrieval**
+Index individual sentences but return surrounding context (e.g. ±2 sentences) when a sentence is retrieved. Lower overhead than full parent-child, similar benefit.
+
+**Proposition Chunking**
+Decompose each chunk into atomic factual statements at ingest time. Better retrieval precision — you retrieve a single fact rather than a paragraph containing it. Good for LeanIX entity definitions.
+
+**Hypothetical Question Generation (HyDE — ingest variant)**
+For each chunk, generate 3–5 questions that chunk would answer; embed those questions alongside the chunk. Bridges the vocabulary gap between formal document language and informal user queries.
+
+**Metadata Enrichment**
+Auto-extract and attach structured metadata during ingestion: section number, rule type, entity names, relationship types. Enables hard pre-filtering before vector search. Currently domain/subdomain are set manually in config; structural metadata from within documents is not yet extracted.
+
+---
+
+### Query / Retrieval Strategies
+
+**Query Decomposition / Multi-Query**
+Break complex queries into sub-questions, retrieve for each independently, merge before reranking. Currently `num_queries=1` in `QueryFusionRetriever`. Directly benefits compound consumer queries.
+
+**HyDE (Hypothetical Document Embedding — query-time)**
+Generate a hypothetical answer to the query using the LLM, embed that answer, and use it for vector search instead of the raw query. Hypothetical answers are in the same language space as document chunks. Adds one LLM call pre-retrieval; best for vague queries (BM25 already handles keyword-heavy queries well).
+
+**Maximal Marginal Relevance (MMR)**
+Penalise candidate chunks that are too similar to already-selected ones. Balances relevance with diversity, ensuring the LLM sees varied evidence rather than near-duplicate adjacent paragraphs. LlamaIndex supports `mmr` mode on vector retrievers.
+
+**Metadata Filtering**
+Apply hard filters (source, section, date range, document type) before vector search to scope retrieval. Requires metadata enrichment at ingest time.
+
+**Time-Weighted Retrieval**
+Decay relevance scores of older document versions. Relevant when LeanIX exports are refreshed and stale versions should be deprioritised.
+
+---
+
+### Reranking Strategies
+
+**Cross-Encoder Reranker**
+A cross-encoder sees query + document *together* rather than independently, giving much higher ranking quality than embedding cosine similarity. `cross-encoder/ms-marco-MiniLM-L-6-v2` runs fully locally via `sentence-transformers`. Higher latency (~200–800ms). Already in config as `reranker_strategy: "cross-encoder"` — requires `sentence-transformers` package.
+
+**LLM-as-Reranker**
+Pass top-N candidates to the LLM with a prompt asking it to rank by relevance. Highest possible reranking quality; high latency. Best used selectively for low-volume, high-stakes queries rather than as the default path.
+
+---
+
+### Context Assembly Strategies
+
+**Context Compression**
+After retrieval, strip irrelevant sentences from each chunk before passing to the LLM (`LLMChainFilter` or `EmbeddingsFilter`). Reduces token consumption and focuses the LLM on signal rather than noise. Useful when `reranker_top_k` is high.
+
+**Lost-in-the-Middle Mitigation**
+LLMs attend better to content at the start and end of context. Reorder reranked chunks so the highest-scoring appear first and last, lowest-scoring in the middle. Zero latency cost; measurable quality improvement for larger context windows.
+
+**Map-Reduce / Refine Synthesis**
+For very large context (many collections), process chunks in batches: either summarise each batch then combine (map-reduce), or iteratively refine a running answer with each new chunk (refine). Prevents context window overflow when querying across all LeanIX collections simultaneously.
+
+---
+
+### LLM Synthesis Strategies
+
+**Structured Output + Forced Citation**
+Prompt the LLM to return structured JSON including answer and which chunk IDs were used. Makes consumer parsing more reliable than regex over free text; adds full auditability of source evidence.
+
+**Self-RAG / CRAG (Corrective RAG)**
+After generating an answer, the LLM evaluates whether its retrieved context was sufficient. If not, it triggers a second retrieval pass with a reformulated query. Reduces hallucinations on multi-hop questions that require both Handbook and LeanIX context. Significantly higher latency and complexity.
+
+**FLARE (Forward-Looking Active Retrieval)**
+Retrieval is triggered iteratively *during* generation — when the LLM is uncertain about the next token, it pauses and retrieves before continuing. Most powerful for long-form answers that require evidence at multiple points.
+
+---
+
+### Evaluation
+
+**RAGAS**
+Automated RAG evaluation framework scoring on: faithfulness (answer grounded in context?), answer relevance (answers the question?), context precision (right chunks retrieved?), context recall (all relevant chunks found?). Run offline against a small test set to objectively measure whether config changes improve or regress quality. Currently there is no automated quality baseline.
 
 ## References
 
