@@ -57,7 +57,7 @@ _DEFAULT_RAG_CONFIG = Path(
     "~/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/rag_config.yaml"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
+_DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
 # ---------------------------------------------------------------------------
 # Seed topics — FA Handbook domain areas

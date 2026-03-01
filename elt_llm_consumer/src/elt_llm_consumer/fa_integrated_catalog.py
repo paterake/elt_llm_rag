@@ -65,7 +65,7 @@ _DEFAULT_XML = Path(
     "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
+_DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
 # ---------------------------------------------------------------------------
 # System prompt

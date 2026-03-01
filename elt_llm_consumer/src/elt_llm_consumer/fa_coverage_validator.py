@@ -23,7 +23,7 @@ Verdict bands (cosine similarity of top retrieved chunk):
   THIN      0.40–0.55 — weak signal; handbook may use different terminology
   ABSENT    < 0.40  — entity not meaningfully present in handbook
 
-Outputs (~/Documents/__data/resources/thefa/):
+Outputs (~/.tmp/elt_llm_consumer/):
   fa_coverage_report.json   — per-entity: domain, score, verdict
   fa_gap_analysis.json      — bidirectional gap table (requires --gap-analysis)
 
@@ -63,7 +63,7 @@ _DEFAULT_XML = Path(
     "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
+_DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
 _DEFAULT_HANDBOOK_JSON = _DEFAULT_OUTPUT_DIR / "fa_handbook_candidate_entities.json"
 
@@ -111,17 +111,18 @@ def load_conceptual_model_entities(xml_path: Path) -> list[dict]:
     return entities
 
 
-def load_handbook_entities(csv_path: Path) -> list[str]:
-    """Load entity names from Consumer 2 (fa_handbook_model_builder) output CSV."""
-    if not csv_path.exists():
+def load_handbook_entities(json_path: Path) -> list[str]:
+    """Load entity names from Consumer 2 (fa_handbook_model_builder) output JSON."""
+    if not json_path.exists():
         return []
     names: list[str] = []
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            name = (row.get("entity_name") or row.get("entity") or "").strip()
-            if name:
-                names.append(name)
-    print(f"  {len(names)} handbook-discovered entities loaded from {csv_path.name}")
+    with open(json_path, encoding="utf-8") as f:
+        data = json.load(f)
+    for row in data:
+        name = (row.get("entity_name") or row.get("entity") or row.get("term") or "").strip()
+        if name:
+            names.append(name)
+    print(f"  {len(names)} handbook-discovered entities loaded from {json_path.name}")
     return names
 
 
@@ -374,8 +375,8 @@ def main() -> None:
         help="Also run bidirectional gap analysis (Direction 2)",
     )
     parser.add_argument(
-        "--handbook-json", type=Path, default=_DEFAULT_HANDBOOK_CSV.with_suffix(".json"),
-        help=f"Consumer 2 entity JSON for gap analysis (default: {_DEFAULT_HANDBOOK_CSV.with_suffix('.json')})",
+        "--handbook-json", type=Path, default=_DEFAULT_HANDBOOK_JSON,
+        help=f"Consumer 2 entity JSON for gap analysis (default: {_DEFAULT_HANDBOOK_JSON})",
     )
     args = parser.parse_args()
     resume = os.environ.get("RESUME", "0") == "1"

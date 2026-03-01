@@ -51,7 +51,7 @@ _DEFAULT_EXCEL = Path(
     "~/Documents/__data/resources/thefa/20260227_085233_UtvKD_inventory.xlsx"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
+_DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
 # ---------------------------------------------------------------------------
 # System prompt — mirrors fa_enterprise_architecture.yaml
@@ -338,7 +338,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-dir", type=Path, default=_DEFAULT_OUTPUT_DIR,
-        help=f"Output directory for catalog CSVs (default: {_DEFAULT_OUTPUT_DIR})",
+        help=f"Output directory for catalog JSON files (default: {_DEFAULT_OUTPUT_DIR})",
     )
     args = parser.parse_args()
     resume = os.environ.get("RESUME", "0") == "1"
