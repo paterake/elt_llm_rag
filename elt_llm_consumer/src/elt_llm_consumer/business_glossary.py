@@ -153,8 +153,8 @@ def generate_dataobjects(
     print(f"  Reading from: {excel_path}")
 
     df = pd.read_excel(excel_path)
-    objs = df[df["type"] == "DataObject"][["id", "name", "description", "level"]].copy()
-    objs.columns = ["fact_sheet_id", "entity_name", "leanix_description", "hierarchy_level"]
+    objs = df[df["type"] == "DataObject"][["id", "name", "description", "level", "lxState"]].copy()
+    objs.columns = ["fact_sheet_id", "entity_name", "leanix_description", "hierarchy_level", "lx_state"]
     objs["domain_group"] = objs["hierarchy_level"].map(_LEVEL_MAP)
     entities = objs.to_dict("records")
     print(f"  {len(entities)} DataObjects loaded")
@@ -163,7 +163,7 @@ def generate_dataobjects(
 
     fieldnames = [
         "fact_sheet_id", "entity_name", "domain_group", "hierarchy_level",
-        "leanix_description", "catalog_entry", "model_used",
+        "lx_state", "leanix_description", "catalog_entry", "model_used",
     ]
     mode = "a" if resume and out_path.exists() else "w"
     total = len(entities)
@@ -194,6 +194,7 @@ def generate_dataobjects(
                 "entity_name": name,
                 "domain_group": entity.get("domain_group", ""),
                 "hierarchy_level": entity.get("hierarchy_level", ""),
+                "lx_state": entity.get("lx_state", ""),
                 "leanix_description": (entity.get("leanix_description") or "").strip(),
                 "catalog_entry": catalog_entry,
                 "model_used": rag_config.ollama.llm_model,

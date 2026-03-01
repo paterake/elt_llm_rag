@@ -160,6 +160,7 @@ def load_inventory_descriptions(excel_path: Path) -> dict[str, dict]:
                 "description": str(row.get("description") or "").strip(),
                 "level": row.get("level"),
                 "status": str(row.get("status") or "").strip(),
+                "lx_state": str(row.get("lxState") or "").strip(),
             }
     print(f"  {len(inventory)} inventory entries loaded")
     return inventory
@@ -230,13 +231,13 @@ def generate_integrated_catalog(
 
     tor_fields = [
         "fact_sheet_id", "entity_name", "domain", "hierarchy_level",
-        "related_entities", "leanix_description",
+        "lx_state", "related_entities", "leanix_description",
         "formal_definition", "domain_context", "governance_rules",
         "model_used",
     ]
     catalog_fields = [
         "fact_sheet_id", "entity_name", "domain", "hierarchy_level",
-        "leanix_description", "catalog_entry", "model_used",
+        "lx_state", "leanix_description", "catalog_entry", "model_used",
     ]
 
     tor_mode = "a" if resume and tor_path.exists() else "w"
@@ -270,6 +271,7 @@ def generate_integrated_catalog(
             inv = inventory.get(fsid, {})
             leanix_description = inv.get("description") or "Not documented"
             hierarchy_level = inv.get("level") or ""
+            lx_state = inv.get("lx_state") or ""
 
             print(f"  [{i}/{total}] {name} ({domain})…", end=" ", flush=True)
 
@@ -292,6 +294,7 @@ def generate_integrated_catalog(
                 "entity_name": name,
                 "domain": domain,
                 "hierarchy_level": hierarchy_level,
+                "lx_state": lx_state,
                 "related_entities": related,
                 "leanix_description": leanix_description,
                 "formal_definition": parsed.get("formal_definition", ""),
@@ -304,6 +307,7 @@ def generate_integrated_catalog(
                 "entity_name": name,
                 "domain": domain,
                 "hierarchy_level": hierarchy_level,
+                "lx_state": lx_state,
                 "leanix_description": leanix_description,
                 "catalog_entry": response,
                 "model_used": model,
