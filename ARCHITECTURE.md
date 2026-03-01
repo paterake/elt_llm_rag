@@ -33,6 +33,14 @@
   - [Appendix C: Glossary](#appendix-c-glossary)
   - [Appendix D: Contact](#appendix-d-contact)
   - [Appendix E: Conceptual Model Enhancement Workflow](#appendix-e-conceptual-model-enhancement-workflow)
+    - [E.1 The Three-Source Strategy](#e1-the-three-source-strategy)
+    - [E.2 Addressing the Challenge](#e2-addressing-the-challenge)
+    - [E.3 Quick Start Commands](#e3-quick-start-commands)
+    - [E.4 Output Files](#e4-output-files)
+    - [E.5 Interpreting Results](#e5-interpreting-results)
+    - [E.6 Additional Opportunities](#e6-additional-opportunities)
+    - [E.7 What's NOT Built (Downstream)](#e7-whats-not-built-downstream)
+    - [E.8 Understanding the Integrated Catalog Output](#e8-understanding-the-integrated-catalog-output)
 
 ---
 
@@ -1645,6 +1653,65 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 | **Data quality rules extraction** | ❌ Not built | Medium |
 
 **See**: [`elt_llm_consumer/WHAT_YOU_HAVE.md`](elt_llm_consumer/WHAT_YOU_HAVE.md) for detailed workflow documentation.
+
+---
+
+### E.8 Understanding the Integrated Catalog Output
+
+**What the command does**:
+
+| Step | Action | Source |
+|------|--------|--------|
+| 1 | Reads LeanIX XML → extracts entities with domains | Conceptual Model |
+| 2 | Joins LeanIX Excel → looks up descriptions by fact_sheet_id | Inventory (direct, not RAG) |
+| 3 | Queries FA Handbook RAG → retrieves governance context | FA Handbook |
+| 4 | LLM synthesizes → structured Terms of Reference | qwen2.5:14b |
+
+**Output file columns**:
+
+| Column | Content | Source |
+|--------|---------|--------|
+| `fact_sheet_id` | LeanIX unique identifier | XML |
+| `entity_name` | Entity name (e.g., "Club", "Player") | XML |
+| `domain` | Domain group (e.g., "PARTY", "AGREEMENT") | XML |
+| `leanix_description` | System description from inventory | Excel (direct join) |
+| `formal_definition` | Combined LeanIX description + Handbook definition | LLM synthesis |
+| `domain_context` | Role within domain + relationships to other entities | LLM synthesis |
+| `governance_rules` | FA Handbook obligations, regulations, compliance | LLM synthesis |
+
+**Console output interpretation**:
+
+| Output | Meaning |
+|--------|---------|
+| `217 entities loaded from conceptual model` | XML parsed successfully |
+| `1424 inventory entries loaded` | Excel has 1424 fact sheets total |
+| `Inventory match: 217/217` | ✅ All entities have descriptions (excellent data quality) |
+| `CHANNEL (UNKNOWN)` | Top-level domain grouping, not a leaf entity (expected) |
+| `Written: 217 new rows` | All entities processed successfully |
+
+**Runtime expectations**:
+- **Documented**: 35-70 min (217 entities × 10-20s each)
+- **Actual**: ~10 min (217 entities × ~3s each with `qwen2.5:14b`)
+- **Varies by**: Model speed, hardware, RAG collection size
+
+**Recommended spot-check entities** (open `fa_terms_of_reference.csv`):
+
+| Entity | Row ~ | Why check this? |
+|--------|-------|-----------------|
+| `Club` | 116 | Core PARTY entity — should have rich governance |
+| `Player` | 127 | Core PARTY entity — eligibility rules |
+| `Player Registration` | 162 | Key AGREEMENT — transfer rules |
+| `Safeguarding Incident` | 78 | Critical TRANSACTION — regulatory requirements |
+| `Competition League` | 119 | PRODUCT domain — competition governance |
+
+**Common observations**:
+
+| Observation | Meaning | Action |
+|-------------|---------|--------|
+| Many `(UNKNOWN)` domains | Top-level groupings (CHANNEL, PARTY, ASSETS) | ✅ Expected — these are domain roots |
+| Empty `governance_rules` | Entity not in FA Handbook scope | ⚠️ May be technical entity |
+| Generic `formal_definition` | LLM couldn't find specific definition | ⚠️ Check `domain_context` for relationships |
+| Very long `governance_rules` | Entity heavily regulated | ✅ Good — handbook has rich content |
 
 ---
 
