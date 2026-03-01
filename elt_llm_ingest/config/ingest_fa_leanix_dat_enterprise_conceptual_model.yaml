@@ -25,6 +25,8 @@ preprocessor:
   class: "LeanIXPreprocessor"
   output_format: "split"
   enabled: true
+  model_name: "FA Enterprise Conceptual Data Model"
+  org_name: "The Football Association"
 
 file_paths:
   - "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"

@@ -322,9 +322,9 @@ Business requirements addressed:
 - CSV deliverables for glossary, integrated catalog, and coverage/gap analysis.
 
 Key outputs:
-- `fa_terms_of_reference.csv` / `fa_integrated_catalog.csv`
-- `fa_handbook_candidate_entities.csv` / `fa_handbook_candidate_relationships.csv`
-- `fa_coverage_report.csv` / `fa_gap_analysis.csv`
+- `fa_terms_of_reference.json` / `fa_integrated_catalog.json`
+- `fa_handbook_candidate_entities.json` / `fa_handbook_candidate_relationships.json`
+- `fa_coverage_report.json` / `fa_gap_analysis.json`
 
 These files enable a repeatable workflow for conceptual model refinement and governance traceability.
 
@@ -1568,8 +1568,8 @@ uv run python -m elt_llm_ingest.runner --status -v
 
 | Requirement | Tool | Command | Output |
 |-------------|------|---------|--------|
-| **#1 + #2: Integrated report** | `fa_integrated_catalog` | `elt-llm-consumer-integrated-catalog` | `fa_terms_of_reference.csv` |
-| **#3: Enhancement opportunities** | `fa_coverage_validator` | `elt-llm-consumer-coverage-validator --gap-analysis` | `fa_gap_analysis.csv` |
+| **#1 + #2: Integrated report** | `fa_integrated_catalog` | `elt-llm-consumer-integrated-catalog` | `fa_terms_of_reference.json` |
+| **#3: Enhancement opportunities** | `fa_coverage_validator` | `elt-llm-consumer-coverage-validator --gap-analysis` | `fa_gap_analysis.json` |
 
 ### E.3 Quick Start Commands
 
@@ -1588,9 +1588,9 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 
 | File | Description | Key Columns |
 |------|-------------|-------------|
-| `fa_terms_of_reference.csv` | Integrated catalog: entity + description + governance | `entity_name`, `leanix_description`, `formal_definition`, `governance_rules` |
-| `fa_gap_analysis.csv` | Bidirectional gap analysis | `model_name`, `handbook_name`, `status` (MATCHED/MODEL_ONLY/HANDBOOK_ONLY) |
-| `fa_coverage_report.csv` | Coverage scoring per entity | `entity_name`, `top_score`, `verdict` (STRONG/MODERATE/THIN/ABSENT) |
+| `fa_terms_of_reference.json` | Integrated catalog: entity + description + governance | `entity_name`, `leanix_description`, `formal_definition`, `governance_rules` |
+| `fa_gap_analysis.json` | Bidirectional gap analysis | `model_name`, `handbook_name`, `status` (MATCHED/MODEL_ONLY/HANDBOOK_ONLY) |
+| `fa_coverage_report.json` | Coverage scoring per entity | `entity_name`, `top_score`, `verdict` (STRONG/MODERATE/THIN/ABSENT) |
 
 ### E.5 Interpreting Results
 
@@ -1609,8 +1609,8 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 
 | Opportunity | Tool | Output |
 |-------------|------|--------|
-| **Business glossary from inventory** | `elt-llm-consumer-glossary` | `fa_business_catalog_dataobjects.csv` |
-| **Handbook-discovered relationships** | `elt-llm-consumer-handbook-model` | `fa_handbook_candidate_relationships.csv` |
+| **Business glossary from inventory** | `elt-llm-consumer-glossary` | `fa_business_catalog_dataobjects.json` |
+| **Handbook-discovered relationships** | `elt-llm-consumer-handbook-model` | `fa_handbook_candidate_relationships.json` |
 | **Iterative model refinement** | Re-run gap analysis after LeanIX updates | Track `HANDBOOK_ONLY` count decreasing |
 
 ### E.7 What's NOT Built (Downstream)
@@ -1664,7 +1664,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 - **Actual**: ~10 min (217 entities × ~3s each with `qwen2.5:14b`)
 - **Varies by**: Model speed, hardware, RAG collection size
 
-**Recommended spot-check entities** (open `fa_terms_of_reference.csv`):
+**Recommended spot-check entities** (open `fa_terms_of_reference.json`):
 
 | Entity | Row ~ | Why check this? |
 |--------|-------|-----------------|

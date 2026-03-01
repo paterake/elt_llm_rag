@@ -12,7 +12,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -74,16 +74,28 @@ class LeanIXPreprocessor(BasePreprocessor):
       pipeline can load each file into its own ChromaDB collection.
     """
 
-    def __init__(self, output_format: str = "markdown", collection_prefix: Optional[str] = None):
+    def __init__(
+        self,
+        output_format: str = "markdown",
+        collection_prefix: Optional[str] = None,
+        model_name: str = "Enterprise Conceptual Data Model",
+        org_name: str = "the organisation",
+    ):
         """Initialise the LeanIX preprocessor.
 
         Args:
             output_format: ``'markdown'``, ``'json'``, ``'both'``, or ``'split'``.
             collection_prefix: Required when ``output_format='split'``. Each
                 section file is loaded into ``{collection_prefix}_{section_key}``.
+            model_name: Human-readable name of the conceptual model, used in
+                generated Markdown prose (e.g. "FA Enterprise Conceptual Data Model").
+            org_name: Organisation name used in generated Markdown prose
+                (e.g. "The Football Association").
         """
         self.output_format = output_format
         self.collection_prefix = collection_prefix
+        self.model_name = model_name
+        self.org_name = org_name
 
     def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
         """Preprocess a LeanIX XML file.
@@ -107,7 +119,11 @@ class LeanIXPreprocessor(BasePreprocessor):
         logger.info("Preprocessing LeanIX file: %s", input_path)
 
         try:
-            extractor = LeanIXExtractor(str(input_path))
+            extractor = LeanIXExtractor(
+                str(input_path),
+                model_name=self.model_name,
+                org_name=self.org_name,
+            )
             extractor.parse_xml()
             extractor.extract_all()
 
@@ -188,15 +204,15 @@ class LeanIXInventoryPreprocessor(BasePreprocessor):
     - ``ingest_fa_ea_leanix.yaml`` → ``fa_leanix_cm_*`` (conceptual model, from XML)
     - ``ingest_fa_leanix_inventory.yaml`` → ``fa_leanix_inv_*`` (inventory, from Excel)
 
-    Collections produced (prefix = collection_prefix, default 'fa_leanix_inv'):
-        fa_leanix_inv_dataobject    — 229 DataObject fact sheets with definitions
-        fa_leanix_inv_interface     — 271 Interface fact sheets (data flows)
-        fa_leanix_inv_application   — 215 Application fact sheets
-        fa_leanix_inv_capability    — 272 BusinessCapability fact sheets
-        fa_leanix_inv_organization  — 115 Organization fact sheets
-        fa_leanix_inv_itcomponent   — 180 ITComponent fact sheets
-        fa_leanix_inv_provider      — 74  Provider fact sheets
-        fa_leanix_inv_objective     — 59  Objective fact sheets
+    Collections produced (prefix = collection_prefix, default 'leanix_inv'):
+        {prefix}_dataobject    — DataObject fact sheets with definitions
+        {prefix}_interface     — Interface fact sheets (data flows)
+        {prefix}_application   — Application fact sheets
+        {prefix}_capability    — BusinessCapability fact sheets
+        {prefix}_organization  — Organization fact sheets
+        {prefix}_itcomponent   — IT Component fact sheets
+        {prefix}_provider      — Provider fact sheets
+        {prefix}_objective     — Objective fact sheets
 
     Excel format expected (LeanIX standard inventory export):
         Columns: id, type, name, displayName, description, level, status, lxState
@@ -215,9 +231,15 @@ class LeanIXInventoryPreprocessor(BasePreprocessor):
         "Objective":         ("objective",    "Objective Inventory"),
     }
 
-    def __init__(self, output_format: str = "split", collection_prefix: Optional[str] = None):
+    def __init__(
+        self,
+        output_format: str = "split",
+        collection_prefix: Optional[str] = None,
+        org_name: str = "The Organisation",
+    ):
         self.output_format = output_format  # kept for interface compatibility; always split
-        self.collection_prefix = collection_prefix or "fa_leanix_inv"
+        self.collection_prefix = collection_prefix or "leanix_inv"
+        self.org_name = org_name
 
     def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
         input_path = Path(input_file).expanduser().resolve()
@@ -316,7 +338,7 @@ class LeanIXInventoryPreprocessor(BasePreprocessor):
         md: List[str] = []
         md.append(f"# LeanIX {label}\n\n")
         md.append(
-            f"The FA LeanIX inventory contains {len(rows)} {fs_type} fact sheets. "
+            f"The {self.org_name} LeanIX inventory contains {len(rows)} {fs_type} fact sheets. "
             "Each entry below includes the name, LeanIX identifier, hierarchy level, "
             "and a description where recorded.\n\n"
         )
@@ -393,11 +415,22 @@ class RegulatoryPDFPreprocessor(BasePreprocessor):
 
     Requires ``pypdf`` (``uv add pypdf --package elt-llm-ingest``).
 
-    FA Handbook defaults
-    --------------------
-    The default ``def_sections`` and ``definitions_label`` are set for the
-    FA Handbook 2025-26.  Override them in a subclass or via a thin wrapper
-    for other documents.
+    Configuration
+    -------------
+    All parameters are forwarded from the YAML ``preprocessor:`` block via
+    ``extra_params`` — no code changes needed for new documents::
+
+        preprocessor:
+          class: "RegulatoryPDFPreprocessor"
+          definitions_label: "My Document defined term"
+          # Optional: pin known glossary pages for highest-confidence extraction.
+          # Auto-detection runs regardless; explicit pages are tagged "explicit"
+          # or "both" (found by both strategies).
+          def_sections:
+            - [88, 108]   # 0-based page indices, exclusive end
+            - [472, 477]
+          # Optional: lower/raise the auto-detect sensitivity (default 3).
+          def_density_threshold: 3
     """
 
     # Matches repeating section headers: "N - TITLE" or "TITLE - SUBTITLE"
@@ -413,22 +446,18 @@ class RegulatoryPDFPreprocessor(BasePreprocessor):
         re.MULTILINE,
     )
 
-    # FA Handbook 2025-26 defaults — override for other documents
-    # Each tuple is (page_start, page_end) using 0-based page indices (exclusive end).
-    # Section 8 Rules uses "TERM means DEFINITION;" — pages 89–106 (0-indexed 88–108)
-    # Section 23 Referees uses "TERM  -  DEFINITION"  — pages 473–476 (0-indexed 472–477)
-    _DEFAULT_DEF_SECTIONS: List[Tuple[int, int]] = [
-        (88,  108),
-        (472, 477),
-    ]
-    _DEFAULT_DEFINITIONS_LABEL = "FA Handbook defined term"
+    # Defaults — override via YAML config (def_sections / definitions_label)
+    # Empty list means no definition extraction unless configured.
+    _DEFAULT_DEF_SECTIONS: List[Tuple[int, int]] = []
+    _DEFAULT_DEFINITIONS_LABEL = "defined term"
 
     def __init__(
         self,
         output_format: str = "markdown",
         collection_prefix: Optional[str] = None,
-        def_sections: Optional[List[Tuple[int, int]]] = None,
+        def_sections: Optional[List] = None,
         definitions_label: Optional[str] = None,
+        def_density_threshold: int = 3,
     ):
         """Initialise the preprocessor.
 
@@ -437,20 +466,28 @@ class RegulatoryPDFPreprocessor(BasePreprocessor):
                 two Markdown files regardless of this value.
             collection_prefix: Kept for interface compatibility (unused — both
                 output files go to the same collection).
-            def_sections: List of ``(page_start, page_end)`` 0-indexed page
-                ranges to scan for term definitions.  Defaults to FA Handbook
-                definitions sections.
+            def_sections: Optional list of ``[page_start, page_end]`` 0-indexed
+                page ranges to scan for term definitions.  When supplied these
+                pages are always extracted and tagged ``source: explicit``.
+                Supply via YAML: ``def_sections: [[88, 108], [472, 477]]``.
             definitions_label: Short label used in the definitions Markdown
-                (e.g. "FA Handbook defined term").  Defaults to FA Handbook label.
+                (e.g. "FA Handbook defined term").  Defaults to "defined term".
+            def_density_threshold: Minimum number of ``means``-pattern matches
+                per page for auto-detection.  Pages meeting this threshold are
+                tagged ``source: detected``.  Set to 0 to disable auto-detect.
+                Default 3.
         """
         self.output_format = output_format
         self.collection_prefix = collection_prefix
-        self.def_sections: List[Tuple[int, int]] = (
-            def_sections if def_sections is not None else self._DEFAULT_DEF_SECTIONS
-        )
+        # YAML delivers lists-of-lists; normalise to list of tuples
+        if def_sections is not None:
+            self.def_sections: List[Tuple[int, int]] = [tuple(s) for s in def_sections]  # type: ignore[misc]
+        else:
+            self.def_sections = list(self._DEFAULT_DEF_SECTIONS)
         self.definitions_label: str = (
             definitions_label if definitions_label is not None else self._DEFAULT_DEFINITIONS_LABEL
         )
+        self.def_density_threshold = def_density_threshold
 
     # ------------------------------------------------------------------
     # BasePreprocessor interface
@@ -541,67 +578,109 @@ class RegulatoryPDFPreprocessor(BasePreprocessor):
         logger.info("  Written clean text: %s (%d chars)", clean_path, len(clean_md))
 
         # ── Pass 2: extract definitions glossary ──────────────────────────
-        definitions: List[Tuple[str, str]] = []
-        seen: set[str] = set()
+        # Two independent extraction strategies are run and merged:
+        #   "explicit"  — page ranges from def_sections config (highest confidence)
+        #   "detected"  — pages auto-detected by means-pattern density
+        #   "both"      — term found by both strategies (strongest signal)
 
-        def _add(term: str, defn: str) -> None:
+        # store: term_lower → (canonical_term, defn)
+        explicit_store: Dict[str, Tuple[str, str]] = {}
+        detected_store: Dict[str, Tuple[str, str]] = {}
+
+        means_pat = re.compile(
+            r"([A-Z][A-Za-z0-9\s/\-'\"]{1,50}?)\s+means\s+(.+?)(?=;|(?=[A-Z][A-Za-z0-9\s/\-'\"]{1,50}?\s+means\s))",
+            re.DOTALL,
+        )
+        new_def_line = re.compile(
+            r"^([A-Z][A-Za-z0-9\s/'\"\-]{1,60}?)\s{2,}-\s+(.+)"
+        )
+
+        def _collect(store: Dict[str, Tuple[str, str]], term: str, defn: str) -> None:
             term = " ".join(term.split())
             defn = " ".join(defn.split()).strip(";").strip()
             if len(defn) < 10 or len(defn) > 1500:
                 return
-            if term.lower() not in seen:
-                seen.add(term.lower())
-                definitions.append((term, defn))
+            if term.lower() not in store:
+                store[term.lower()] = (term, defn)
 
-        for page_start, page_end in self._DEF_SECTIONS:
-            sec_pages: List[str] = []
-            for pg_idx in range(min(page_start, total_pages), min(page_end, total_pages)):
+        def _extract_page_range(
+            page_indices: List[int],
+            store: Dict[str, Tuple[str, str]],
+        ) -> None:
+            """Run Pattern A (means) and Pattern B (  -  ) over a list of pages."""
+            # Pattern A: joined text
+            joined_parts: List[str] = []
+            for pg_idx in page_indices:
                 text = reader.pages[pg_idx].extract_text() or ""
                 lines = text.split("\n")
-                # Strip section header lines
                 lines = [l for l in lines if not self._HEADER_PATTERN.match(l.strip())]
-                sec_pages.append(" ".join(lines))
-            sec_text = " ".join(sec_pages)
+                joined_parts.append(" ".join(lines))
+            joined = " ".join(joined_parts)
+            for m in means_pat.finditer(joined):
+                _collect(store, m.group(1), m.group(2))
 
-            # Pattern A: "TERM means DEFINITION;" (Section 8 Rules)
-            means_pat = re.compile(
-                r"([A-Z][A-Za-z0-9\s/\-'\"]{1,50}?)\s+means\s+(.+?)(?=;|(?=[A-Z][A-Za-z0-9\s/\-'\"]{1,50}?\s+means\s))",
-                re.DOTALL,
-            )
-            for m in means_pat.finditer(sec_text):
-                _add(m.group(1), m.group(2))
-
-            # Pattern B: "TERM  -  DEFINITION" (Section 23 Referees, line-wrapped)
-            # Definitions span multiple wrapped lines; accumulate until the next
-            # "TERM  -" start marker.
-            new_def_line = re.compile(
-                r"^([A-Z][A-Za-z0-9\s/'\"\-]{1,60}?)\s{2,}-\s+(.+)"
-            )
-            # Rebuild from individual page lines to preserve line boundaries
-            sec_lines: List[str] = []
-            for pg_idx in range(min(page_start, total_pages), min(page_end, total_pages)):
+            # Pattern B: line-by-line accumulator (handles wrapped definitions)
+            all_lines: List[str] = []
+            for pg_idx in page_indices:
                 raw = reader.pages[pg_idx].extract_text() or ""
                 for ln in raw.split("\n"):
                     stripped = ln.strip()
                     if stripped and not self._HEADER_PATTERN.match(stripped):
-                        sec_lines.append(stripped)
-
+                        all_lines.append(stripped)
             current_term: Optional[str] = None
             current_defn: List[str] = []
-            for ln in sec_lines:
+            for ln in all_lines:
                 m = new_def_line.match(ln)
                 if m:
-                    # Flush previous
                     if current_term:
-                        _add(current_term, " ".join(current_defn))
+                        _collect(store, current_term, " ".join(current_defn))
                     current_term = m.group(1).strip()
                     current_defn = [m.group(2).strip()]
                 elif current_term and ln:
                     current_defn.append(ln)
             if current_term:
-                _add(current_term, " ".join(current_defn))
+                _collect(store, current_term, " ".join(current_defn))
 
-        logger.info("  Extracted %d term definitions", len(definitions))
+        # ── Auto-detect: scan all pages by means-pattern density ──────────
+        if self.def_density_threshold > 0:
+            density_pat = re.compile(
+                r"[A-Z][A-Za-z0-9\s/\-'\"]{1,50}?\s+means\s+"
+            )
+            auto_pages: List[int] = []
+            for pg_idx in range(total_pages):
+                text = reader.pages[pg_idx].extract_text() or ""
+                if len(density_pat.findall(text)) >= self.def_density_threshold:
+                    auto_pages.append(pg_idx)
+            logger.info("  Auto-detected %d definition pages (threshold=%d)",
+                        len(auto_pages), self.def_density_threshold)
+            if auto_pages:
+                _extract_page_range(auto_pages, detected_store)
+
+        # ── Explicit page ranges ───────────────────────────────────────────
+        for page_start, page_end in self.def_sections:
+            page_indices = list(range(
+                min(page_start, total_pages),
+                min(page_end, total_pages),
+            ))
+            _extract_page_range(page_indices, explicit_store)
+
+        # ── Merge with confidence tagging ─────────────────────────────────
+        # definitions: (term, defn, source)
+        merged: List[Tuple[str, str, str]] = []
+        for key, (term, defn) in explicit_store.items():
+            source = "both" if key in detected_store else "explicit"
+            merged.append((term, defn, source))
+        for key, (term, defn) in detected_store.items():
+            if key not in explicit_store:
+                merged.append((term, defn, "detected"))
+
+        logger.info(
+            "  Definitions: %d explicit, %d detected, %d both, %d total unique",
+            sum(1 for _, _, s in merged if s == "explicit"),
+            sum(1 for _, _, s in merged if s == "detected"),
+            sum(1 for _, _, s in merged if s == "both"),
+            len(merged),
+        )
 
         doc_title = Path(input_path).stem.replace("_", " ").replace("-", " ")
         def_lines: List[str] = [
@@ -609,16 +688,16 @@ class RegulatoryPDFPreprocessor(BasePreprocessor):
             f"The following terms are formally defined in {doc_title}.\n",
             "---\n",
         ]
-        for term, defn in sorted(definitions, key=lambda x: x[0].lower()):
+        for term, defn, source in sorted(merged, key=lambda x: x[0].lower()):
             def_lines.append(f"\n## {term}\n")
             def_lines.append(
-                f"**{self.definitions_label}**: {term} means {defn}.\n"
+                f"**{self.definitions_label}** [source: {source}]: {term} means {defn}.\n"
             )
 
         def_md = "\n".join(def_lines)
         def_path = output_base.parent / f"{output_base.stem}_definitions.md"
         def_path.write_text(def_md, encoding="utf-8")
-        logger.info("  Written definitions glossary: %s (%d terms)", def_path, len(definitions))
+        logger.info("  Written definitions glossary: %s (%d terms)", def_path, len(merged))
 
         output_files = [str(clean_path), str(def_path)]
         return PreprocessorResult(
@@ -627,7 +706,7 @@ class RegulatoryPDFPreprocessor(BasePreprocessor):
             success=True,
             message=(
                 f"Processed {total_pages} pages; "
-                f"{len(definitions)} definitions extracted"
+                f"{len(merged)} definitions extracted"
             ),
         )
 
@@ -669,6 +748,10 @@ class PreprocessorConfig:
         enabled: Whether preprocessing is enabled.
         collection_prefix: For split-mode preprocessors — prefix used to name
             each section's target collection (e.g. 'fa_leanix' → 'fa_leanix_agreements').
+        extra_params: Additional keyword arguments forwarded as-is to the
+            preprocessor constructor.  Use this to pass preprocessor-specific
+            settings (e.g. ``def_sections``, ``model_name``) from YAML config
+            without modifying PreprocessorConfig itself.
     """
     module: str
     class_name: str
@@ -676,10 +759,22 @@ class PreprocessorConfig:
     output_suffix: str = "_processed"
     enabled: bool = True
     collection_prefix: Optional[str] = None
+    extra_params: Dict[str, Any] = field(default_factory=dict)
+
+    _KNOWN_KEYS = frozenset(
+        {"module", "class", "output_format", "output_suffix", "enabled", "collection_prefix"}
+    )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PreprocessorConfig":
-        """Create PreprocessorConfig from a dictionary."""
+        """Create PreprocessorConfig from a dictionary.
+
+        Any keys not in the standard set are collected into ``extra_params``
+        and forwarded to the preprocessor constructor, allowing per-class
+        configuration (e.g. ``def_sections``, ``model_name``) to live in
+        YAML without requiring changes to this class.
+        """
+        extra = {k: v for k, v in data.items() if k not in cls._KNOWN_KEYS}
         return cls(
             module=data.get("module", ""),
             class_name=data.get("class", ""),
@@ -687,6 +782,7 @@ class PreprocessorConfig:
             output_suffix=data.get("output_suffix", "_processed"),
             enabled=data.get("enabled", True),
             collection_prefix=data.get("collection_prefix"),
+            extra_params=extra,
         )
 
 
@@ -711,6 +807,7 @@ def get_preprocessor(config: PreprocessorConfig) -> BasePreprocessor:
     return preprocessor_class(
         output_format=config.output_format,
         collection_prefix=config.collection_prefix,
+        **config.extra_params,
     )
 
 

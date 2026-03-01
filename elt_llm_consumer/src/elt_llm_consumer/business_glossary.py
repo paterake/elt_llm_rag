@@ -1,12 +1,15 @@
 """FA Business Catalog generator.
 
 Batch-drives the LLM+RAG infrastructure to produce a structured business
-catalog CSV for every LeanIX entity (DataObjects and Interfaces).
+catalog JSON for every LeanIX entity (DataObjects and Interfaces).
 
 Sources queried per entity (fa_enterprise_architecture scope):
   - fa_handbook              — governance, regulations, compliance rules
   - fa_data_architecture     — FA reference data architecture
   - fa_leanix_*              — LeanIX conceptual model + global inventory
+
+Output format: JSON (not CSV) to properly support multi-line content,
+hierarchical structures, and nested fields from combined data sources.
 
 Usage:
     # Via uv workspace entry point
@@ -28,7 +31,7 @@ Runtime: ~500 entities × 10–20 s each ≈ 90–180 min (varies by model and h
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import os
 import sys
 from pathlib import Path
@@ -48,7 +51,7 @@ _DEFAULT_EXCEL = Path(
     "~/Documents/__data/resources/thefa/20260227_085233_UtvKD_inventory.xlsx"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/Documents/__data/resources/thefa/").expanduser()
+_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
 
 # ---------------------------------------------------------------------------
 # System prompt — mirrors fa_enterprise_architecture.yaml
@@ -111,12 +114,13 @@ def get_collections(rag_config: RagConfig) -> list[str]:
 
 
 def load_checkpoint(out_path: Path) -> set[str]:
-    """Return set of fact_sheet_ids already written to the output CSV."""
+    """Return set of fact_sheet_ids already written to the output JSON."""
     if not out_path.exists():
         return set()
     done: set[str] = set()
-    with open(out_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
+    with open(out_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        for row in data:
             fsid = (row.get("fact_sheet_id") or "").strip()
             if fsid:
                 done.add(fsid)
@@ -147,7 +151,7 @@ def generate_dataobjects(
 ) -> None:
     import pandas as pd
 
-    out_path = output_dir / "fa_business_catalog_dataobjects.csv"
+    out_path = output_dir / "fa_business_catalog_dataobjects.json"
 
     print("\n=== DataObjects Catalog ===")
     print(f"  Reading from: {excel_path}")
@@ -161,46 +165,52 @@ def generate_dataobjects(
 
     done = load_checkpoint(out_path) if resume else set()
 
-    fieldnames = [
-        "fact_sheet_id", "entity_name", "domain_group", "hierarchy_level",
-        "lx_state", "leanix_description", "catalog_entry", "model_used",
-    ]
-    mode = "a" if resume and out_path.exists() else "w"
+    all_rows: list[dict] = []
+    if resume and out_path.exists():
+        with open(out_path, "r", encoding="utf-8") as f:
+            all_rows = json.load(f)
+        print(f"  Loaded {len(all_rows)} existing rows from checkpoint")
+
     total = len(entities)
     written = 0
+    existing_by_fsid = {row["fact_sheet_id"]: i for i, row in enumerate(all_rows)}
 
-    with open(out_path, mode, newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if mode == "w":
-            writer.writeheader()
+    for i, entity in enumerate(entities, 1):
+        fsid = str(entity["fact_sheet_id"]).strip()
+        if fsid in done:
+            continue
 
-        for i, entity in enumerate(entities, 1):
-            fsid = str(entity["fact_sheet_id"]).strip()
-            if fsid in done:
-                continue
+        name = entity["entity_name"]
+        print(f"  [{i}/{total}] {name}…", end=" ", flush=True)
 
-            name = entity["entity_name"]
-            print(f"  [{i}/{total}] {name}…", end=" ", flush=True)
+        catalog_entry = run_query(
+            _DATAOBJECT_QUERY.format(name=name, fsid=fsid),
+            collections,
+            rag_config,
+        )
+        print("done")
 
-            catalog_entry = run_query(
-                _DATAOBJECT_QUERY.format(name=name, fsid=fsid),
-                collections,
-                rag_config,
-            )
-            print("done")
+        row = {
+            "fact_sheet_id": fsid,
+            "entity_name": name,
+            "domain_group": entity.get("domain_group", ""),
+            "hierarchy_level": entity.get("hierarchy_level", ""),
+            "lx_state": entity.get("lx_state", ""),
+            "leanix_description": (entity.get("leanix_description") or "").strip(),
+            "catalog_entry": catalog_entry,
+            "model_used": rag_config.ollama.llm_model,
+        }
 
-            writer.writerow({
-                "fact_sheet_id": fsid,
-                "entity_name": name,
-                "domain_group": entity.get("domain_group", ""),
-                "hierarchy_level": entity.get("hierarchy_level", ""),
-                "lx_state": entity.get("lx_state", ""),
-                "leanix_description": (entity.get("leanix_description") or "").strip(),
-                "catalog_entry": catalog_entry,
-                "model_used": rag_config.ollama.llm_model,
-            })
-            f.flush()
-            written += 1
+        if fsid in existing_by_fsid:
+            all_rows[existing_by_fsid[fsid]] = row
+        else:
+            all_rows.append(row)
+
+        # Write checkpoint after each entity
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(all_rows, f, indent=2, ensure_ascii=False)
+
+        written += 1
 
     print(f"\n  DataObjects catalog → {out_path}  ({written} new rows)")
 
@@ -227,7 +237,7 @@ def generate_interfaces(
 ) -> None:
     import pandas as pd
 
-    out_path = output_dir / "fa_business_catalog_interfaces.csv"
+    out_path = output_dir / "fa_business_catalog_interfaces.json"
 
     print("\n=== Interfaces Catalog ===")
     print(f"  Reading from: {excel_path}")
@@ -243,47 +253,53 @@ def generate_interfaces(
 
     done = load_checkpoint(out_path) if resume else set()
 
-    fieldnames = [
-        "fact_sheet_id", "interface_name", "source_system", "target_system",
-        "flow_description", "catalog_entry", "model_used",
-    ]
-    mode = "a" if resume and out_path.exists() else "w"
+    all_rows: list[dict] = []
+    if resume and out_path.exists():
+        with open(out_path, "r", encoding="utf-8") as f:
+            all_rows = json.load(f)
+        print(f"  Loaded {len(all_rows)} existing rows from checkpoint")
+
     total = len(interfaces)
     written = 0
+    existing_by_fsid = {row["fact_sheet_id"]: i for i, row in enumerate(all_rows)}
 
-    with open(out_path, mode, newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if mode == "w":
-            writer.writeheader()
+    for i, row in enumerate(interfaces, 1):
+        fsid = str(row["fact_sheet_id"]).strip()
+        if fsid in done:
+            continue
 
-        for i, row in enumerate(interfaces, 1):
-            fsid = str(row["fact_sheet_id"]).strip()
-            if fsid in done:
-                continue
+        name = row["interface_name"]
+        source = row["source_system"] or "Unknown"
+        target = row["target_system"] or "Unknown"
+        print(f"  [{i}/{total}] {name}…", end=" ", flush=True)
 
-            name = row["interface_name"]
-            source = row["source_system"] or "Unknown"
-            target = row["target_system"] or "Unknown"
-            print(f"  [{i}/{total}] {name}…", end=" ", flush=True)
+        catalog_entry = run_query(
+            _INTERFACE_QUERY.format(name=name, source=source, target=target),
+            collections,
+            rag_config,
+        )
+        print("done")
 
-            catalog_entry = run_query(
-                _INTERFACE_QUERY.format(name=name, source=source, target=target),
-                collections,
-                rag_config,
-            )
-            print("done")
+        result_row = {
+            "fact_sheet_id": fsid,
+            "interface_name": name,
+            "source_system": source,
+            "target_system": target,
+            "flow_description": (row.get("flow_description") or "").strip(),
+            "catalog_entry": catalog_entry,
+            "model_used": rag_config.ollama.llm_model,
+        }
 
-            writer.writerow({
-                "fact_sheet_id": fsid,
-                "interface_name": name,
-                "source_system": source,
-                "target_system": target,
-                "flow_description": (row.get("flow_description") or "").strip(),
-                "catalog_entry": catalog_entry,
-                "model_used": rag_config.ollama.llm_model,
-            })
-            f.flush()
-            written += 1
+        if fsid in existing_by_fsid:
+            all_rows[existing_by_fsid[fsid]] = result_row
+        else:
+            all_rows.append(result_row)
+
+        # Write checkpoint after each entity
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(all_rows, f, indent=2, ensure_ascii=False)
+
+        written += 1
 
     print(f"\n  Interfaces catalog → {out_path}  ({written} new rows)")
 
@@ -300,7 +316,8 @@ def main() -> None:
         epilog=(
             "Models: qwen2.5:14b (default), mistral-nemo:12b, "
             "llama3.1:8b, granite3.1-dense:8b, michaelborck/refuled\n"
-            "Resume:  RESUME=1 elt-llm-consumer-glossary"
+            "Resume:  RESUME=1 elt-llm-consumer-glossary\n"
+            "Output:  JSON format (not CSV) for multi-line content support"
         ),
     )
     parser.add_argument(
@@ -364,6 +381,6 @@ def main() -> None:
 
     print("\n=== Complete ===")
     if args.type in ("dataobjects", "both"):
-        print(f"  DataObjects → {output_dir / 'fa_business_catalog_dataobjects.csv'}")
+        print(f"  DataObjects → {output_dir / 'fa_business_catalog_dataobjects.json'}")
     if args.type in ("interfaces", "both"):
-        print(f"  Interfaces  → {output_dir / 'fa_business_catalog_interfaces.csv'}")
+        print(f"  Interfaces  → {output_dir / 'fa_business_catalog_interfaces.json'}")

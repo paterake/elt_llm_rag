@@ -27,6 +27,7 @@ preprocessor:
   class: "LeanIXInventoryPreprocessor"
   output_format: "split"
   enabled: true
+  org_name: "The Football Association"
 
 file_paths:
   - "~/Documents/__data/resources/thefa/20260227_085233_UtvKD_inventory.xlsx"

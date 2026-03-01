@@ -30,3 +30,10 @@ preprocessor:
   module: "elt_llm_ingest.preprocessor"
   class: "RegulatoryPDFPreprocessor"
   output_format: "markdown"
+  # FA Handbook 2025-26 definition sections (0-based page indices, exclusive end)
+  # Section 8 Rules: "TERM means DEFINITION;" format  — pages 89–108
+  # Section 23 Referees: "TERM  -  DEFINITION" format — pages 473–477
+  def_sections:
+    - [88, 108]
+    - [472, 477]
+  definitions_label: "FA Handbook defined term"

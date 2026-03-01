@@ -11,7 +11,7 @@ Two-direction analysis — no LLM synthesis, pure retrieval scoring:
       No LLM call — pure embedding similarity. ~3-7 min for ~217 entities.
 
   Direction 2 — Handbook → Model (gap check)  [--gap-analysis]
-      If fa_handbook_candidate_entities.csv exists (Consumer 2 output), compare
+      If fa_handbook_candidate_entities.json exists (Consumer 2 output), compare
       entity name lists to find:
         MODEL_ONLY    — in conceptual model, not mentioned in handbook
         HANDBOOK_ONLY — handbook discusses it, but it is absent from the model
@@ -24,8 +24,11 @@ Verdict bands (cosine similarity of top retrieved chunk):
   ABSENT    < 0.40  — entity not meaningfully present in handbook
 
 Outputs (~/Documents/__data/resources/thefa/):
-  fa_coverage_report.csv  — per-entity: domain, score, verdict
-  fa_gap_analysis.csv     — bidirectional gap table (requires --gap-analysis)
+  fa_coverage_report.json   — per-entity: domain, score, verdict
+  fa_gap_analysis.json      — bidirectional gap table (requires --gap-analysis)
+
+Output format: JSON (not CSV) to properly support multi-line content,
+hierarchical structures, and nested fields from combined data sources.
 
 Usage:
     uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator
@@ -40,7 +43,7 @@ Runtime: ~217 entities × 1-2 s retrieval = 3-7 min (no LLM, embedding only)
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import os
 import sys
 from pathlib import Path
@@ -60,9 +63,9 @@ _DEFAULT_XML = Path(
     "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/Documents/__data/resources/thefa/").expanduser()
+_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
 
-_DEFAULT_HANDBOOK_CSV = _DEFAULT_OUTPUT_DIR / "fa_handbook_candidate_entities.csv"
+_DEFAULT_HANDBOOK_JSON = _DEFAULT_OUTPUT_DIR / "fa_handbook_candidate_entities.json"
 
 # ---------------------------------------------------------------------------
 # Verdict thresholds (cosine similarity of top retrieved chunk)
@@ -132,8 +135,9 @@ def load_checkpoint(out_path: Path) -> set[str]:
     if not out_path.exists():
         return set()
     done: set[str] = set()
-    with open(out_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
+    with open(out_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        for row in data:
             fsid = (row.get("fact_sheet_id") or "").strip()
             if fsid:
                 done.add(fsid)
@@ -215,51 +219,52 @@ def run_coverage_check(
     resume: bool,
 ) -> dict[str, int]:
     """Score every model entity against FA Handbook. Returns verdict counts."""
-    out_path = output_dir / "fa_coverage_report.csv"
+    out_path = output_dir / "fa_coverage_report.json"
     done = load_checkpoint(out_path) if resume else set()
 
-    fields = [
-        "fact_sheet_id", "entity_name", "domain",
-        "chunks_found", "top_score", "avg_score",
-        "verdict", "top_chunk_preview",
-    ]
-    mode = "a" if resume and out_path.exists() else "w"
     total = len(entities)
     written = 0
     verdicts: dict[str, int] = {"STRONG": 0, "MODERATE": 0, "THIN": 0, "ABSENT": 0}
 
+    # Load existing results for resume mode
+    all_results: list[dict] = []
+    if resume and out_path.exists():
+        with open(out_path, "r", encoding="utf-8") as f:
+            all_results = json.load(f)
+        print(f"  Loaded {len(all_results)} existing results from checkpoint")
+
     print(f"\n=== Direction 1: Model → Handbook ({total} entities) ===")
-    with open(out_path, mode, newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        if mode == "w":
-            writer.writeheader()
 
-        for i, entity in enumerate(entities, 1):
-            fsid = entity["fact_sheet_id"]
-            if fsid in done:
-                continue
+    for i, entity in enumerate(entities, 1):
+        fsid = entity["fact_sheet_id"]
+        if fsid in done:
+            continue
 
-            name = entity["entity_name"]
-            domain = entity["domain"]
-            print(f"  [{i}/{total}] {name} ({domain})…", end=" ", flush=True)
+        name = entity["entity_name"]
+        domain = entity["domain"]
+        print(f"  [{i}/{total}] {name} ({domain})…", end=" ", flush=True)
 
-            metrics = score_entity(name, domain, handbook_index, top_k)
-            v = coverage_verdict(metrics["top_score"], metrics["chunks_found"])
-            verdicts[v] = verdicts.get(v, 0) + 1
-            print(f"{v} (top={metrics['top_score']})")
+        metrics = score_entity(name, domain, handbook_index, top_k)
+        v = coverage_verdict(metrics["top_score"], metrics["chunks_found"])
+        verdicts[v] = verdicts.get(v, 0) + 1
+        print(f"{v} (top={metrics['top_score']})")
 
-            writer.writerow({
-                "fact_sheet_id": fsid,
-                "entity_name": name,
-                "domain": domain,
-                "chunks_found": metrics["chunks_found"],
-                "top_score": metrics["top_score"],
-                "avg_score": metrics["avg_score"],
-                "verdict": v,
-                "top_chunk_preview": metrics.get("top_chunk_preview", ""),
-            })
-            f.flush()
-            written += 1
+        all_results.append({
+            "fact_sheet_id": fsid,
+            "entity_name": name,
+            "domain": domain,
+            "chunks_found": metrics["chunks_found"],
+            "top_score": metrics["top_score"],
+            "avg_score": metrics["avg_score"],
+            "verdict": v,
+            "top_chunk_preview": metrics.get("top_chunk_preview", ""),
+        })
+
+        # Write checkpoint after each entity
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(all_results, f, indent=2, ensure_ascii=False)
+
+        written += 1
 
     print(f"\n  Written: {written} new rows → {out_path}")
     return verdicts
@@ -277,14 +282,14 @@ def _normalize(name: str) -> str:
 
 def run_gap_analysis(
     model_entities: list[dict],
-    handbook_csv: Path,
+    handbook_json: Path,
     output_dir: Path,
 ) -> None:
     """Bidirectional diff of model entity names vs handbook-discovered names."""
-    handbook_names = load_handbook_entities(handbook_csv)
+    handbook_names = load_handbook_entities(handbook_json)
     if not handbook_names:
         print(
-            f"\n  Gap analysis skipped — {handbook_csv.name} not found.\n"
+            f"\n  Gap analysis skipped — {handbook_json.name} not found.\n"
             "  Run Consumer 2 first:\n"
             "    uv run --package elt-llm-consumer elt-llm-consumer-handbook-model"
         )
@@ -315,14 +320,11 @@ def run_gap_analysis(
             "status": status,
         })
 
-    out_path = output_dir / "fa_gap_analysis.csv"
-    fields = ["normalized_name", "model_name", "handbook_name", "status"]
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
+    out_path = output_dir / "fa_gap_analysis.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(rows, f, indent=2, ensure_ascii=False)
 
-    print(f"\n=== Direction 2: Gap Analysis ===")
+    print(f"\n=== Gap Analysis ===")
     print(f"  MATCHED:       {counts['MATCHED']}")
     print(f"  MODEL_ONLY:    {counts['MODEL_ONLY']}  ← in model, not in handbook")
     print(f"  HANDBOOK_ONLY: {counts['HANDBOOK_ONLY']}  ← in handbook, missing from model")
@@ -347,7 +349,8 @@ def main() -> None:
             "Verdict thresholds (cosine similarity):\n"
             f"  STRONG ≥ {_STRONG}  |  MODERATE {_MODERATE}–{_STRONG}"
             f"  |  THIN {_THIN}–{_MODERATE}  |  ABSENT < {_THIN}\n\n"
-            "Resume:  RESUME=1 elt-llm-consumer-coverage-validator"
+            "Resume:  RESUME=1 elt-llm-consumer-coverage-validator\n"
+            "Output:  JSON format (not CSV) for multi-line content support"
         ),
     )
     parser.add_argument(
@@ -371,8 +374,8 @@ def main() -> None:
         help="Also run bidirectional gap analysis (Direction 2)",
     )
     parser.add_argument(
-        "--handbook-csv", type=Path, default=_DEFAULT_HANDBOOK_CSV,
-        help=f"Consumer 2 entity CSV for gap analysis (default: {_DEFAULT_HANDBOOK_CSV})",
+        "--handbook-json", type=Path, default=_DEFAULT_HANDBOOK_CSV.with_suffix(".json"),
+        help=f"Consumer 2 entity JSON for gap analysis (default: {_DEFAULT_HANDBOOK_CSV.with_suffix('.json')})",
     )
     args = parser.parse_args()
     resume = os.environ.get("RESUME", "0") == "1"
@@ -410,10 +413,10 @@ def main() -> None:
         print(f"  {v:<10} {n:>3}  {pct:>3}%  {bar}")
 
     if args.gap_analysis:
-        handbook_csv = args.handbook_csv.expanduser()
-        run_gap_analysis(entities, handbook_csv, output_dir)
+        handbook_json = args.handbook_json.expanduser()
+        run_gap_analysis(entities, handbook_json, output_dir)
 
     print("\n=== Complete ===")
-    print(f"  Coverage report → {output_dir / 'fa_coverage_report.csv'}")
+    print(f"  Coverage report → {output_dir / 'fa_coverage_report.json'}")
     if args.gap_analysis:
-        print(f"  Gap analysis    → {output_dir / 'fa_gap_analysis.csv'}")
+        print(f"  Gap analysis    → {output_dir / 'fa_gap_analysis.json'}")

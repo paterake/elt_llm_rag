@@ -52,8 +52,15 @@ class LeanIXRelationship:
 class LeanIXExtractor:
     """Extract assets and relationships from LeanIX draw.io XML"""
 
-    def __init__(self, xml_file: str):
+    def __init__(
+        self,
+        xml_file: str,
+        model_name: str = "Enterprise Conceptual Data Model",
+        org_name: str = "the organisation",
+    ):
         self.xml_file = Path(xml_file)
+        self.model_name = model_name
+        self.org_name = org_name
         self.tree = None
         self.root = None
         self.assets: Dict[str, LeanIXAsset] = {}
@@ -293,14 +300,14 @@ class LeanIXExtractor:
         domain_names = sorted(assets_by_group.keys())
 
         # ── Overview ──────────────────────────────────────────────────────────
-        md.append("# FA Enterprise Conceptual Data Model\n\n")
+        md.append(f"# {self.model_name}\n\n")
         md.append(
-            f"The FA Enterprise Conceptual Data Model (source: {self.xml_file.name}) "
+            f"The {self.model_name} (source: {self.xml_file.name}) "
             f"contains {len(self.assets)} DataObject entities organised into "
             f"{len(domain_names)} domain groups: {', '.join(domain_names)}. "
             f"These domains are connected through {len(self.relationships)} entity relationships. "
             "The model captures the key data objects, parties, agreements, products, transactions, "
-            "channels, locations, and reference data that underpin The Football Association's "
+            f"channels, locations, and reference data that underpin {self.org_name}'s "
             "operations.\n\n"
         )
 
@@ -314,8 +321,8 @@ class LeanIXExtractor:
 
             member_str = ", ".join(members) if members else "no sub-entities defined"
             md.append(
-                f"The {group_name} domain contains {len(group_assets)} entities in the FA "
-                f"Enterprise Conceptual Data Model. "
+                f"The {group_name} domain contains {len(group_assets)} entities in the "
+                f"{self.model_name}. "
                 f"The entities within this domain are: {member_str}.\n\n"
             )
 
@@ -343,7 +350,7 @@ class LeanIXExtractor:
 
             md.append("## Additional Model Entities\n\n")
             md.append(
-                "The following entities are defined in the FA Enterprise Conceptual Data Model "
+                f"The following entities are defined in the {self.model_name} "
                 "and include key party, channel, account, and asset entities.\n\n"
             )
 
@@ -362,8 +369,8 @@ class LeanIXExtractor:
         if self.relationships:
             md.append("## Entity Relationships\n\n")
             md.append(
-                "The following relationships define how the domain groups in the FA Enterprise "
-                "Conceptual Data Model connect to one another.\n\n"
+                f"The following relationships define how the domain groups in the "
+                f"{self.model_name} connect to one another.\n\n"
             )
 
             rels_by_source: Dict[str, List[LeanIXRelationship]] = defaultdict(list)
@@ -453,9 +460,9 @@ class LeanIXExtractor:
 
         # ── Overview ──────────────────────────────────────────────────────────
         md: List[str] = []
-        md.append("# FA Enterprise Conceptual Data Model — Overview\n\n")
+        md.append(f"# {self.model_name} — Overview\n\n")
         md.append(
-            f"The FA Enterprise Conceptual Data Model (source: {self.xml_file.name}) "
+            f"The {self.model_name} (source: {self.xml_file.name}) "
             f"contains {len(self.assets)} DataObject entities organised into "
             f"{len(domain_names)} named domain groups: {', '.join(domain_names)}. "
             f"These domains are connected through {len(self.relationships)} entity "
@@ -474,9 +481,9 @@ class LeanIXExtractor:
             members = [a.label for a in domain_entities]
 
             md = []
-            md.append(f"# {group_name} Domain — FA Enterprise Conceptual Data Model\n\n")
+            md.append(f"# {group_name} Domain — {self.model_name}\n\n")
             md.append(
-                f"The {group_name} domain is part of the FA Enterprise Conceptual Data Model. "
+                f"The {group_name} domain is part of the {self.model_name}. "
                 f"It contains {len(members)} entities.\n\n"
             )
             if domain_entities:
@@ -534,11 +541,11 @@ class LeanIXExtractor:
                     other.append(asset.label)
 
             md = []
-            md.append("# Additional Entities — FA Enterprise Conceptual Data Model\n\n")
+            md.append(f"# Additional Entities — {self.model_name}\n\n")
             md.append(
-                "The following entities are defined in the FA Enterprise Conceptual Data Model "
+                f"The following entities are defined in the {self.model_name} "
                 "and include key party, channel, account, and asset entities that form the "
-                "core of The Football Association's data landscape.\n\n"
+                f"core of {self.org_name}'s data landscape.\n\n"
             )
             if party_types:
                 md.append(
@@ -570,10 +577,10 @@ class LeanIXExtractor:
         # ── Relationships: one headed section per relationship for clean chunking ──
         if self.relationships:
             md = []
-            md.append("# Entity Relationships — FA Enterprise Conceptual Data Model\n\n")
+            md.append(f"# Entity Relationships — {self.model_name}\n\n")
             md.append(
                 f"This document lists all {len(self.relationships)} domain-level entity "
-                "relationships in the FA Enterprise Conceptual Data Model. "
+                f"relationships in the {self.model_name}. "
                 "Each relationship section is self-contained: it names the source and target "
                 "domains, states the cardinality, and lists representative entities from each "
                 "domain so that any retrieved chunk carries full context.\n\n"

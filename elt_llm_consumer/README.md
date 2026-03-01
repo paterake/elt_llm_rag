@@ -8,9 +8,13 @@ Purpose-built products that drive the LLM+RAG infrastructure to produce structur
 
 ## What This Module Does
 
-`elt_llm_consumer` wraps `elt_llm_query` to produce specific business deliverables — structured CSVs, reports, or exports — by systematically querying the RAG collections at scale.
+`elt_llm_consumer` wraps `elt_llm_query` to produce specific business deliverables — structured JSON files — by systematically querying the RAG collections at scale.
 
 Unlike interactive query (one question → one answer), consumer scripts batch-process hundreds of entities and write the results to files for stakeholder use.
+
+**Output format**: All consumers produce **JSON** (not CSV) to properly support multi-line content, hierarchical structures, and nested fields from combined data sources.
+
+**Output location**: All generated files are written to `~/.tmp/elt_llm_consumer/` by default (configurable via `--output-dir`).
 
 ---
 
@@ -31,7 +35,7 @@ uv run python -m elt_llm_ingest.runner --cfg load_rag
 
 | Script | Entry Point | What It Does |
 |--------|-------------|--------------|
-| `business_glossary.py` | `elt-llm-consumer-glossary` | LeanIX inventory (Excel) → batch catalog CSV via all FA RAG collections |
+| `business_glossary.py` | `elt-llm-consumer-glossary` | LeanIX inventory (Excel) → batch catalog JSON via all FA RAG collections |
 | `fa_handbook_model_builder.py` | `elt-llm-consumer-handbook-model` | FA Handbook only → candidate entities, relationships, and terms of reference |
 | `fa_integrated_catalog.py` | `elt-llm-consumer-integrated-catalog` | Conceptual model (XML) as frame + inventory descriptions + FA Handbook → integrated ToR and catalog |
 | `fa_coverage_validator.py` | `elt-llm-consumer-coverage-validator` | Validate model entities against FA Handbook — no LLM, pure retrieval scoring |
@@ -49,11 +53,11 @@ uv run --package elt-llm-consumer elt-llm-consumer-glossary --type dataobjects
 RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-glossary
 ```
 
-**Output**: `fa_business_catalog_dataobjects.csv`, `fa_business_catalog_interfaces.csv`
+**Output**: `fa_business_catalog_dataobjects.json`, `fa_business_catalog_interfaces.json`
 
 Re-running overwrites the files. Use `RESUME=1` to append to an existing run.
 
-**Columns** (DataObjects): `fact_sheet_id`, `entity_name`, `domain_group`, `hierarchy_level`, `leanix_description`, `catalog_entry`, `model_used`
+**Fields** (DataObjects): `fact_sheet_id`, `entity_name`, `domain_group`, `hierarchy_level`, `leanix_description`, `catalog_entry`, `model_used`
 
 **Runtime**: ~229 DataObjects × ~10s ≈ 35–40 min on `qwen2.5:14b`
 
@@ -80,11 +84,11 @@ uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.
 RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
 ```
 
-**Output** (written to `~/Documents/__data/resources/thefa/`):
+**Output** (written to `~/.tmp/elt_llm_consumer/`):
 ```
-fa_handbook_candidate_entities.csv       ← term, definition, category, source_topic
-fa_handbook_candidate_relationships.csv  ← entity_a, entity_b, relationship description
-fa_handbook_terms_of_reference.csv       ← consolidated ToR per unique term
+fa_handbook_candidate_entities.json       ← term, definition, category, source_topic
+fa_handbook_candidate_relationships.json  ← entity_a, entity_b, relationship description
+fa_handbook_terms_of_reference.json       ← consolidated ToR per unique term
 ```
 
 **Default seed topics** (14): Club, Player, Official, Referee, Competition, County FA, Registration, Transfer, Affiliation, Discipline, Safeguarding, Governance, Eligibility, Licence
@@ -108,13 +112,13 @@ uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qw
 RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
 ```
 
-**Output** (written to `~/Documents/__data/resources/thefa/`):
+**Output** (written to `~/.tmp/elt_llm_consumer/`):
 ```
-fa_terms_of_reference.csv   ← structured: definition + domain context + governance per entity
-fa_integrated_catalog.csv   ← combined catalog_entry column for bulk use
+fa_terms_of_reference.json   ← structured: definition + domain context + governance per entity
+fa_integrated_catalog.json   ← combined catalog_entry column for bulk use
 ```
 
-**ToR columns**: `fact_sheet_id`, `entity_name`, `domain`, `hierarchy_level`, `related_entities`, `leanix_description`, `formal_definition`, `domain_context`, `governance_rules`, `model_used`
+**ToR fields**: `fact_sheet_id`, `entity_name`, `domain`, `hierarchy_level`, `related_entities`, `leanix_description`, `formal_definition`, `domain_context`, `governance_rules`, `model_used`
 
 **Runtime**: ~217 conceptual model entities × ~10–20s ≈ 35–70 min on `qwen2.5:14b`
 
@@ -130,7 +134,7 @@ Two-direction analysis — no LLM synthesis, pure retrieval scoring (~3-7 min):
 
 **Direction 1 — Model → Handbook** (always runs): for every entity in the LeanIX XML, retrieve FA Handbook chunks and score similarity. Reveals entities that the handbook does not discuss.
 
-**Direction 2 — Handbook → Model** (`--gap-analysis`): normalised name comparison against Consumer 2 output (`fa_handbook_candidate_entities.csv`). Finds concepts the handbook discusses that are absent from the model.
+**Direction 2 — Handbook → Model** (`--gap-analysis`): normalised name comparison against Consumer 2 output (`fa_handbook_candidate_entities.json`). Finds concepts the handbook discusses that are absent from the model.
 
 ```bash
 # Direction 1 only (coverage scoring)
@@ -146,10 +150,10 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator
 ```
 
-**Output** (written to `~/Documents/__data/resources/thefa/`):
+**Output** (written to `~/.tmp/elt_llm_consumer/`):
 ```
-fa_coverage_report.csv  ← entity_name, domain, top_score, verdict, top_chunk_preview
-fa_gap_analysis.csv     ← normalized_name, model_name, handbook_name, status
+fa_coverage_report.json  ← entity_name, domain, top_score, verdict, top_chunk_preview
+fa_gap_analysis.json     ← normalized_name, model_name, handbook_name, status
 ```
 
 **Verdict bands** (cosine similarity of top retrieved chunk):
@@ -190,10 +194,10 @@ fa_gap_analysis.csv     ← normalized_name, model_name, handbook_name, status
   - LeanIX Conceptual Model (XML) — the canonical entity frame
   - LeanIX Inventory (Excel) — system descriptions and metadata
 - Deliverables:
-  - `fa_terms_of_reference.csv` / `fa_integrated_catalog.csv` (Integrated Catalog)
-  - `fa_handbook_candidate_entities.csv` / `fa_handbook_candidate_relationships.csv` (Handbook Model Builder)
-  - `fa_coverage_report.csv` / `fa_gap_analysis.csv` (Coverage Validator)
+  - `fa_terms_of_reference.json` / `fa_integrated_catalog.json` (Integrated Catalog)
+  - `fa_handbook_candidate_entities.json` / `fa_handbook_candidate_relationships.json` (Handbook Model Builder)
+  - `fa_coverage_report.json` / `fa_gap_analysis.json` (Coverage Validator)
 - Recommended workflow:
-  1) Run `elt-llm-consumer-integrated-catalog` for the full ToR per entity  
-  2) Run `elt-llm-consumer-handbook-model` to discover handbook-only entities  
+  1) Run `elt-llm-consumer-integrated-catalog` for the full ToR per entity
+  2) Run `elt-llm-consumer-handbook-model` to discover handbook-only entities
   3) Run `elt-llm-consumer-coverage-validator --gap-analysis` to identify model enhancement opportunities

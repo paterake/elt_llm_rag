@@ -14,8 +14,11 @@ The conceptual model XML drives the entity list. Every entity in the model gets 
 catalog entry regardless of whether it appears in the inventory.
 
 Outputs (~/Documents/__data/resources/thefa/):
-  fa_terms_of_reference.csv  ← structured ToR: definition + domain + governance
-  fa_integrated_catalog.csv  ← combined catalog_entry column for bulk use
+  fa_terms_of_reference.json  ← structured ToR: definition + domain + governance
+  fa_integrated_catalog.json  ← combined catalog_entry column for bulk use
+
+Output format: JSON (not CSV) to properly support multi-line content,
+hierarchical structures, and nested fields from combined data sources.
 
 Usage:
     uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
@@ -38,7 +41,7 @@ Runtime: ~217 conceptual model entities × 10–20 s ≈ 35–70 min (varies by 
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import os
 import sys
 from pathlib import Path
@@ -62,7 +65,7 @@ _DEFAULT_XML = Path(
     "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/Documents/__data/resources/thefa/").expanduser()
+_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -181,12 +184,13 @@ def load_inventory_descriptions(excel_path: Path) -> dict[str, dict]:
 
 
 def load_checkpoint(out_path: Path) -> set[str]:
-    """Return set of fact_sheet_ids already written to the output CSV."""
+    """Return set of fact_sheet_ids already written to the output JSON."""
     if not out_path.exists():
         return set()
     done: set[str] = set()
-    with open(out_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
+    with open(out_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        for row in data:
             fsid = (row.get("fact_sheet_id") or "").strip()
             if fsid:
                 done.add(fsid)
@@ -254,16 +258,16 @@ def generate_integrated_catalog(
     resume: bool,
     only_entities: set[str] | None = None,
 ) -> None:
-    """Generate (or partially update) the integrated catalog CSVs.
+    """Generate (or partially update) the integrated catalog JSON files.
 
     Args:
         only_entities: When provided, only regenerate rows for these entity
             names (case-insensitive). Existing rows for other entities are
-            preserved.  The output CSVs are rewritten atomically so that
+            preserved. The output JSON files are rewritten atomically so that
             in-place updates don't corrupt the checkpoint state.
     """
-    tor_path = output_dir / "fa_terms_of_reference.csv"
-    catalog_path = output_dir / "fa_integrated_catalog.csv"
+    tor_path = output_dir / "fa_terms_of_reference.json"
+    catalog_path = output_dir / "fa_integrated_catalog.json"
 
     # When targeting specific entities, load existing rows first so we can
     # merge new results in-place rather than appending.
@@ -272,30 +276,17 @@ def generate_integrated_catalog(
         existing_tor: dict[str, dict] = {}
         existing_cat: dict[str, dict] = {}
         if tor_path.exists():
-            with open(tor_path, newline="", encoding="utf-8") as f:
-                for row in csv.DictReader(f):
-                    existing_tor[row["fact_sheet_id"]] = row
+            with open(tor_path, "r", encoding="utf-8") as f:
+                tor_data = json.load(f)
+                existing_tor = {row["fact_sheet_id"]: row for row in tor_data}
         if catalog_path.exists():
-            with open(catalog_path, newline="", encoding="utf-8") as f:
-                for row in csv.DictReader(f):
-                    existing_cat[row["fact_sheet_id"]] = row
+            with open(catalog_path, "r", encoding="utf-8") as f:
+                cat_data = json.load(f)
+                existing_cat = {row["fact_sheet_id"]: row for row in cat_data}
         resume = False  # force full rewrite of both files after merging
 
     done = load_checkpoint(tor_path) if resume else set()
 
-    tor_fields = [
-        "fact_sheet_id", "entity_name", "domain", "hierarchy_level",
-        "lx_state", "related_entities", "leanix_description",
-        "formal_definition", "domain_context", "governance_rules",
-        "model_used",
-    ]
-    catalog_fields = [
-        "fact_sheet_id", "entity_name", "domain", "hierarchy_level",
-        "lx_state", "leanix_description", "catalog_entry", "model_used",
-    ]
-
-    tor_mode = "a" if resume and tor_path.exists() else "w"
-    cat_mode = "a" if resume and catalog_path.exists() else "w"
     total = len(entities)
     written = 0
     model = rag_config.ollama.llm_model
@@ -377,35 +368,34 @@ def generate_integrated_catalog(
         # Preserve original entity order from the entity list
         ordered_fsids = [e["fact_sheet_id"] for e in entities]
 
-        with open(tor_path, "w", newline="", encoding="utf-8") as tor_f:
-            tor_writer = csv.DictWriter(tor_f, fieldnames=tor_fields)
-            tor_writer.writeheader()
-            for fsid in ordered_fsids:
-                if fsid in merged_tor:
-                    tor_writer.writerow(merged_tor[fsid])
+        tor_list = [merged_tor[fsid] for fsid in ordered_fsids if fsid in merged_tor]
+        cat_list = [merged_cat[fsid] for fsid in ordered_fsids if fsid in merged_cat]
 
-        with open(catalog_path, "w", newline="", encoding="utf-8") as cat_f:
-            cat_writer = csv.DictWriter(cat_f, fieldnames=catalog_fields)
-            cat_writer.writeheader()
-            for fsid in ordered_fsids:
-                if fsid in merged_cat:
-                    cat_writer.writerow(merged_cat[fsid])
+        with open(tor_path, "w", encoding="utf-8") as tor_f:
+            json.dump(tor_list, tor_f, indent=2, ensure_ascii=False)
+
+        with open(catalog_path, "w", encoding="utf-8") as cat_f:
+            json.dump(cat_list, cat_f, indent=2, ensure_ascii=False)
     else:
-        with (
-            open(tor_path, tor_mode, newline="", encoding="utf-8") as tor_f,
-            open(catalog_path, cat_mode, newline="", encoding="utf-8") as cat_f,
-        ):
-            tor_writer = csv.DictWriter(tor_f, fieldnames=tor_fields)
-            cat_writer = csv.DictWriter(cat_f, fieldnames=catalog_fields)
-            if tor_mode == "w":
-                tor_writer.writeheader()
-                cat_writer.writeheader()
-            for fsid, row in new_tor_rows.items():
-                tor_writer.writerow(row)
-                tor_f.flush()
-            for fsid, row in new_cat_rows.items():
-                cat_writer.writerow(row)
-                cat_f.flush()
+        # Load existing data for resume mode
+        tor_list: list[dict] = []
+        cat_list: list[dict] = []
+        if resume and tor_path.exists():
+            with open(tor_path, "r", encoding="utf-8") as f:
+                tor_list = json.load(f)
+        if resume and catalog_path.exists():
+            with open(catalog_path, "r", encoding="utf-8") as f:
+                cat_list = json.load(f)
+
+        # Append new rows
+        tor_list.extend(new_tor_rows.values())
+        cat_list.extend(new_cat_rows.values())
+
+        with open(tor_path, "w", encoding="utf-8") as tor_f:
+            json.dump(tor_list, tor_f, indent=2, ensure_ascii=False)
+
+        with open(catalog_path, "w", encoding="utf-8") as cat_f:
+            json.dump(cat_list, cat_f, indent=2, ensure_ascii=False)
 
     print(f"\n  Written: {written} new rows")
     print(f"  Terms of Reference → {tor_path}")
@@ -428,7 +418,8 @@ def main() -> None:
             "Models: qwen2.5:14b (default), mistral-nemo:12b, "
             "llama3.1:8b, granite3.1-dense:8b, michaelborck/refuled\n"
             "Resume:  RESUME=1 elt-llm-consumer-integrated-catalog\n"
-            "Targeted re-run: --entities 'Club,Player,Referee'"
+            "Targeted re-run: --entities 'Club,Player,Referee'\n"
+            "Output:  JSON format (not CSV) for multi-line content support"
         ),
     )
     parser.add_argument(
@@ -518,5 +509,5 @@ def main() -> None:
     )
 
     print("\n=== Complete ===")
-    print(f"  Terms of Reference → {output_dir / 'fa_terms_of_reference.csv'}")
-    print(f"  Integrated Catalog → {output_dir / 'fa_integrated_catalog.csv'}")
+    print(f"  Terms of Reference → {output_dir / 'fa_terms_of_reference.json'}")
+    print(f"  Integrated Catalog → {output_dir / 'fa_integrated_catalog.json'}")

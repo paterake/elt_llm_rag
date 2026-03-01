@@ -11,9 +11,12 @@ Process (two passes):
             same topic, query how they relate.
 
 Outputs (~/Documents/__data/resources/thefa/):
-  fa_handbook_candidate_entities.csv       ← discovered terms + definitions
-  fa_handbook_candidate_relationships.csv  ← inferred relationships
-  fa_handbook_terms_of_reference.csv       ← consolidated ToR per term
+  fa_handbook_candidate_entities.json       ← discovered terms + definitions
+  fa_handbook_candidate_relationships.json  ← inferred relationships
+  fa_handbook_terms_of_reference.json       ← consolidated ToR per term
+
+Output format: JSON (not CSV) to properly support multi-line content,
+hierarchical structures, and nested fields from combined data sources.
 
 Usage:
     uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
@@ -37,7 +40,7 @@ from __future__ import annotations
 
 import argparse
 import ast
-import csv
+import json
 import os
 import sys
 from itertools import combinations
@@ -54,7 +57,7 @@ _DEFAULT_RAG_CONFIG = Path(
     "~/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/rag_config.yaml"
 ).expanduser()
 
-_DEFAULT_OUTPUT_DIR = Path("~/Documents/__data/resources/thefa/").expanduser()
+_DEFAULT_OUTPUT_DIR = Path("~/.tmp/elt_llm_consumer").expanduser()
 
 # ---------------------------------------------------------------------------
 # Seed topics — FA Handbook domain areas
@@ -137,12 +140,13 @@ FORMAL_DEFINITION."""
 
 
 def load_checkpoint(out_path: Path) -> set[str]:
-    """Return set of terms already written to the output CSV."""
+    """Return set of terms already written to the output JSON."""
     if not out_path.exists():
         return set()
     done: set[str] = set()
-    with open(out_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
+    with open(out_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        for row in data:
             term = (row.get("term") or row.get("entity_a") or "").strip()
             if term:
                 done.add(term.lower())
@@ -211,36 +215,37 @@ def run_pass1(
     resume: bool,
 ) -> list[dict]:
     """Query each topic area and collect candidate entities."""
-    out_path = output_dir / "fa_handbook_candidate_entities.csv"
+    out_path = output_dir / "fa_handbook_candidate_entities.json"
     done = load_checkpoint(out_path) if resume else set()
-
-    fieldnames = ["term", "definition", "category", "governance", "source_topic", "model_used"]
-    mode = "a" if resume and out_path.exists() else "w"
 
     all_entities: list[dict] = []
     model = rag_config.ollama.llm_model
 
+    # Load existing entities for resume mode
+    if resume and out_path.exists():
+        with open(out_path, "r", encoding="utf-8") as f:
+            all_entities = json.load(f)
+        print(f"  Loaded {len(all_entities)} existing entities from checkpoint")
+
     print("\n=== Pass 1: Entity Extraction ===")
-    with open(out_path, mode, newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        if mode == "w":
-            writer.writeheader()
 
-        for i, topic in enumerate(topics, 1):
-            if topic.lower() in done:
-                print(f"  [{i}/{len(topics)}] {topic} — skipped (resume)")
-                continue
+    for i, topic in enumerate(topics, 1):
+        if topic.lower() in done:
+            print(f"  [{i}/{len(topics)}] {topic} — skipped (resume)")
+            continue
 
-            print(f"  [{i}/{len(topics)}] {topic}…", end=" ", flush=True)
-            response = run_query(_ENTITY_QUERY.format(topic=topic), collections, rag_config)
-            entities = parse_entity_response(response, topic)
-            print(f"{len(entities)} entities found")
+        print(f"  [{i}/{len(topics)}] {topic}…", end=" ", flush=True)
+        response = run_query(_ENTITY_QUERY.format(topic=topic), collections, rag_config)
+        entities = parse_entity_response(response, topic)
+        print(f"{len(entities)} entities found")
 
-            for entity in entities:
-                entity["model_used"] = model
-                writer.writerow(entity)
-                all_entities.append(entity)
-            f.flush()
+        for entity in entities:
+            entity["model_used"] = model
+            all_entities.append(entity)
+
+        # Write checkpoint after each topic
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(all_entities, f, indent=2, ensure_ascii=False)
 
     print(f"\n  Entities → {out_path}")
     return all_entities
@@ -258,7 +263,7 @@ def run_pass2(
     output_dir: Path,
 ) -> None:
     """For pairs of entities from the same topic, infer relationships."""
-    out_path = output_dir / "fa_handbook_candidate_relationships.csv"
+    out_path = output_dir / "fa_handbook_candidate_relationships.json"
 
     # Group entities by source_topic
     by_topic: dict[str, list[str]] = {}
@@ -278,31 +283,31 @@ def run_pass2(
                 seen.add(key)
                 pairs.append((a, b))
 
-    fieldnames = ["entity_a", "entity_b", "relationship", "direction", "rules", "model_used"]
     model = rag_config.ollama.llm_model
     total = len(pairs)
+    all_relationships: list[dict] = []
 
     print(f"\n=== Pass 2: Relationship Extraction ({total} pairs) ===")
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
 
-        for i, (a, b) in enumerate(pairs, 1):
-            print(f"  [{i}/{total}] {a} ↔ {b}…", end=" ", flush=True)
-            response = run_query(
-                _RELATIONSHIP_QUERY.format(entity_a=a, entity_b=b),
-                collections,
-                rag_config,
-            )
-            row: dict = {"entity_a": a, "entity_b": b, "model_used": model}
-            for line in response.splitlines():
-                for key in ("RELATIONSHIP", "DIRECTION", "RULES"):
-                    if line.strip().startswith(f"{key}:"):
-                        row[key.lower()] = line.strip()[len(key) + 1:].strip()
-                        break
-            writer.writerow(row)
-            f.flush()
-            print("done")
+    for i, (a, b) in enumerate(pairs, 1):
+        print(f"  [{i}/{total}] {a} ↔ {b}…", end=" ", flush=True)
+        response = run_query(
+            _RELATIONSHIP_QUERY.format(entity_a=a, entity_b=b),
+            collections,
+            rag_config,
+        )
+        row: dict = {"entity_a": a, "entity_b": b, "model_used": model}
+        for line in response.splitlines():
+            for key in ("RELATIONSHIP", "DIRECTION", "RULES"):
+                if line.strip().startswith(f"{key}:"):
+                    row[key.lower()] = line.strip()[len(key) + 1:].strip()
+                    break
+        all_relationships.append(row)
+        print("done")
+
+        # Write checkpoint after each relationship
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(all_relationships, f, indent=2, ensure_ascii=False)
 
     print(f"\n  Relationships → {out_path}")
 
@@ -320,7 +325,7 @@ def run_pass3(
     resume: bool,
 ) -> None:
     """Build a consolidated ToR entry for each unique discovered term."""
-    out_path = output_dir / "fa_handbook_terms_of_reference.csv"
+    out_path = output_dir / "fa_handbook_terms_of_reference.json"
 
     # Deduplicate terms (keep first occurrence per term name)
     seen_terms: dict[str, dict] = {}
@@ -330,40 +335,43 @@ def run_pass3(
             seen_terms[term] = e
 
     done = load_checkpoint(out_path) if resume else set()
-    fieldnames = [
-        "term", "category", "formal_definition", "governance_rules",
-        "related_terms", "source_topic", "model_used",
-    ]
-    mode = "a" if resume and out_path.exists() else "w"
     total = len(seen_terms)
     model = rag_config.ollama.llm_model
 
+    # Load existing ToR for resume mode
+    all_tor: list[dict] = []
+    if resume and out_path.exists():
+        with open(out_path, "r", encoding="utf-8") as f:
+            all_tor = json.load(f)
+        print(f"  Loaded {len(all_tor)} existing ToR entries from checkpoint")
+
     print(f"\n=== Pass 3: Terms of Reference ({total} unique terms) ===")
-    with open(out_path, mode, newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if mode == "w":
-            writer.writeheader()
 
-        for i, (term, entity) in enumerate(seen_terms.items(), 1):
-            if term.lower() in done:
-                print(f"  [{i}/{total}] {term} — skipped (resume)")
-                continue
+    for i, (term, entity) in enumerate(seen_terms.items(), 1):
+        if term.lower() in done:
+            print(f"  [{i}/{total}] {term} — skipped (resume)")
+            continue
 
-            print(f"  [{i}/{total}] {term}…", end=" ", flush=True)
-            response = run_query(_TOR_QUERY.format(term=term), collections, rag_config)
-            tor = parse_tor_response(response)
+        print(f"  [{i}/{total}] {term}…", end=" ", flush=True)
+        response = run_query(_TOR_QUERY.format(term=term), collections, rag_config)
+        tor = parse_tor_response(response)
 
-            writer.writerow({
-                "term": term,
-                "category": tor.get("category") or entity.get("category", ""),
-                "formal_definition": tor.get("formal_definition") or entity.get("definition", ""),
-                "governance_rules": tor.get("governance_rules") or entity.get("governance", ""),
-                "related_terms": tor.get("related_terms", ""),
-                "source_topic": entity.get("source_topic", ""),
-                "model_used": model,
-            })
-            f.flush()
-            print("done")
+        tor_row = {
+            "term": term,
+            "category": tor.get("category") or entity.get("category", ""),
+            "formal_definition": tor.get("formal_definition") or entity.get("definition", ""),
+            "governance_rules": tor.get("governance_rules") or entity.get("governance", ""),
+            "related_terms": tor.get("related_terms", ""),
+            "source_topic": entity.get("source_topic", ""),
+            "model_used": model,
+        }
+        all_tor.append(tor_row)
+
+        # Write checkpoint after each term
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(all_tor, f, indent=2, ensure_ascii=False)
+
+        print("done")
 
     print(f"\n  Terms of Reference → {out_path}")
 
@@ -380,7 +388,8 @@ def main() -> None:
         epilog=(
             "Models: qwen2.5:14b (default), mistral-nemo:12b, "
             "llama3.1:8b, granite3.1-dense:8b, michaelborck/refuled\n"
-            "Resume:  RESUME=1 elt-llm-consumer-handbook-model"
+            "Resume:  RESUME=1 elt-llm-consumer-handbook-model\n"
+            "Output:  JSON format (not CSV) for multi-line content support"
         ),
     )
     parser.add_argument(
@@ -424,11 +433,11 @@ def main() -> None:
 
     entities = run_pass1(topics, collections, rag_config, output_dir, resume)
     if not entities:
-        # If resuming and all Pass 1 done, reload from CSV
-        p1_path = output_dir / "fa_handbook_candidate_entities.csv"
+        # If resuming and all Pass 1 done, reload from JSON
+        p1_path = output_dir / "fa_handbook_candidate_entities.json"
         if p1_path.exists():
-            with open(p1_path, newline="", encoding="utf-8") as f:
-                entities = list(csv.DictReader(f))
+            with open(p1_path, "r", encoding="utf-8") as f:
+                entities = json.load(f)
             print(f"\n  Loaded {len(entities)} entities from {p1_path.name} for Pass 2/3")
 
     if entities:
@@ -436,6 +445,6 @@ def main() -> None:
         run_pass3(entities, collections, rag_config, output_dir, resume)
 
     print("\n=== Complete ===")
-    print(f"  Entities       → {output_dir / 'fa_handbook_candidate_entities.csv'}")
-    print(f"  Relationships  → {output_dir / 'fa_handbook_candidate_relationships.csv'}")
-    print(f"  ToR            → {output_dir / 'fa_handbook_terms_of_reference.csv'}")
+    print(f"  Entities       → {output_dir / 'fa_handbook_candidate_entities.json'}")
+    print(f"  Relationships  → {output_dir / 'fa_handbook_candidate_relationships.json'}")
+    print(f"  ToR            → {output_dir / 'fa_handbook_terms_of_reference.json'}")

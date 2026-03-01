@@ -94,17 +94,17 @@
 │  │  Consumer 1: Business Glossary Generator                               │  │
 │  │  Driver: LeanIX Inventory Excel (all DataObjects + Interfaces)         │  │
 │  │  Sources: fa_handbook + fa_data_architecture + fa_leanix_* (RAG)       │  │
-│  │  Output: fa_business_catalog_dataobjects.csv,                         │  │
-│  │          fa_business_catalog_interfaces.csv                            │  │
+│  │  Output: fa_business_catalog_dataobjects.json,                         │  │
+│  │          fa_business_catalog_interfaces.json                            │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │  Consumer 2: FA Handbook Model Builder                                 │  │
 │  │  Driver: 14 seed topics (Club, Player, Competition, etc.)              │  │
 │  │  Sources: fa_handbook (RAG only — no LeanIX required)                  │  │
-│  │  Output: fa_handbook_candidate_entities.csv,                          │  │
-│  │          fa_handbook_candidate_relationships.csv,                      │  │
-│  │          fa_handbook_terms_of_reference.csv                            │  │
+│  │  Output: fa_handbook_candidate_entities.json,                          │  │
+│  │          fa_handbook_candidate_relationships.json,                      │  │
+│  │          fa_handbook_terms_of_reference.json                            │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
@@ -114,7 +114,7 @@
 │  │    - Inventory Excel (direct join by fact_sheet_id — NOT RAG)          │  │
 │  │    - fa_handbook (RAG — governance context)                            │  │
 │  │    - fa_leanix_dat_* (RAG — domain context)                            │  │
-│  │  Output: fa_terms_of_reference.csv, fa_integrated_catalog.csv          │  │
+│  │  Output: fa_terms_of_reference.json, fa_integrated_catalog.json          │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
@@ -124,7 +124,7 @@
 │  │  Analysis:                                                             │  │
 │  │    - Direction 1: Model → Handbook (coverage scoring)                  │  │
 │  │    - Direction 2: Handbook → Model (gap analysis, requires Consumer 2) │  │
-│  │  Output: fa_coverage_report.csv, fa_gap_analysis.csv                   │  │
+│  │  Output: fa_coverage_report.json, fa_gap_analysis.json                   │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
            │
@@ -132,12 +132,12 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    Conceptual Model Enhancement Cycle                        │
 │                                                                             │
-│  fa_gap_analysis.csv reveals:                                                │
+│  fa_gap_analysis.json reveals:                                                │
 │  - MATCHED       → Model aligned with handbook                              │
 │  - MODEL_ONLY    → Question: Should this be in handbook? Out of scope?      │
 │  - HANDBOOK_ONLY → Gap: Consider adding to conceptual model                 │
 │                                                                             │
-│  fa_coverage_report.csv reveals:                                             │
+│  fa_coverage_report.json reveals:                                             │
 │  - STRONG (≥0.70) → Well-covered entity                                     │
 │  - MODERATE       → Some governance context                                 │
 │  - THIN           → Weak signal — may need renaming or handbook update       │
@@ -292,8 +292,8 @@ LeanIX Inventory Excel
     Query → all FA RAG collections      ← BM25 + vector + reranker
     LLM synthesises catalog entry       ← qwen2.5:14b
         ↓
-  fa_business_catalog_dataobjects.csv
-  fa_business_catalog_interfaces.csv
+  fa_business_catalog_dataobjects.json
+  fa_business_catalog_interfaces.json
 ```
 
 **Design choice**: inventory Excel as driver means every registered fact sheet
@@ -312,20 +312,20 @@ Seed topics: Club, Player, Registration, ...
         ↓
   Pass 1 — Entity discovery
     Per topic: query fa_handbook → extract defined terms + roles
-    Output: fa_handbook_candidate_entities.csv
+    Output: fa_handbook_candidate_entities.json
         ↓
   Pass 2 — Relationship inference
     For co-appearing entity pairs: query fa_handbook → infer relationships
-    Output: fa_handbook_candidate_relationships.csv
+    Output: fa_handbook_candidate_relationships.json
         ↓
   Pass 3 — ToR consolidation
     Per unique entity: query fa_handbook → synthesise terms of reference
-    Output: fa_handbook_terms_of_reference.csv
+    Output: fa_handbook_terms_of_reference.json
 ```
 
 **Purpose**: bootstrapping — build a candidate conceptual model from the
 governance text alone, before or independent of LeanIX. Also produces the
-`fa_handbook_candidate_entities.csv` input consumed by the Coverage Validator
+`fa_handbook_candidate_entities.json` input consumed by the Coverage Validator
 Direction 2 gap analysis.
 
 ---
@@ -356,8 +356,8 @@ LeanIX Conceptual Model XML          ← canonical entity list (frame)
         ↓
   LLM synthesises: FORMAL_DEFINITION | DOMAIN_CONTEXT | GOVERNANCE
         ↓
-  fa_terms_of_reference.csv
-  fa_integrated_catalog.csv
+  fa_terms_of_reference.json
+  fa_integrated_catalog.json
 ```
 
 **Key design decisions**:
@@ -393,7 +393,7 @@ Direction 1 — Model → Handbook  (always runs, ~5 min)
       Retrieve from fa_handbook (vector search only, no LLM)
       Top cosine similarity score = coverage signal
           ↓
-    fa_coverage_report.csv
+    fa_coverage_report.json
 
   Verdict bands (cosine similarity of top chunk):
     STRONG    ≥ 0.70  — handbook clearly discusses this entity
@@ -404,12 +404,12 @@ Direction 1 — Model → Handbook  (always runs, ~5 min)
 
 Direction 2 — Handbook → Model  (--gap-analysis, instant)
 ──────────────────────────────────────────────────────────
-  fa_handbook_candidate_entities.csv   ← Consumer 2 output
+  fa_handbook_candidate_entities.json   ← Consumer 2 output
   LeanIX Conceptual Model entity list  ← Consumer 3 driver
           ↓
     Normalised name comparison
           ↓
-    fa_gap_analysis.csv
+    fa_gap_analysis.json
 
   Status per entity:
     MATCHED       — present in both model and handbook
@@ -456,15 +456,15 @@ production output:
 Step 1 — Discover what the handbook models
 ─────────────────────────────────────────
   elt-llm-consumer-handbook-model
-  Output: fa_handbook_candidate_entities.csv
-          fa_handbook_candidate_relationships.csv
-          fa_handbook_terms_of_reference.csv
+  Output: fa_handbook_candidate_entities.json
+          fa_handbook_candidate_relationships.json
+          fa_handbook_terms_of_reference.json
 
 Step 2 — Validate the conceptual model against the handbook
 ───────────────────────────────────────────────────────────
   elt-llm-consumer-coverage-validator --gap-analysis
-  Output: fa_coverage_report.csv      ← which model entities have handbook coverage
-          fa_gap_analysis.csv         ← MATCHED / MODEL_ONLY / HANDBOOK_ONLY
+  Output: fa_coverage_report.json      ← which model entities have handbook coverage
+          fa_gap_analysis.json         ← MATCHED / MODEL_ONLY / HANDBOOK_ONLY
 
   Review results:
   - ABSENT entities → likely misnamed in model or out of FA scope
@@ -474,8 +474,8 @@ Step 2 — Validate the conceptual model against the handbook
 Step 3 — Generate the integrated catalog (model as frame)
 ──────────────────────────────────────────────────────────
   elt-llm-consumer-integrated-catalog --model qwen2.5:14b
-  Output: fa_terms_of_reference.csv
-          fa_integrated_catalog.csv
+  Output: fa_terms_of_reference.json
+          fa_integrated_catalog.json
 
   Every entity in the conceptual model gets a structured terms of reference
   entry, enriched by the inventory description and handbook governance content.
@@ -507,19 +507,19 @@ The coverage validator is not just a reporting tool — it is the **engine for c
 │         ┌─────────────────────────────────────────────────────────┐         │
 │         │  Step 2: Consumer 2 — Handbook Model Builder            │         │
 │         │  Extract candidate entities from handbook alone         │         │
-│         │  Output: fa_handbook_candidate_entities.csv             │         │
+│         │  Output: fa_handbook_candidate_entities.json             │         │
 │         └──────────────────────┬──────────────────────────────────┘         │
 │                                ↓                                            │
 │         ┌─────────────────────────────────────────────────────────┐         │
 │         │  Step 3: Consumer 4 — Coverage Validator                │         │
 │         │  --gap-analysis                                         │         │
-│         │  Output: fa_gap_analysis.csv, fa_coverage_report.csv    │         │
+│         │  Output: fa_gap_analysis.json, fa_coverage_report.json    │         │
 │         └──────────────────────┬──────────────────────────────────┘         │
 │                                ↓                                            │
 │         ┌─────────────────────────────────────────────────────────┐         │
 │         │  Step 4: Human SME Review                               │         │
 │         │  ┌───────────────────────────────────────────────────┐  │         │
-│         │  │  fa_gap_analysis.csv:                             │  │         │
+│         │  │  fa_gap_analysis.json:                             │  │         │
 │         │  │  - MATCHED       ✓ Model aligned                  │  │         │
 │         │  │  - MODEL_ONLY    ? Should this be in handbook?    │  │         │
 │         │  │                  (technical entity? out of scope?)│  │         │
@@ -527,7 +527,7 @@ The coverage validator is not just a reporting tool — it is the **engine for c
 │         │  │                    conceptual model               │  │         │
 │         │  └───────────────────────────────────────────────────┘  │         │
 │         │  ┌───────────────────────────────────────────────────┐  │         │
-│         │  │  fa_coverage_report.csv:                          │  │         │
+│         │  │  fa_coverage_report.json:                          │  │         │
 │         │  │  - STRONG (≥0.70)  ✓ Well-covered                 │  │         │
 │         │  │  - MODERATE        ~ Some context                 │  │         │
 │         │  │  - THIN            ⚠ Weak signal — rename?        │  │         │
@@ -546,7 +546,7 @@ The coverage validator is not just a reporting tool — it is the **engine for c
 │         ┌─────────────────────────────────────────────────────────┐         │
 │         │  Step 6: Regenerate Integrated Catalog                  │         │
 │         │  elt-llm-consumer-integrated-catalog                    │         │
-│         │  Output: Updated fa_terms_of_reference.csv              │         │
+│         │  Output: Updated fa_terms_of_reference.json              │         │
 │         └──────────────────────┬──────────────────────────────────┘         │
 │                                ↓                                            │
 │         ┌─────────────────────────────────────────────────────────┐         │
@@ -661,10 +661,10 @@ Step 5: Notation & Output
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
-| **Model-Handbook Alignment** | >80% MATCHED | `fa_gap_analysis.csv`: MATCHED / total |
-| **Coverage Quality** | >70% STRONG/MODERATE | `fa_coverage_report.csv`: (STRONG + MODERATE) / total |
+| **Model-Handbook Alignment** | >80% MATCHED | `fa_gap_analysis.json`: MATCHED / total |
+| **Coverage Quality** | >70% STRONG/MODERATE | `fa_coverage_report.json`: (STRONG + MODERATE) / total |
 | **Gap Resolution Rate** | Track over iterations | Count of HANDBOOK_ONLY entities added to model per cycle |
-| **Terms of Reference Completeness** | 100% of model entities | `fa_terms_of_reference.csv`: rows with non-empty definitions |
+| **Terms of Reference Completeness** | 100% of model entities | `fa_terms_of_reference.json`: rows with non-empty definitions |
 
 ---
 
