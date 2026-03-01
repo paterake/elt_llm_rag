@@ -27,6 +27,12 @@
 - [7. Data Working Group Value](#7-data-working-group-value)
 - [8. Implementation Roadmap](#8-implementation-roadmap)
 - [9. Legal & Compliance Considerations](#9-legal--compliance-considerations)
+- [Appendices](#appendices)
+  - [Appendix A: Quick Start Reference](#appendix-a-quick-start-reference)
+  - [Appendix B: Configuration Reference](#appendix-b-configuration-reference)
+  - [Appendix C: Glossary](#appendix-c-glossary)
+  - [Appendix D: Contact](#appendix-d-contact)
+  - [Appendix E: Conceptual Model Enhancement Workflow](#appendix-e-conceptual-model-enhancement-workflow)
 
 ---
 
@@ -1560,6 +1566,85 @@ uv run python -m elt_llm_ingest.runner --status
 # Show detailed metadata
 uv run python -m elt_llm_ingest.runner --status -v
 ```
+
+---
+
+## Appendix E: Conceptual Model Enhancement Workflow
+
+### E.1 The Three-Source Strategy
+
+| Source | Format | Role |
+|--------|--------|------|
+| **FA Handbook** | PDF (RAG) | SME knowledge, governance rules, business definitions |
+| **Conceptual Model** | LeanIX draw.io XML | Canonical entity frame: entities, domains, relationships |
+| **LeanIX Inventory** | Excel | Fact sheet descriptions, system metadata |
+
+### E.2 Addressing the Challenge
+
+**Challenge**: Can we:
+1. Get business context/SME knowledge from FA Handbook for each conceptual model entity?
+2. Build a report showing entity + LeanIX description + Handbook context?
+3. Identify opportunities for enhancing the conceptual model?
+
+**Answer**: ✅ **Yes — all already built.**
+
+| Requirement | Tool | Command | Output |
+|-------------|------|---------|--------|
+| **#1 + #2: Integrated report** | `fa_integrated_catalog` | `elt-llm-consumer-integrated-catalog` | `fa_terms_of_reference.csv` |
+| **#3: Enhancement opportunities** | `fa_coverage_validator` | `elt-llm-consumer-coverage-validator --gap-analysis` | `fa_gap_analysis.csv` |
+
+### E.3 Quick Start Commands
+
+```bash
+# Step 1: Generate integrated catalog (35-70 min)
+uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qwen2.5:14b
+
+# Step 2: Extract handbook entities (3-5 min)
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
+
+# Step 3: Run gap analysis (3-7 min, no LLM)
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
+```
+
+### E.4 Output Files
+
+| File | Description | Key Columns |
+|------|-------------|-------------|
+| `fa_terms_of_reference.csv` | Integrated catalog: entity + description + governance | `entity_name`, `leanix_description`, `formal_definition`, `governance_rules` |
+| `fa_gap_analysis.csv` | Bidirectional gap analysis | `model_name`, `handbook_name`, `status` (MATCHED/MODEL_ONLY/HANDBOOK_ONLY) |
+| `fa_coverage_report.csv` | Coverage scoring per entity | `entity_name`, `top_score`, `verdict` (STRONG/MODERATE/THIN/ABSENT) |
+
+### E.5 Interpreting Results
+
+**Gap Analysis Status**:
+- **MATCHED** → Model aligned with handbook ✅
+- **MODEL_ONLY** → In model, not in handbook — technical entity or out of scope? ⚠️
+- **HANDBOOK_ONLY** → In handbook, missing from model — **add to conceptual model** ➕
+
+**Coverage Verdicts**:
+- **STRONG** (≥0.70) → Well-covered ✅
+- **MODERATE** (0.55-0.70) → Some context ~
+- **THIN** (0.40-0.55) → Weak signal — investigate naming ⚠️
+- **ABSENT** (<0.40) → Not in handbook — technical or misalignment ❓
+
+### E.6 Additional Opportunities
+
+| Opportunity | Tool | Output |
+|-------------|------|--------|
+| **Business glossary from inventory** | `elt-llm-consumer-glossary` | `fa_business_catalog_dataobjects.csv` |
+| **Handbook-discovered relationships** | `elt-llm-consumer-handbook-model` | `fa_handbook_candidate_relationships.csv` |
+| **Iterative model refinement** | Re-run gap analysis after LeanIX updates | Track `HANDBOOK_ONLY` count decreasing |
+
+### E.7 What's NOT Built (Downstream)
+
+| Opportunity | Status | Effort |
+|-------------|--------|--------|
+| **Logical model derivation** (attributes, keys, cardinalities) | ❌ Not built | Medium |
+| **Automated LeanIX update** (push changes via API) | ❌ Not built | Low-Medium |
+| **Attribute extraction from handbook** | ⚠️ Partial (in ToR) | Low |
+| **Data quality rules extraction** | ❌ Not built | Medium |
+
+**See**: [`elt_llm_consumer/WHAT_YOU_HAVE.md`](elt_llm_consumer/WHAT_YOU_HAVE.md) for detailed workflow documentation.
 
 ---
 
