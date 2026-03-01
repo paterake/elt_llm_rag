@@ -34,6 +34,7 @@ uv run python -m elt_llm_ingest.runner --cfg load_rag
 | `business_glossary.py` | `elt-llm-consumer-glossary` | LeanIX inventory (Excel) → batch catalog CSV via all FA RAG collections |
 | `fa_handbook_model_builder.py` | `elt-llm-consumer-handbook-model` | FA Handbook only → candidate entities, relationships, and terms of reference |
 | `fa_integrated_catalog.py` | `elt-llm-consumer-integrated-catalog` | Conceptual model (XML) as frame + inventory descriptions + FA Handbook → integrated ToR and catalog |
+| `fa_coverage_validator.py` | `elt-llm-consumer-coverage-validator` | Validate model entities against FA Handbook — no LLM, pure retrieval scoring |
 
 ---
 
@@ -116,6 +117,59 @@ fa_integrated_catalog.csv   ← combined catalog_entry column for bulk use
 **ToR columns**: `fact_sheet_id`, `entity_name`, `domain`, `hierarchy_level`, `related_entities`, `leanix_description`, `formal_definition`, `domain_context`, `governance_rules`, `model_used`
 
 **Runtime**: ~217 conceptual model entities × ~10–20s ≈ 35–70 min on `qwen2.5:14b`
+
+---
+
+---
+
+## 4. FA Coverage Validator
+
+Answers: **does the conceptual model contain the right entities?**
+
+Two-direction analysis — no LLM synthesis, pure retrieval scoring (~3-7 min):
+
+**Direction 1 — Model → Handbook** (always runs): for every entity in the LeanIX XML, retrieve FA Handbook chunks and score similarity. Reveals entities that the handbook does not discuss.
+
+**Direction 2 — Handbook → Model** (`--gap-analysis`): normalised name comparison against Consumer 2 output (`fa_handbook_candidate_entities.csv`). Finds concepts the handbook discusses that are absent from the model.
+
+```bash
+# Direction 1 only (coverage scoring)
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator
+
+# Direction 1 + Direction 2 (gap analysis, requires Consumer 2 output)
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
+
+# Recommended workflow: run Consumer 2 first, then validate
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
+
+RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator
+```
+
+**Output** (written to `~/Documents/__data/resources/thefa/`):
+```
+fa_coverage_report.csv  ← entity_name, domain, top_score, verdict, top_chunk_preview
+fa_gap_analysis.csv     ← normalized_name, model_name, handbook_name, status
+```
+
+**Verdict bands** (cosine similarity of top retrieved chunk):
+
+| Verdict | Score | Meaning |
+|---------|-------|---------|
+| `STRONG` | ≥ 0.70 | Handbook clearly discusses this entity |
+| `MODERATE` | 0.55–0.70 | Handbook mentions it; some context available |
+| `THIN` | 0.40–0.55 | Weak signal; may be named differently in handbook |
+| `ABSENT` | < 0.40 | Not meaningfully present in handbook |
+
+**Gap status** (Direction 2):
+
+| Status | Meaning |
+|--------|---------|
+| `MATCHED` | Entity name appears in both model and handbook discovery |
+| `MODEL_ONLY` | In conceptual model but not discussed in handbook |
+| `HANDBOOK_ONLY` | Handbook discusses it; missing from conceptual model |
+
+**Runtime**: ~217 entities × 1-2 s = 3-7 min (embedding retrieval only, no LLM)
 
 ---
 

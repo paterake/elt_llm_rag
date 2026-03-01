@@ -81,4 +81,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qw
 
 # Build candidate model and ToR from FA Handbook only (no LeanIX)
 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
+
+# Validate model entities against FA Handbook (no LLM — ~5 min)
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
 ```

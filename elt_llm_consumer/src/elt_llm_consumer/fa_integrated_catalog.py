@@ -119,6 +119,7 @@ def load_conceptual_model(xml_path: Path) -> list[dict]:
 
     print(f"  Parsing conceptual model XML: {xml_path}")
     extractor = LeanIXExtractor(str(xml_path))
+    extractor.parse_xml()
     extractor.extract_all()
 
     # Build relationship index: asset_id → list of related entity labels

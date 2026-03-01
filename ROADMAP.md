@@ -93,7 +93,30 @@ uv run --package elt-llm-consumer elt-llm-consumer-glossary --model qwen2.5:14b
 
 ---
 
-### 1.2 ISO Reference Data Catalogue
+### 1.2 Coverage Validator ✅ COMPLETE
+
+**Purpose**: Validate that the LeanIX conceptual model contains the right entities, as measured against FA Handbook content.
+
+**Implementation**: `elt_llm_consumer` module — `fa_coverage_validator.py`
+
+**Run**:
+```bash
+# Direction 1: score every model entity against FA Handbook (no LLM, ~5 min)
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator
+
+# Direction 1 + 2: also compare entity name lists against Consumer 2 output
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
+```
+
+**Output**: `~/Documents/__data/resources/thefa/`
+- `fa_coverage_report.csv` — per entity: `top_score`, `verdict` (STRONG / MODERATE / THIN / ABSENT), `top_chunk_preview`
+- `fa_gap_analysis.csv` — bidirectional: `MATCHED` / `MODEL_ONLY` / `HANDBOOK_ONLY`
+
+**Status**: ✅ Complete
+
+---
+
+### 1.3 ISO Reference Data Catalogue
 
 **Purpose**: Catalogue ISO codes, ONS standards, and FA reference data for conformance checking.
 
@@ -119,7 +142,7 @@ file_paths:
 
 ---
 
-### 1.3 Legal & Compliance
+### 1.4 Legal & Compliance
 
 **Purpose**: Clarify licensing for production deployment.
 
@@ -136,7 +159,7 @@ file_paths:
 
 ---
 
-### 1.4 Test Coverage
+### 1.5 Test Coverage
 
 **Purpose**: Add pytest tests for critical paths.
 
@@ -506,6 +529,9 @@ file_paths:
 | Multi-collection queries | ✅ Ready | "How does DAMA define data governance vs FA Handbook?" |
 | Hybrid search (BM25 + vector) | ✅ Ready | Active by default — BM25 + vector + cosine reranker |
 | Business catalogue CSV export | ✅ Ready | `elt-llm-consumer-glossary --model qwen2.5:14b` |
+| Integrated catalog (model as frame) | ✅ Ready | `elt-llm-consumer-integrated-catalog --model qwen2.5:14b` |
+| Handbook-only model builder | ✅ Ready | `elt-llm-consumer-handbook-model --model qwen2.5:14b` |
+| Coverage validator (model vs handbook) | ✅ Ready | `elt-llm-consumer-coverage-validator --gap-analysis` |
 
 ### A.2 Upcoming Capabilities
 

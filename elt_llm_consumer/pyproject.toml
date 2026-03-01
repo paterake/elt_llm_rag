@@ -16,6 +16,7 @@ dependencies = [
 elt-llm-consumer-glossary = "elt_llm_consumer.business_glossary:main"
 elt-llm-consumer-handbook-model = "elt_llm_consumer.fa_handbook_model_builder:main"
 elt-llm-consumer-integrated-catalog = "elt_llm_consumer.fa_integrated_catalog:main"
+elt-llm-consumer-coverage-validator = "elt_llm_consumer.fa_coverage_validator:main"
 
 [build-system]
 requires = ["uv_build>=0.9.15,<0.10.0"]
