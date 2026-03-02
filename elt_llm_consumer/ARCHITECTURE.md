@@ -74,10 +74,10 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 | What You Proposed | What the System Does | Caveat |
 |-------------------|----------------------|--------|
-| Map conceptual model to handbook | ✅ Coverage validator scores every entity against handbook content | Some entities may be named differently in handbook (fuzzy matching helps) |
-| Handbook provides SME context | ✅ LLM synthesises governance rules per entity | Handbook may not cover technical/implementation entities (e.g., specific data objects) |
-| LeanIX inventory for descriptions | ✅ Direct join by fact_sheet_id | Inventory quality varies — some descriptions are sparse or outdated |
-| Create logical model from handbook | ✅ Handbook model builder extracts candidate entities | Handbook entities are **business concepts**, not necessarily **data structures** — human review required |
+| Map conceptual model to handbook |  Coverage validator scores every entity against handbook content | Some entities may be named differently in handbook (fuzzy matching helps) |
+| Handbook provides SME context |  LLM synthesises governance rules per entity | Handbook may not cover technical/implementation entities (e.g., specific data objects) |
+| LeanIX inventory for descriptions |  Direct join by fact_sheet_id | Inventory quality varies — some descriptions are sparse or outdated |
+| Create logical model from handbook |  Handbook model builder extracts candidate entities | Handbook entities are **business concepts**, not necessarily **data structures** — human review required |
 
 **The key insight**: The coverage validator doesn't just show gaps — it provides an **evidence-based feedback loop** for improving the conceptual model.
 
@@ -149,7 +149,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  Consumer 5: FA Consolidated Catalog ⭐ (TARGET OUTPUT)                │  │
+│  │  Consumer 5: FA Consolidated Catalog  (TARGET OUTPUT)                │  │
 │  │  Driver: All sources merged                                            │  │
 │  │  Sources:                                                              │  │
 │  │    - Conceptual model (docstore scan)                                  │  │
@@ -367,10 +367,10 @@ Stage 2: Generation (LLM synthesis)
 
 | Consumer | Uses Retrieval | Uses Generation | Rationale |
 |----------|---------------|-----------------|-----------|
-| Business Glossary | ✅ | ✅ | Needs synthesised catalog entries |
-| Handbook Model Builder | ✅ | ✅ | Needs entity extraction + ToR prose |
-| Integrated Catalog | ✅ | ✅ | Needs per-entity ToR + governance narrative |
-| **Coverage Validator** | ✅ | **✗** | Only needs a signal — *does content exist?* The similarity score is the answer |
+| Business Glossary |  |  | Needs synthesised catalog entries |
+| Handbook Model Builder |  |  | Needs entity extraction + ToR prose |
+| Integrated Catalog |  |  | Needs per-entity ToR + governance narrative |
+| **Coverage Validator** |  | **✗** | Only needs a signal — *does content exist?* The similarity score is the answer |
 
 **Why the coverage validator skips generation**: the question being asked is
 "does the FA Handbook contain meaningful content about this entity?" The
@@ -531,7 +531,7 @@ than reading a synthesised answer and re-interpreting it.
 
 ---
 
-### 4.5 FA Consolidated Catalog ⭐
+### 4.5 FA Consolidated Catalog 
 
 **File**: `fa_consolidated_catalog.py`
 **Entry point**: `elt-llm-consumer-consolidated-catalog`
@@ -543,13 +543,13 @@ than reading a synthesised answer and re-interpreting it.
 for stakeholder review and Purview import.
 
 **What it answers (7 requirements)**:
-1. ✅ Entities from the conceptual model
-2. ✅ Handbook-only entities (not in conceptual model)
-3. ✅ LeanIX inventory descriptions
-4. ✅ FA Handbook context (SME definition, glossary, ToR, governance)
-5. ✅ Relationships from conceptual model
-6. ✅ Relationships from inventory
-7. ✅ Relationships from Handbook
+1.  Entities from the conceptual model
+2.  Handbook-only entities (not in conceptual model)
+3.  LeanIX inventory descriptions
+4.  FA Handbook context (SME definition, glossary, ToR, governance)
+5.  Relationships from conceptual model
+6.  Relationships from inventory
+7.  Relationships from Handbook
 
 **Architecture**:
 ```
@@ -626,13 +626,13 @@ Each consumer has a different relationship to its sources:
 
 | Source | Consumer 1 | Consumer 2 | Consumer 3 | Consumer 4 |
 |--------|-----------|-----------|-----------|-----------|
-| LeanIX XML (conceptual model) | — | — | ✅ Driver | ✅ Driver |
-| LeanIX Inventory Excel | ✅ Driver | — | ✅ Direct join | — |
-| `fa_handbook` collection | ✅ RAG | ✅ RAG | ✅ RAG | ✅ Retrieval only |
-| `fa_leanix_dat_*` collections | — | — | ✅ RAG | — |
-| `fa_leanix_global_inventory_*` | ✅ RAG | — | — | — |
-| `dama_dmbok` collection | ✅ RAG | — | — | — |
-| Consumer 2 JSON output | — | — | — | ✅ Gap analysis |
+| LeanIX XML (conceptual model) | — | — |  Driver |  Driver |
+| LeanIX Inventory Excel |  Driver | — |  Direct join | — |
+| `fa_handbook` collection |  RAG |  RAG |  RAG |  Retrieval only |
+| `fa_leanix_dat_*` collections | — | — |  RAG | — |
+| `fa_leanix_global_inventory_*` |  RAG | — | — | — |
+| `dama_dmbok` collection |  RAG | — | — | — |
+| Consumer 2 JSON output | — | — | — |  Gap analysis |
 
 **Direct join vs RAG join**: Consumer 3 joins inventory descriptions directly
 from Excel by `fact_sheet_id` (exact, instant, no retrieval noise) rather than
@@ -759,17 +759,17 @@ The coverage validator is not just a reporting tool — it is the **engine for c
 
 | Status | Count | Interpretation | Action |
 |--------|-------|----------------|--------|
-| **MATCHED** | — | Entity exists in both model and handbook | ✅ No action needed |
-| **MODEL_ONLY** | — | Entity in model but not discussed in handbook | ⚠️ **Review**: Is this a technical implementation detail? Should it have business governance? Consider marking as "technical entity" or removing if not needed |
+| **MATCHED** | — | Entity exists in both model and handbook |  No action needed |
+| **MODEL_ONLY** | — | Entity in model but not discussed in handbook |  **Review**: Is this a technical implementation detail? Should it have business governance? Consider marking as "technical entity" or removing if not needed |
 | **HANDBOOK_ONLY** | — | Handbook discusses it, but not in model | ➕ **Add to model**: This is a gap — the conceptual model is missing a business entity |
 
 **Coverage Verdict Interpretation**:
 
 | Verdict | Score Range | Interpretation | Action |
 |---------|-------------|----------------|--------|
-| **STRONG** | ≥ 0.70 | Handbook clearly discusses this entity | ✅ Well-aligned |
+| **STRONG** | ≥ 0.70 | Handbook clearly discusses this entity |  Well-aligned |
 | **MODERATE** | 0.55–0.70 | Some governance context exists | ~ Review — may need more handbook coverage or entity refinement |
-| **THIN** | 0.40–0.55 | Weak signal — handbook may use different terminology | ⚠️ **Investigate**: Check `top_chunk_preview` in report — is entity named differently? |
+| **THIN** | 0.40–0.55 | Weak signal — handbook may use different terminology |  **Investigate**: Check `top_chunk_preview` in report — is entity named differently? |
 | **ABSENT** | < 0.40 | Not meaningfully present in handbook | ❓ **Question**: Is this a technical/data object (not business)? Or is handbook outdated? |
 
 ---
@@ -835,16 +835,16 @@ Step 5: Notation & Output
 **Short answer**: No — but success depends on **human SME review** at key points.
 
 **What works well**:
-- ✅ Automated extraction of candidate entities from handbook
-- ✅ Automated coverage scoring (retrieval is fast and objective)
-- ✅ Gap identification (clear signal on what's missing/misaligned)
-- ✅ Three-source join (model + inventory + handbook)
+-  Automated extraction of candidate entities from handbook
+-  Automated coverage scoring (retrieval is fast and objective)
+-  Gap identification (clear signal on what's missing/misaligned)
+-  Three-source join (model + inventory + handbook)
 
 **Where human judgment is essential**:
-- ⚠️ **Entity naming mismatches**: Handbook says "Affiliated Organisation", model says "Club" — same thing?
-- ⚠️ **Technical vs business entities**: Model has "API_Payload_Log" — should this be in a business conceptual model?
-- ⚠️ **Attribute derivation**: Handbook mentions "Club must have a secretary" — is this an attribute, a relationship, or a role?
-- ⚠️ **Cardinality interpretation**: Handbook says "Players register with Clubs" — is this 1:N, M:N, or time-dependent?
+-  **Entity naming mismatches**: Handbook says "Affiliated Organisation", model says "Club" — same thing?
+-  **Technical vs business entities**: Model has "API_Payload_Log" — should this be in a business conceptual model?
+-  **Attribute derivation**: Handbook mentions "Club must have a secretary" — is this an attribute, a relationship, or a role?
+-  **Cardinality interpretation**: Handbook says "Players register with Clubs" — is this 1:N, M:N, or time-dependent?
 
 **The system's role**: Automate the **discovery, scoring, and synthesis** — surface evidence for human experts to make informed decisions.
 

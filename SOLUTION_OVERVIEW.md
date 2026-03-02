@@ -113,7 +113,7 @@ From stakeholder discussions:
 |-----------|----------|----------------|
 | **Vector (Dense)** | Semantic similarity ("Club" ≈ "Organisation") | Misses exact terms, IDs, version numbers |
 | **BM25 (Sparse)** | Exact keyword matches | Misses semantic equivalence |
-| **Hybrid (Both)** | ✅ Captures both semantic and exact matches | — |
+| **Hybrid (Both)** |  Captures both semantic and exact matches | — |
 
 **Reranking Matters:**
 - Initial retrieval optimises for **speed** (approximate nearest neighbours)
@@ -431,12 +431,12 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model 
 
 **What We've Delivered:**
 
-✅ **Automated glossary extraction** from FA Handbook (~152 terms)  
-✅ **Mapped to conceptual model** with confidence scores  
-✅ **Enriched with governance** — definitions, rules, relationships  
-✅ **Gap analysis** — identifies Handbook-only entities  
-✅ **Review-ready output** — JSON for stakeholder validation  
-✅ **Downstream ready** — Purview, Erwin, Fabric integration  
+ **Automated glossary extraction** from FA Handbook (~152 terms)  
+ **Mapped to conceptual model** with confidence scores  
+ **Enriched with governance** — definitions, rules, relationships  
+ **Gap analysis** — identifies Handbook-only entities  
+ **Review-ready output** — JSON for stakeholder validation  
+ **Downstream ready** — Purview, Erwin, Fabric integration  
 
 **Architecture Principles:**
 

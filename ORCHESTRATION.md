@@ -3,7 +3,7 @@
 **FA Data Governance RAG Platform — Runbook & Roadmap**
 
 **Last Updated**: 2026-03-02  
-**Status**: Phase 1 Complete ✅ | Phase 2-5 Planning
+**Status**: Phase 1 Complete  | Phase 2-5 Planning
 
 ---
 
@@ -11,17 +11,17 @@
 
 ### What Has Been Achieved
 
-**Phase 1 — Data Asset Catalog** ✅ **COMPLETE**
+**Phase 1 — Data Asset Catalog**  **COMPLETE**
 
 The platform successfully delivers:
 
 | Requirement | Implementation | Status |
 |-------------|----------------|--------|
-| Conceptual model as the frame | LeanIX XML (217 entities across 11 domain collections) | ✅ |
-| FA Handbook providing SME/business context | RAG collection with ~9,673 chunks | ✅ |
-| LeanIX Inventory providing entity descriptions | Excel-driven join via `fact_sheet_id` (100% match rate) | ✅ |
-| Glossary terms linked to LeanIX Data Objects | `fa_integrated_catalog.json` + `fa_terms_of_reference.json` | ✅ |
-| Export to CSV | Consolidated catalog with CSV export | ✅ |
+| Conceptual model as the frame | LeanIX XML (217 entities across 11 domain collections) |  |
+| FA Handbook providing SME/business context | RAG collection with ~9,673 chunks |  |
+| LeanIX Inventory providing entity descriptions | Excel-driven join via `fact_sheet_id` (100% match rate) |  |
+| Glossary terms linked to LeanIX Data Objects | `fa_integrated_catalog.json` + `fa_terms_of_reference.json` |  |
+| Export to CSV | Consolidated catalog with CSV export |  |
 
 **Key Achievement**: 100% match rate — all 217 conceptual model entities linked to inventory descriptions with FA Handbook governance context.
 
@@ -31,19 +31,19 @@ The platform successfully delivers:
 
 ## Current State Assessment
 
-### ✅ What Works
+###  What Works
 
 | Component | Status | Command |
 |-----------|--------|---------|
-| **Ingestion** | ✅ Complete | `uv run python -m elt_llm_ingest.runner --cfg load_rag` |
-| **Query (CLI)** | ✅ Complete | `uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture` |
-| **Query (GUI)** | ✅ Complete | `uv run python -m elt_llm_api.app` |
-| **Integrated Catalog** | ✅ Complete | `elt-llm-consumer-integrated-catalog` |
-| **Coverage Validator** | ✅ Complete | `elt-llm-consumer-coverage-validator --gap-analysis` |
-| **Handbook Model Builder** | ✅ Complete | `elt-llm-consumer-handbook-model` |
-| **Consolidated Catalog** | ✅ Complete | `elt-llm-consumer-consolidated-catalog` |
+| **Ingestion** |  Complete | `uv run python -m elt_llm_ingest.runner --cfg load_rag` |
+| **Query (CLI)** |  Complete | `uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture` |
+| **Query (GUI)** |  Complete | `uv run python -m elt_llm_api.app` |
+| **Integrated Catalog** |  Complete | `elt-llm-consumer-integrated-catalog` |
+| **Coverage Validator** |  Complete | `elt-llm-consumer-coverage-validator --gap-analysis` |
+| **Handbook Model Builder** |  Complete | `elt-llm-consumer-handbook-model` |
+| **Consolidated Catalog** |  Complete | `elt-llm-consumer-consolidated-catalog` |
 
-### ⚠️ What Needs Attention
+###  What Needs Attention
 
 | Gap | Impact | Priority |
 |-----|--------|----------|
@@ -153,8 +153,8 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --csv-on
 Import reviewed catalog into Microsoft Purview as a governed business glossary and embed entity definitions/relationships into an Erwin Logical Data Model (LDM).
 
 ### Prerequisites
-- ✅ Phase 1 outputs complete
-- ✅ Stakeholder review completed (review_status fields updated)
+-  Phase 1 outputs complete
+-  Stakeholder review completed (review_status fields updated)
 - ⏳ Purview access & API credentials
 - ⏳ Erwin LDM license + integration method
 
@@ -162,7 +162,7 @@ Import reviewed catalog into Microsoft Purview as a governed business glossary a
 
 | Enhancement | Status | Description | Effort |
 |-------------|--------|-------------|--------|
-| **CSV Export** | ✅ Complete | Purview-compatible CSV with term, description, domain, steward | Low |
+| **CSV Export** |  Complete | Purview-compatible CSV with term, description, domain, steward | Low |
 | **Structured Citations** | ⏳ Pending | Add source attribution (Handbook section, LeanIX ID) | Low |
 | **GraphRAG** | ⏳ Pending | Enable relationship traversal for Erwin LDM | High |
 | **Relationship Export** | ⏳ Pending | Export entity relationships (not just definitions) | Medium |
@@ -194,7 +194,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --csv-on
 Publish the catalog to the FA intranet for organisation-wide access.
 
 ### Prerequisites
-- ✅ Phase 2 complete
+-  Phase 2 complete
 - ⏳ Intranet CMS access
 - ⏳ Publishing workflow approval
 
@@ -228,7 +228,7 @@ Publish the catalog to the FA intranet for organisation-wide access.
 Integrate with MS Fabric's agentic semantic model for use in Microsoft Copilot.
 
 ### Prerequisites
-- ✅ Phase 3 complete
+-  Phase 3 complete
 - ⏳ MS Fabric tenant access
 - ⏳ Semantic model configuration
 - ⏳ Copilot licensing
@@ -262,7 +262,7 @@ Integrate with MS Fabric's agentic semantic model for use in Microsoft Copilot.
 Automate SAD (Solution Architecture Document) generation and vendor assessments using RAG-grounded standards.
 
 ### Prerequisites
-- ✅ Phase 1-4 complete
+-  Phase 1-4 complete
 - ⏳ SAD templates defined
 - ⏳ Vendor assessment criteria documented
 
@@ -382,8 +382,8 @@ uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --output-d
 ## Next Steps
 
 ### Immediate (Week 1-2)
-1. ✅ Run stakeholder review session with data modelling team and business SMEs
-2. ✅ Update `review_status` fields in `fa_consolidated_catalog.json`
+1.  Run stakeholder review session with data modelling team and business SMEs
+2.  Update `review_status` fields in `fa_consolidated_catalog.json`
 3. ⏳ Export final CSV: `--csv-only`
 4. ⏳ Define Purview import process
 

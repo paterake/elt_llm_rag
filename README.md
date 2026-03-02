@@ -2,112 +2,225 @@
 
 RAG platform for FA architecture knowledge, data governance, and automated documentation generation.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full system documentation and [RAG_STRATEGY.md](RAG_STRATEGY.md) for retrieval strategy details.
-
 ---
-
-## Prerequisites
-
-```bash
-# Python 3.11–3.13, uv, and Ollama
-ollama serve
-ollama pull nomic-embed-text
-ollama pull qwen2.5:14b
-```
 
 ## Quick Start
 
 ```bash
+# Prerequisites
+ollama serve
+ollama pull nomic-embed-text
+ollama pull qwen2.5:14b
+
+# Install
 uv sync --all-packages
 
+# Ingest collections
+uv run python -m elt_llm_ingest.runner --cfg load_rag
+
+# Generate consolidated catalog (target output)
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
+
+# Query (GUI)
+uv run python -m elt_llm_api.app
+```
+
+**Output**: `.tmp/fa_consolidated_catalog.json`
+
+---
+
+## Documentation
+
+| Document | Purpose | Location |
+|----------|---------|----------|
+| **README.md** (this file) | Quick start and module overview | Root |
+| **SOLUTION_OVERVIEW.md** | Stakeholder presentation — challenge, solution, output | Root |
+| **ARCHITECTURE.md** | Technical architecture — system design, components, roadmap | Root |
+| **RAG_STRATEGY.md** | Retrieval strategy — hybrid search, reranking, configuration | Root |
+| **ORCHESTRATION.md** | Workflow documentation — ingestion to output pipeline | Root |
+| **Module README** | Module-specific usage and reference | Each module directory |
+
+### Module Documentation
+
+| Module | Purpose | Documentation |
+|--------|---------|---------------|
+| `elt_llm_core/` | Shared RAG infrastructure | [README](elt_llm_core/README.md) |
+| `elt_llm_ingest/` | Document ingestion pipeline | [README](elt_llm_ingest/README.md) |
+| `elt_llm_query/` | Query interface | [README](elt_llm_query/README.md) |
+| `elt_llm_api/` | Gradio GUI + API | [README](elt_llm_api/README.md) |
+| `elt_llm_consumer/` | Purpose-built output generators | [README](elt_llm_consumer/README.md) |
+
+---
+
+## Modules Overview
+
+### elt_llm_core
+
+Shared infrastructure: ChromaDB client, Ollama models, configuration, base query engine.
+
+```bash
+# Not run directly — imported by other modules
+```
+
+**Docs**: [elt_llm_core/README.md](elt_llm_core/README.md)
+
+---
+
+### elt_llm_ingest
+
+Document ingestion: chunk, embed, store in ChromaDB + DocStore.
+
+```bash
 # Ingest all collections
 uv run python -m elt_llm_ingest.runner --cfg load_rag
 
-# Query (CLI)
-uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture
+# Ingest specific source
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 
-# Query (GUI — http://localhost:7860)
-uv run python -m elt_llm_api.app
-
-# Generate business catalog CSV
-uv run --package elt-llm-consumer elt-llm-consumer-glossary
+# Check status
+uv run python -m elt_llm_ingest.runner --status
 ```
 
----
-
-## Modules
-
-| Module | Purpose | Docs |
-|--------|---------|------|
-| `elt_llm_core/` | Shared RAG infrastructure (ChromaDB, Ollama, config) | [README](elt_llm_core/README.md) |
-| `elt_llm_ingest/` | Document ingestion pipeline | [README](elt_llm_ingest/README.md) |
-| `elt_llm_query/` | Query interface (CLI + multi-collection) | [README](elt_llm_query/README.md) |
-| `elt_llm_api/` | Gradio GUI + programmatic API | [README](elt_llm_api/README.md) |
-| `elt_llm_consumer/` | Purpose-built products over the RAG system | [README](elt_llm_consumer/README.md) |
+**Docs**: [elt_llm_ingest/README.md](elt_llm_ingest/README.md)
 
 ---
 
-## Documentation Index
+### elt_llm_query
 
-- Root
-  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/README.md)
-  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/ARCHITECTURE.md)
-  - [RAG_STRATEGY.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/RAG_STRATEGY.md)
-- elt_llm_core
-  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/README.md)
-  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/ARCHITECTURE.md)
-- elt_llm_ingest
-  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/README.md)
-  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/ARCHITECTURE.md)
-- elt_llm_query
-  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_query/README.md)
-  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_query/ARCHITECTURE.md)
-- elt_llm_api
-  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_api/README.md)
-  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_api/ARCHITECTURE.md)
-- elt_llm_consumer
-  - [README.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_consumer/README.md)
-  - [ARCHITECTURE.md](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_consumer/ARCHITECTURE.md)
-
-## Common Commands
+Query interface: hybrid retrieval (BM25 + Vector), reranking, LLM synthesis.
 
 ```bash
-
-```bash
-# Check collection status
-uv run python -m elt_llm_ingest.runner --status
-
-# List ingestion configs
-uv run python -m elt_llm_ingest.runner --list
-
 # List query profiles
 uv run python -m elt_llm_query.runner --list
 
-# Single query — FA sources (LeanIX CM + Inventory + Handbook + Data Architecture)
+# Query with profile
 uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture -q "What is a Club?"
-
-# Single query — Full data management programme (all sources)
 uv run python -m elt_llm_query.runner --cfg fa_data_management -q "What are the key PARTY domain entities?"
 
 # Interactive session
 uv run python -m elt_llm_query.runner --cfg fa_handbook_only
+```
 
-# Selective collection reset (e.g. LeanIX only)
+**Docs**: [elt_llm_query/README.md](elt_llm_query/README.md)
+
+---
+
+### elt_llm_api
+
+Gradio GUI (http://localhost:7860) + programmatic API.
+
+```bash
+# Start GUI
+uv run python -m elt_llm_api.app
+```
+
+**Docs**: [elt_llm_api/README.md](elt_llm_api/README.md)
+
+---
+
+### elt_llm_consumer
+
+Purpose-built output generators: consolidated catalog, integrated catalog, handbook model builder, coverage validator, business glossary.
+
+```bash
+# Primary output: consolidated catalog
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
+
+# Alternative: integrated catalog
+uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
+
+# Handbook-only entity extraction
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
+
+# Coverage validation
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
+
+# Business glossary from inventory
+uv run --package elt-llm-consumer elt-llm-consumer-glossary
+```
+
+**Docs**: [elt_llm_consumer/README.md](elt_llm_consumer/README.md)
+
+---
+
+## Common Workflows
+
+### Generate Target Output
+
+```bash
+# 1. Ingest sources
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
+
+# 2. Generate consolidated catalog
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
+
+# 3. Review output
+# File: .tmp/fa_consolidated_catalog.json
+```
+
+### Query Collections
+
+```bash
+# GUI (recommended)
+uv run python -m elt_llm_api.app
+
+# CLI
+uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture -q "What is a Club?"
+```
+
+### Maintenance
+
+```bash
+# List collection status
+uv run python -m elt_llm_ingest.runner --status
+
+# Reset specific collection
 uv run python -m elt_llm_ingest.clean_slate --prefix fa_leanix
 
 # Full reset
 uv run python -m elt_llm_ingest.clean_slate
 uv run python -m elt_llm_ingest.runner --cfg load_rag
-
-# Generate business catalog (LeanIX inventory as driver, all FA RAG collections)
-uv run --package elt-llm-consumer elt-llm-consumer-glossary --model qwen2.5:14b
-
-# Generate integrated catalog (conceptual model as frame + inventory join + FA Handbook)
-uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qwen2.5:14b
-
-# Build candidate model and ToR from FA Handbook only (no LeanIX)
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
-
-# Validate model entities against FA Handbook (no LLM — ~5 min)
-uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
 ```
+
+---
+
+## Technology Stack
+
+| Component | Technology |
+|-----------|------------|
+| Vector Store | ChromaDB |
+| Embeddings | Ollama (nomic-embed-text) |
+| LLM | Ollama (qwen2.5:14b) |
+| Retrieval | LlamaIndex (BM25 + Vector hybrid) |
+| Reranking | Embedding cosine similarity |
+| Dependency Management | uv |
+
+---
+
+## Output Files
+
+| File | Location | Purpose |
+|------|----------|---------|
+| `fa_consolidated_catalog.json` | `.tmp/` | Stakeholder review (master output) |
+| `fa_consolidated_relationships.json` | `.tmp/` | Relationships with source attribution |
+
+---
+
+## Next Steps
+
+1. **Review output** — Open `.tmp/fa_consolidated_catalog.json` with data modelling team
+2. **Update review status** — Mark entities as APPROVED/REJECTED/NEEDS_CLARIFICATION
+3. **Downstream import** — Transform for Purview, Erwin LDM, MS Fabric
+
+See [SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md) for detailed stakeholder review process.
+
+---
+
+## Contact
+
+Development Team | Data Governance Lead | Data Modelling Team
