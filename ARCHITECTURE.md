@@ -462,7 +462,7 @@ def export_glossary_csv(leanix_xml: str, output_path: str):
     pd.DataFrame(rows).to_csv(output_path, index=False)
 ```
 
-**Value**: Enables Robin + colleagues to review/extend the glossary in Excel; feeds Purview import.
+**Value**: Enables data modellers to review/extend the glossary in Excel; feeds Purview import.
 
 ---
 
@@ -601,14 +601,14 @@ class BusinessContextBuilder:
 ```
 
 **Output formats**:
-- **CSV**: Shareable with Robin, Data Working Group, feeds Purview import
+- **CSV**: Shareable with Data Working Group, feeds Purview import
 - **Markdown**: Ingested into ChromaDB as `fa_business_context` collection
 - **DSI layer**: Glossary above Data Source Inventory — drill down from term → entity → systems holding/transmitting it → lineage
 
 **Value**:
 - Single source of truth: business term → definition → conceptual model entity → physical systems
 - Enables the lineage the colleague described: "glossary sits above DSI, allows drill down showing lineage between sources and targets"
-- Feeds Purview business context population (agreed with Robin)
+- Feeds Purview business context population (agreed with stakeholders)
 - Queryable: "What is a Club, which systems hold Club data, and where does it flow?"
 
 ---
@@ -627,7 +627,7 @@ class BusinessContextBuilder:
 
 **Value**:
 - Conceptual model enriched with FDM business process context
-- Alignment gaps surfaced for Robin + Data Modeller review
+- Alignment gaps surfaced for data modellers to review
 - Combined frame for ERD generation (conceptual → logical)
 
 ---
@@ -1157,7 +1157,7 @@ The RAG platform provides **traceability** that strengthens Data Working Group c
 | **SAD/ACB Process Review** | Query logs as evidence: what knowledge is missing, stale, or inconsistently applied |
 | **Vendor Evaluation** | Generate assessment reports with traceability |
 | **Data Quality Investigations** | Trace non-conformance to source systems |
-| **Purview Catalogue Population** | Export glossary + LeanIX entities → Purview business context (agreed with Robin) |
+| **Purview Catalogue Population** | Export glossary + LeanIX entities → Purview business context (stakeholder agreed) |
 | **DSI Lineage** | Glossary above Data Source Inventory — drill down showing lineage sources to targets |
 
 ### 7.3 DAMA-DMBOK Alignment
@@ -1185,12 +1185,12 @@ The RAG platform operationalises DAMA-DMBOK guidance:
 
 | Task | Owner | Status | Priority |
 |------|-------|--------|----------|
-| LeanIX → CSV glossary export | R. Patel | TODO | Quick win — agreed with colleague |
-| ISO Reference Data ingestion (ISO 3166, ISO 4217, ONS) | R. Patel | TODO | Urgent — active Workday/Dynamics conformance issues |
-| FAGlossaryPreprocessor | R. Patel | TODO | Foundation for all catalogue work |
-| FDM ingestion + conceptual model alignment | R. Patel + Robin | TODO | Agreed as starting point |
-| FA Handbook HTML scraper | R. Patel | TODO | |
-| Multi-collection query optimisation | R. Patel | ✅ Complete | |
+| LeanIX → CSV glossary export | Development Team | TODO | Quick win |
+| ISO Reference Data ingestion (ISO 3166, ISO 4217, ONS) | Development Team | TODO | Urgent — active Workday/Dynamics conformance issues |
+| FAGlossaryPreprocessor | Development Team | TODO | Foundation for all catalogue work |
+| FDM ingestion + conceptual model alignment | Data Team | TODO | Agreed as starting point |
+| FA Handbook HTML scraper | Development Team | TODO | |
+| Multi-collection query optimisation | Development Team | ✅ Complete | |
 
 **Deliverables**:
 - LeanIX entities exported to CSV (shareable with Data Working Group)
@@ -1204,12 +1204,12 @@ The RAG platform operationalises DAMA-DMBOK guidance:
 
 | Task | Owner | Status |
 |------|-------|--------|
-| SAD Quality Checker (pre-ACB review tool) | R. Patel | TODO |
-| Confluence scraper + ingestion | R. Patel | TODO |
-| Query analytics / usage logging | R. Patel | TODO |
-| SAD template definition | R. Patel + team | TODO |
-| SAD section generator (PoC) | R. Patel | TODO |
-| Workday design doc ingestion | R. Patel | TODO |
+| SAD Quality Checker (pre-ACB review tool) | Development Team | TODO |
+| Confluence scraper + ingestion | Development Team | TODO |
+| Query analytics / usage logging | Development Team | TODO |
+| SAD template definition | Development Team + Data Team | TODO |
+| SAD section generator (PoC) | Development Team | TODO |
+| Workday design doc ingestion | Development Team | TODO |
 
 **Deliverables**:
 - SAD Quality Checker — pre-ACB gap analysis with FA standard citations
@@ -1224,10 +1224,10 @@ The RAG platform operationalises DAMA-DMBOK guidance:
 
 | Task | Owner | Status |
 |------|-------|--------|
-| PlantUML ERD generator | R. Patel | TODO |
-| draw.io export | R. Patel | TODO |
-| Conceptual → Logical mapping | R. Patel + Robin | TODO |
-| ERD generation workflow | R. Patel | TODO |
+| PlantUML ERD generator | Development Team | TODO |
+| draw.io export | Development Team | TODO |
+| Conceptual → Logical mapping | Data Team | TODO |
+| ERD generation workflow | Development Team | TODO |
 
 **Deliverables**:
 - ERD Generator (PlantUML + draw.io)
@@ -1240,10 +1240,10 @@ The RAG platform operationalises DAMA-DMBOK guidance:
 
 | Task | Owner | Status |
 |------|-------|--------|
-| Purview glossary export | R. Patel | TODO |
-| Purview schema import | R. Patel | TODO |
-| Bi-directional sync workflow | R. Patel | TODO |
-| Lineage query interface | R. Patel | TODO |
+| Purview glossary export | Development Team | TODO |
+| Purview schema import | Development Team | TODO |
+| Bi-directional sync workflow | Development Team | TODO |
+| Lineage query interface | Development Team | TODO |
 
 **Deliverables**:
 - FA glossary in Purview
@@ -1256,10 +1256,10 @@ The RAG platform operationalises DAMA-DMBOK guidance:
 
 | Task | Owner | Status |
 |------|-------|--------|
-| Vendor assessment template | R. Patel + team | TODO |
-| Vendor comparison generator | R. Patel | TODO |
-| Supplier assessment ingestion | R. Patel | TODO |
-| Vendor assessment workflow | R. Patel | TODO |
+| Vendor assessment template | Development Team + Data Team | TODO |
+| Vendor comparison generator | Development Team | TODO |
+| Supplier assessment ingestion | Development Team | TODO |
+| Vendor assessment workflow | Development Team | TODO |
 
 **Deliverables**:
 - Vendor Assessment Generator
@@ -1438,7 +1438,7 @@ query:
 
 | Control | Status | Notes |
 |---------|--------|-------|
-| **Data Encryption at Rest** | ⚠️ Depends on filesystem | Consider encrypting `chroma_db/` directory |
+| **Data Encryption at Rest** | ⚠�� Depends on filesystem | Consider encrypting `chroma_db/` directory |
 | **Data Encryption in Transit** | ✅ N/A (local-only) | No network transmission |
 | **Access Controls** | ⚠️ Filesystem permissions only | Add authentication for multi-user deployment |
 | **Audit Logging** | ⚠️ Basic (ingestion timestamps) | Consider adding query logging |

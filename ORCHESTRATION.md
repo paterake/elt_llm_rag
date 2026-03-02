@@ -124,7 +124,7 @@ ls -lh ~/.tmp/elt_llm_consumer/
 
 **Recommended stakeholder review session**:
 
-1. **Participants**: Data Modeller (Robin Holley), SME (User), Data Lead (Carman/Andy Laurie)
+1. **Participants**: Data Modeller, SME (User), Data Lead
 2. **Inputs**: 
    - `fa_consolidated_catalog.json` (complete picture with source attribution)
    - `fa_gap_analysis.json` (what's missing from model)
@@ -382,7 +382,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --output-d
 ## Next Steps
 
 ### Immediate (Week 1-2)
-1. ✅ Run stakeholder review session with Robin Holley, Carman/Andy Laurie
+1. ✅ Run stakeholder review session with data modelling team and business SMEs
 2. ✅ Update `review_status` fields in `fa_consolidated_catalog.json`
 3. ⏳ Export final CSV: `--csv-only`
 4. ⏳ Define Purview import process
@@ -401,11 +401,11 @@ uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --output-d
 
 ## Contacts
 
-| Role | Name |
-|------|------|
-| Data Modeller | Robin Holley |
-| SME / Stakeholder | [User] |
-| Data Lead | Carman / Andy Laurie |
+| Role | Contact |
+|------|---------|
+| Data Modeller | Data Modelling Team |
+| SME / Stakeholder | Business SME |
+| Data Lead | Data Governance Lead |
 
 ---
 

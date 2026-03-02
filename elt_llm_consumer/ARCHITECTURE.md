@@ -3,7 +3,28 @@
 **Module**: `elt_llm_consumer`
 **Role**: Structured output layer over the RAG+LLM pipeline
 
-**See also**: [RAG_STRATEGY.md](../RAG_STRATEGY.md) for detailed documentation on the hybrid retrieval and reranking strategy used by the query layer.
+**See also**: 
+- [RAG_STRATEGY.md](../RAG_STRATEGY.md) — Hybrid retrieval and reranking strategy
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — Full system architecture
+- `elt_llm_query/query.py` — Query interface used by all consumers
+
+---
+
+## Quick Start
+
+**Two-step workflow:**
+
+```bash
+# 1. Ingest source datasets (builds ChromaDB + DocStore)
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
+
+# 2. Run consumer script (queries via elt_llm_query, outputs JSON)
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
+```
+
+**Output:** `fa_consolidated_catalog.json` (stakeholder review)
 
 ---
 
@@ -14,12 +35,16 @@
   - [0.2 Summary Architecture Diagram](#02-summary-architecture-diagram)
 - [1. The ELT Analogy](#1-the-elt-analogy)
 - [2. Where the Consumer Layer Sits](#2-where-the-consumer-layer-sits)
-- [3. Retrieval vs Generation](#3-retrieval-vs-generation)
+- [3. RAG+LLM Architecture](#3-ragllm-architecture)
+  - [3.1 Two-Step Workflow](#31-two-step-workflow)
+  - [3.2 Role of RAG Profiles](#32-role-of-rag-profiles)
+  - [3.3 Hybrid Strategy](#33-hybrid-strategy)
 - [4. Consumers](#4-consumers)
   - [4.1 Business Glossary Generator](#41-business-glossary-generator)
   - [4.2 FA Handbook Model Builder](#42-fa-handbook-model-builder)
   - [4.3 FA Integrated Catalog](#43-fa-integrated-catalog)
   - [4.4 FA Coverage Validator](#44-fa-coverage-validator)
+  - [4.5 FA Consolidated Catalog](#45-fa-consolidated-catalog)
 - [5. Source Joins](#5-source-joins)
 - [6. Recommended Workflow](#6-recommended-workflow)
 - [7. Conceptual Model Enhancement Cycle](#7-conceptual-model-enhancement-cycle)
@@ -41,7 +66,7 @@
 
 | Source | Role | Implementation |
 |--------|------|----------------|
-| **Conceptual Model** (LeanIX XML) | **The Frame** — canonical entity list with domains, hierarchy, relationships | Drives `fa_integrated_catalog` and `fa_coverage_validator` |
+| **Conceptual Model** (LeanIX XML) | **The Frame** — canonical entity list with domains, hierarchy, relationships | Drives `fa_consolidated_catalog` (primary), `fa_integrated_catalog`, and `fa_coverage_validator` |
 | **LeanIX Inventory** (Excel) | **Descriptions** — precise fact_sheet_id lookup for system definitions | Joined in-memory (not via RAG) for accuracy |
 | **FA Handbook** (PDF RAG) | **SME/Business Context** — governance rules, obligations, regulatory context | Queried per entity for governance content |
 
@@ -76,23 +101,25 @@
 │                    Ingestion Layer (elt_llm_ingest)                          │
 │  - FA Handbook → chunked + embedded → fa_handbook collection                │
 │  - LeanIX XML → parsed → fa_leanix_dat_enterprise_conceptual_model_*        │
-│  - Inventory Excel → (not ingested — used directly by consumers)            │
+│  - LeanIX Excel → chunked + embedded → fa_leanix_global_inventory_*         │
 └─────────────────────────────────────────────────────────────────────────────┘
            │
            ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │              RAG Collections (ChromaDB — Semantic Layer)                     │
 │  fa_handbook  │  fa_leanix_dat_enterprise_conceptual_model_*                │
-│  fa_data_architecture  │  dama_dmbok                                         │
+│  fa_leanix_global_inventory_*  │  fa_data_architecture  │  dama_dmbok       │
 └─────────────────────────────────────────────────────────────────────────────┘
            │
            ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                   Consumer Layer (elt_llm_consumer)                          │
 │                                                                             │
+│  All consumers query via: elt_llm_query.query_collections()                 │
+│                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │  Consumer 1: Business Glossary Generator                               │  │
-│  │  Driver: LeanIX Inventory Excel (all DataObjects + Interfaces)         │  │
+│  │  Driver: LeanIX Inventory (DataObjects + Interfaces)                   │  │
 │  │  Sources: fa_handbook + fa_data_architecture + fa_leanix_* (RAG)       │  │
 │  │  Output: fa_business_catalog_dataobjects.json,                         │  │
 │  │          fa_business_catalog_interfaces.json                            │  │
@@ -109,22 +136,26 @@
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │  Consumer 3: FA Integrated Catalog                                     │  │
-│  │  Driver: LeanIX Conceptual Model XML (canonical frame)                 │  │
-│  │  Sources:                                                              │  │
-│  │    - Inventory Excel (direct join by fact_sheet_id — NOT RAG)          │  │
-│  │    - fa_handbook (RAG — governance context)                            │  │
-│  │    - fa_leanix_dat_* (RAG — domain context)                            │  │
+│  │  Driver: LeanIX Conceptual Model (canonical frame)                     │  │
+│  │  Sources: fa_handbook (RAG), fa_leanix_dat_* (RAG)                     │  │
 │  │  Output: fa_terms_of_reference.json, fa_integrated_catalog.json          │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │  Consumer 4: FA Coverage Validator                                     │  │
-│  │  Driver: LeanIX Conceptual Model XML                                   │  │
+│  │  Driver: LeanIX Conceptual Model                                       │  │
 │  │  Sources: fa_handbook (retrieval ONLY — no LLM, ~5 min)                │  │
-│  │  Analysis:                                                             │  │
-│  │    - Direction 1: Model → Handbook (coverage scoring)                  │  │
-│  │    - Direction 2: Handbook → Model (gap analysis, requires Consumer 2) │  │
 │  │  Output: fa_coverage_report.json, fa_gap_analysis.json                   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  Consumer 5: FA Consolidated Catalog ⭐ (TARGET OUTPUT)                │  │
+│  │  Driver: All sources merged                                            │  │
+│  │  Sources:                                                              │  │
+│  │    - Conceptual model (docstore scan)                                  │  │
+│  │    - Inventory (RAG enrichment)                                        │  │
+│  │    - Handbook (RAG enrichment + docstore markers)                      │  │
+│  │  Output: fa_consolidated_catalog.json (stakeholder review)             │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
            │
@@ -159,6 +190,81 @@
 │  Output: Logical data model (e.g., ERD, UML class diagram)                  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 3. RAG+LLM Architecture
+
+### 3.1 Two-Step Workflow
+
+**Step 1: Ingestion** (elt_llm_ingest)
+```bash
+# Builds ChromaDB vector store + DocStore metadata index
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
+```
+
+**Output:** RAG-ready collections in ChromaDB + DocStore
+
+**Step 2: Consumer** (elt_llm_consumer)
+```bash
+# Queries collections via elt_llm_query, outputs JSON
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
+```
+
+**Output:** `fa_consolidated_catalog.json` (stakeholder review)
+
+---
+
+### 3.2 Role of RAG Profiles
+
+**Profiles** (`elt_llm_query/llm_rag_profile/`) define:
+- Which collections to query
+- LLM model settings
+- System prompts
+- Retrieval config (top_k, reranker, etc.)
+
+**Consumers can either:**
+
+1. **Use a profile** (recommended for consistency):
+   ```python
+   from elt_llm_core.config import RagConfig
+   from elt_llm_query.query import query_collections
+
+   rag_config = RagConfig.from_profile("fa_data_management")
+   result = query_collections(rag_config.query.collections, query, rag_config)
+   ```
+
+2. **Resolve collections directly** (what `fa_consolidated_catalog` does):
+   ```python
+   from elt_llm_query.query import resolve_collection_prefixes
+
+   collections = resolve_collection_prefixes(
+       ["fa_leanix_dat_enterprise_conceptual_model"], rag_config
+   )
+   result = query_collections(collections, query, rag_config)
+   ```
+
+---
+
+### 3.3 Hybrid Strategy
+
+**What uses RAG+LLM synthesis:**
+- Handbook context enrichment (governance rules, definitions)
+- Handbook term → Model entity mapping
+- Inventory description lookup
+
+**What uses docstore scan (structured metadata):**
+- Conceptual model entity extraction
+- Relationship extraction
+
+**Why hybrid:**
+- RAG+LLM is slow for bulk extraction (~15s per entity)
+- Docstore scan is fast (seconds for all entities)
+- Both query the **index** — neither parses source files directly
+
+This balances **scalability** (fast extraction) with **quality** (LLM synthesis where it adds value).
 
 ---
 
@@ -221,7 +327,7 @@ checkpointing and file output. A profile alone cannot do this.
 │  ┌─────────────────────┐    ┌─────────────────────────────────────┐  │
 │  │  Consumer 1         │    │  Consumer 2                         │  │
 │  │  business_glossary  │    │  fa_handbook_model_builder          │  │
-│  │  Inventory → CSV    │    │  Handbook → candidate model + ToR   │  │
+│  │  Inventory → JSON   │    │  Handbook → candidate model + ToR   │  │
 │  └─────────────────────┘    └─────────────────────────────────────┘  │
 │                                                                       │
 │  ┌─────────────────────┐    ┌─────────────────────────────────────┐  │
@@ -232,8 +338,8 @@ checkpointing and file output. A profile alone cannot do this.
 │  └─────────────────────┘    └─────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
                                  ↓
-                     Structured CSV outputs
-                  (Terms of Reference, Catalog, Gap Report)
+                     Structured JSON outputs
+                  (Consolidated Catalog, ToR, Gap Report)
 ```
 
 ---
@@ -425,6 +531,95 @@ than reading a synthesised answer and re-interpreting it.
 
 ---
 
+### 4.5 FA Consolidated Catalog ⭐
+
+**File**: `fa_consolidated_catalog.py`
+**Entry point**: `elt-llm-consumer-consolidated-catalog`
+**Driver**: All sources merged via RAG+LLM
+**Output**: `fa_consolidated_catalog.json` (stakeholder review)
+**Runtime**: ~5-10 minutes
+
+**Purpose**: Single consolidated catalog merging all sources — the target output
+for stakeholder review and Purview import.
+
+**What it answers (7 requirements)**:
+1. ✅ Entities from the conceptual model
+2. ✅ Handbook-only entities (not in conceptual model)
+3. ✅ LeanIX inventory descriptions
+4. ✅ FA Handbook context (SME definition, glossary, ToR, governance)
+5. ✅ Relationships from conceptual model
+6. ✅ Relationships from inventory
+7. ✅ Relationships from Handbook
+
+**Architecture**:
+```
+Step 1: Extract entities from conceptual model docstores
+        (scan fa_leanix_dat_enterprise_conceptual_model_* docstores)
+        ↓
+        ~217 entities with name, domain, hierarchy
+
+Step 2: Get inventory descriptions via RAG
+        (query fa_leanix_global_inventory_* per entity)
+        ↓
+        Descriptions enriched per entity
+
+Step 3: Extract Handbook defined terms from docstore
+        (scan fa_handbook docstore for definition markers)
+        ↓
+        ~152 defined terms with definitions
+
+Step 4: Map Handbook terms → Model entities via RAG
+        (query_collections per term)
+        ↓
+        Mapping with confidence scores
+
+Step 5: Get Handbook context per entity via RAG
+        (query_collections for governance/domain context)
+        ↓
+        FORMAL_DEFINITION | DOMAIN_CONTEXT | GOVERNANCE
+
+Step 6: Extract relationships from conceptual model docstores
+        (scan for relationship patterns)
+        ↓
+        Entity → Entity relationships
+
+Step 7: Consolidate and classify
+        - BOTH: In both model and Handbook
+        - LEANIX_ONLY: Only in model
+        - HANDBOOK_ONLY: Only in Handbook (candidate for addition)
+        ↓
+        fa_consolidated_catalog.json
+```
+
+**Hybrid strategy**:
+- **Docstore scan** for structured metadata (entities, relationships) — fast
+- **RAG+LLM** for synthesis (Handbook context, term mapping) — high quality
+- **Neither parses source files** — all queries go through the index
+
+**Output structure**:
+```json
+{
+  "fact_sheet_id": "12345",
+  "entity_name": "Club",
+  "domain": "PARTY",
+  "source": "BOTH",
+  "leanix_description": "...",
+  "formal_definition": "...",
+  "domain_context": "...",
+  "governance_rules": "...",
+  "mapping_confidence": "high",
+  "review_status": "PENDING",
+  "relationships": [...]
+}
+```
+
+**Review workflow**:
+1. Run consumer → generates JSON with all entities
+2. Data Architects review → update `review_status` fields
+3. Import to Purview or downstream systems
+
+---
+
 ## 5. Source Joins
 
 Each consumer has a different relationship to its sources:
@@ -437,7 +632,7 @@ Each consumer has a different relationship to its sources:
 | `fa_leanix_dat_*` collections | — | — | ✅ RAG | — |
 | `fa_leanix_global_inventory_*` | ✅ RAG | — | — | — |
 | `dama_dmbok` collection | ✅ RAG | — | — | — |
-| Consumer 2 CSV output | — | — | — | ✅ Gap analysis |
+| Consumer 2 JSON output | — | — | — | ✅ Gap analysis |
 
 **Direct join vs RAG join**: Consumer 3 joins inventory descriptions directly
 from Excel by `fact_sheet_id` (exact, instant, no retrieval noise) rather than
