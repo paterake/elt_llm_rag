@@ -187,14 +187,24 @@ Strategies are grouped by pipeline stage and prioritised for this stack (FA Hand
 |----------|----------|-------|--------|---------------------|
 | **High** | Query decomposition / multi-query | Query | Low — `num_queries` config | Consumer queries are compound (multi-entity, multi-domain) |
 | **High** | MMR (Maximal Marginal Relevance) | Query | Low — mode flag | Prevents top-8 being near-duplicate adjacent paragraphs |
-| **High** | Metadata filtering | Ingest + Query | Medium | Scoped queries: "search only FA Handbook Section 8" |
-| **Medium** | Parent-child chunking | Ingest | Medium — re-ingest | Preserves full rule context for regulatory text |
-| **Medium** | Cross-encoder reranker | Query | Medium — local model | Higher reranking quality than embedding cosine similarity |
+| **High** | Metadata enrichment + filtering | Ingest + Query | Medium | Prerequisite for scoped queries; section/type/source filtering |
+| **Medium** | Parent-child chunking | Ingest | Medium — re-ingest | Preserves full rule context for FA Handbook regulatory text |
+| **Medium** | Cross-encoder reranker | Reranking | Medium — local model | Higher reranking quality than embedding cosine similarity |
+| **Medium** | GraphRAG | Ingest + Query | High | LeanIX is a native graph; relationship traversal answers what flat retrieval cannot |
 | **Medium** | RAGAS evaluation harness | Eval | Medium | Objective quality baseline; measures impact of config changes |
+| **Lower** | Lost-in-the-middle mitigation | Context | Low — reorder only | Zero latency cost; improves LLM attention across larger context windows |
+| **Lower** | Caching | Query | Low | Eliminates repeat latency for identical queries |
 | **Lower** | HyDE (query-time) | Query | Low — one extra LLM call | Helps vague/exploratory queries; BM25 already handles keyword queries |
-| **Lower** | Context compression | Context assembly | Medium | Reduces token noise in top-K chunks before LLM sees them |
-| **Lower** | Structured output + citations | LLM | Low — prompt change | Improves consumer parsing reliability; adds auditability |
+| **Lower** | Sentence window retrieval | Ingest | Low-Medium | Lightweight alternative to parent-child chunking |
+| **Lower** | Proposition chunking | Ingest | Medium | Atomic facts improve precision; good for LeanIX entity definitions |
+| **Lower** | HyDE ingest variant | Ingest | Medium — LLM at ingest | Bridges formal document language vs informal query vocabulary |
+| **Lower** | Time-weighted retrieval | Query | Low | Deprioritises stale LeanIX export versions after refresh |
+| **Lower** | LLM-as-reranker | Reranking | Low-Medium | Highest reranking quality; too slow for default path |
+| **Lower** | Context compression | Context | Medium | Reduces token noise in top-K chunks before LLM sees them |
+| **Lower** | Map-Reduce / Refine synthesis | Context | Medium | Handles context overflow when querying many collections |
+| **Lower** | Structured output + citations | LLM | Low — prompt change | Improves consumer parsing reliability; adds source auditability |
 | **Lower** | Self-RAG / CRAG | LLM | High | Corrective re-retrieval for multi-hop questions spanning Handbook + LeanIX |
+| **Lower** | FLARE | LLM | High | Iterative retrieval during generation for long-form answers |
 
 ---
 
@@ -233,6 +243,23 @@ Apply hard filters (source, section, date range, document type) before vector se
 
 **Time-Weighted Retrieval**
 Decay relevance scores of older document versions. Relevant when LeanIX exports are refreshed and stale versions should be deprioritised.
+
+**Caching**
+Cache query embeddings and results for repeated or near-identical queries. Eliminates retrieval and LLM latency entirely on cache hits. Particularly useful for consumer scripts that run the same entity queries in batch.
+
+---
+
+### Graph-Based Retrieval
+
+**GraphRAG**
+Build a knowledge graph from LeanIX relationships at ingest time, then use graph traversal during retrieval to follow entity relationships rather than relying solely on chunk proximity. LeanIX is natively a graph (Applications → Interfaces → DataObjects → BusinessCapabilities → Providers). Questions like "what data objects flow through this interface?" or "which applications depend on this IT component?" are graph traversal problems, not similarity search problems — flat retrieval gives partial answers at best.
+
+Implementation options:
+- **LlamaIndex `KnowledgeGraphIndex`** — extracts triples from text and stores in a graph; queries traverse it
+- **Neo4j + LlamaIndex** — persistent graph store with Cypher query support; higher setup cost, much richer traversal
+- **Hybrid** — use GraphRAG for relationship queries, flat hybrid retrieval for descriptive/definitional queries; route based on query classification
+
+This is the highest-effort enhancement but potentially the highest-value one for LeanIX data specifically.
 
 ---
 
