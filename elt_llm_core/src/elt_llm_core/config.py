@@ -86,7 +86,11 @@ class QueryConfig:
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_retrieve_k: int = 20
     reranker_top_k: int = 8
-    reranker_strategy: str = "cross-encoder"
+    reranker_strategy: str = "embedding"
+    num_queries: int = 1
+    use_mmr: bool = False
+    mmr_threshold: float = 0.7
+    use_lost_in_middle: bool = False
 
 
 @dataclass
@@ -148,7 +152,11 @@ class RagConfig:
                 reranker_model=query_data.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
                 reranker_retrieve_k=query_data.get("reranker_retrieve_k", 20),
                 reranker_top_k=query_data.get("reranker_top_k", 8),
-                reranker_strategy=query_data.get("reranker_strategy", "cross-encoder"),
+                reranker_strategy=query_data.get("reranker_strategy", "embedding"),
+                num_queries=query_data.get("num_queries", 1),
+                use_mmr=query_data.get("use_mmr", False),
+                mmr_threshold=query_data.get("mmr_threshold", 0.7),
+                use_lost_in_middle=query_data.get("use_lost_in_middle", False),
             ),
         )
 

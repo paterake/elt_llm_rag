@@ -182,7 +182,7 @@ def _build_hybrid_retriever(
         hybrid_retriever = QueryFusionRetriever(
             retrievers=[vector_retriever, bm25_retriever],
             similarity_top_k=top_k,
-            num_queries=1,  # Use original query only — no LLM query expansion
+            num_queries=rag_config.query.num_queries,
             mode="reciprocal_rerank",
         )
         logger.info("Hybrid (QueryFusionRetriever) ready for '%s'", collection_name)
@@ -202,6 +202,56 @@ def _build_hybrid_retriever(
             exc_info=True,
         )
         return index.as_retriever(similarity_top_k=top_k)
+
+
+def _apply_mmr(
+    query_norm: "np.ndarray",
+    doc_norms: "np.ndarray",
+    nodes: list,
+    k: int,
+    threshold: float,
+) -> list:
+    """Select k diverse nodes via Maximal Marginal Relevance.
+
+    Iteratively picks the node that maximises:
+        threshold * sim(node, query) - (1 - threshold) * max_sim(node, selected)
+
+    Args:
+        query_norm: Normalised query embedding (1-D).
+        doc_norms: Normalised document embeddings (N × D).
+        nodes: Candidate NodeWithScore list aligned with doc_norms rows.
+        k: Number of nodes to select.
+        threshold: Lambda — 0 = max diversity, 1 = max relevance.
+
+    Returns:
+        MMR-selected subset (up to k nodes) in selection order.
+    """
+    import numpy as np
+
+    n = len(nodes)
+    k = min(k, n)
+    relevance = doc_norms @ query_norm      # (N,) cosine sim to query
+    sim_matrix = doc_norms @ doc_norms.T    # (N,N) pairwise cosine sim
+
+    selected: list[int] = []
+    remaining = list(range(n))
+
+    while len(selected) < k and remaining:
+        if not selected:
+            best = max(remaining, key=lambda i: float(relevance[i]))
+        else:
+            sel = selected  # capture for lambda
+            best = max(
+                remaining,
+                key=lambda i: (
+                    threshold * float(relevance[i])
+                    - (1 - threshold) * float(np.max(sim_matrix[i, sel]))
+                ),
+            )
+        selected.append(best)
+        remaining.remove(best)
+
+    return [nodes[i] for i in selected]
 
 
 def _rerank_nodes_embedding(
@@ -227,30 +277,117 @@ def _rerank_nodes_embedding(
     from llama_index.core.schema import NodeWithScore
 
     embed_model = create_embedding_model(rag_config.ollama)
+    top_k = rag_config.query.reranker_top_k
+
     logger.info(
-        "Embedding reranker: scoring %d nodes with '%s'",
-        len(nodes), rag_config.ollama.embedding_model,
+        "Embedding reranker%s: scoring %d nodes with '%s'",
+        "+MMR" if rag_config.query.use_mmr else "",
+        len(nodes),
+        rag_config.ollama.embedding_model,
     )
 
     query_emb = np.array(embed_model.get_text_embedding(query))
     texts = [n.node.text for n in nodes]
     doc_embs = np.array(embed_model.get_text_embedding_batch(texts))
 
-    # Cosine similarity: dot(q_norm, d_norm) per row
+    # Normalise once — reused for both relevance scoring and MMR
     query_norm = query_emb / (np.linalg.norm(query_emb) + 1e-9)
     doc_norms = doc_embs / (np.linalg.norm(doc_embs, axis=1, keepdims=True) + 1e-9)
-    scores = doc_norms @ query_norm
 
-    top_k = rag_config.query.reranker_top_k
-    ranked = sorted(zip(nodes, scores), key=lambda x: float(x[1]), reverse=True)
-    result = [NodeWithScore(node=n.node, score=float(s)) for n, s in ranked[:top_k]]
+    if rag_config.query.use_mmr:
+        # Single embedding pass: MMR selects top_k diverse+relevant nodes
+        selected = _apply_mmr(query_norm, doc_norms, nodes, top_k, rag_config.query.mmr_threshold)
+        node_to_idx = {id(n): i for i, n in enumerate(nodes)}
+        relevance = doc_norms @ query_norm
+        result = [
+            NodeWithScore(node=n.node, score=float(relevance[node_to_idx[id(n)]]))
+            for n in selected
+        ]
+        result.sort(key=lambda x: x.score, reverse=True)
+    else:
+        scores = doc_norms @ query_norm
+        ranked = sorted(zip(nodes, scores), key=lambda x: float(x[1]), reverse=True)
+        result = [NodeWithScore(node=n.node, score=float(s)) for n, s in ranked[:top_k]]
 
     logger.info(
-        "Embedding reranker: kept top %d/%d nodes (scores %.4f – %.4f)",
+        "Embedding reranker: kept top %d/%d (scores %.4f – %.4f)",
         len(result), len(nodes),
         result[0].score if result else 0.0,
         result[-1].score if result else 0.0,
     )
+    return result
+
+
+def _rerank_nodes_cross_encoder(
+    query: str,
+    nodes: list,
+    rag_config: RagConfig,
+) -> list:
+    """Rerank nodes using a cross-encoder (sentence-transformers).
+
+    Cross-encoders score query+document jointly rather than independently,
+    yielding higher ranking quality than embedding cosine similarity at the
+    cost of ~200–800 ms extra latency per rerank call.
+
+    Requires: sentence-transformers>=3.0.0
+      uv add sentence-transformers --package elt-llm-query
+    Model: rag_config.query.reranker_model (cross-encoder/ms-marco-MiniLM-L-6-v2)
+
+    Falls back to embedding reranker if sentence-transformers is not installed.
+    """
+    from llama_index.core.schema import NodeWithScore
+
+    try:
+        from sentence_transformers import CrossEncoder
+    except ImportError:
+        logger.warning(
+            "sentence-transformers not installed; falling back to embedding reranker. "
+            "Run: uv add sentence-transformers --package elt-llm-query"
+        )
+        return _rerank_nodes_embedding(query, nodes, rag_config)
+
+    try:
+        top_k = rag_config.query.reranker_top_k
+        model = CrossEncoder(rag_config.query.reranker_model)
+        pairs = [(query, n.node.text) for n in nodes]
+        scores = model.predict(pairs)
+        ranked = sorted(zip(nodes, scores), key=lambda x: float(x[1]), reverse=True)
+        result = [NodeWithScore(node=n.node, score=float(s)) for n, s in ranked[:top_k]]
+        logger.info(
+            "Cross-encoder reranker (%s): kept top %d/%d nodes",
+            rag_config.query.reranker_model, len(result), len(nodes),
+        )
+        return result
+    except Exception as e:
+        logger.warning("Cross-encoder reranker failed: %s — falling back to embedding.", e)
+        return _rerank_nodes_embedding(query, nodes, rag_config)
+
+
+def _reorder_for_lost_in_middle(nodes: list) -> list:
+    """Reorder context chunks to mitigate the lost-in-the-middle effect.
+
+    LLMs attend best to content at the start and end of the context window.
+    This interleaves reranked chunks so the most-relevant appear at both ends:
+
+        Input  (best→worst): [A, B, C, D, E, F, G, H]
+        Output:              [A, C, E, G, H, F, D, B]
+
+    The highest-scoring chunk goes to position 0, second-highest to position -1,
+    third-highest to position 1, and so on.
+
+    Reference: Liu et al. (2023), "Lost in the Middle".
+    """
+    if len(nodes) <= 2:
+        return nodes
+    result: list = [None] * len(nodes)
+    left, right = 0, len(nodes) - 1
+    for i, node in enumerate(nodes):
+        if i % 2 == 0:
+            result[left] = node
+            left += 1
+        else:
+            result[right] = node
+            right -= 1
     return result
 
 
@@ -259,13 +396,15 @@ def _rerank_nodes(
     nodes: list,
     rag_config: RagConfig,
 ) -> list:
-    """Rerank retrieved nodes using the configured reranker strategy.
+    """Rerank retrieved nodes and optionally reorder for LLM attention.
 
-    Dispatches to the appropriate reranker based on rag_config.query.reranker_strategy:
-      - "embedding": cosine similarity via Ollama (no external downloads required)
-      - "cross-encoder": sentence-transformers CrossEncoder (requires HuggingFace model)
+    Pipeline:
+      1. Rerank by relevance (+ optional MMR diversity):
+           "embedding"     — cosine similarity via Ollama (default, no extra packages)
+           "cross-encoder" — sentence-transformers CrossEncoder (higher quality)
+      2. Optional lost-in-the-middle reordering (use_lost_in_middle: true)
 
-    Falls back to the original node list if the reranker is disabled or fails.
+    Falls back gracefully: cross-encoder → embedding → original list.
 
     Args:
         query: The query string.
@@ -273,30 +412,32 @@ def _rerank_nodes(
         rag_config: RAG configuration.
 
     Returns:
-        Reranked and trimmed list of NodeWithScore, or original list unchanged.
+        Reranked (and optionally reordered) list of NodeWithScore.
     """
     if not rag_config.query.use_reranker or not nodes:
         return nodes
 
     strategy = rag_config.query.reranker_strategy
 
-    if strategy == "embedding":
+    if strategy not in ("embedding", "cross-encoder"):
+        logger.warning(
+            "Unknown reranker_strategy '%s'; using 'embedding'.", strategy
+        )
+
+    if strategy == "cross-encoder":
+        reranked = _rerank_nodes_cross_encoder(query, nodes, rag_config)
+    else:
         try:
-            return _rerank_nodes_embedding(query, nodes, rag_config)
+            reranked = _rerank_nodes_embedding(query, nodes, rag_config)
         except Exception as e:
             logger.warning("Embedding reranker failed: %s — returning original nodes.", e)
             return nodes
 
-    # Cross-encoder strategy — requires sentence-transformers + HuggingFace model download.
-    # To enable: add "sentence-transformers>=3.0.0" to elt_llm_core/pyproject.toml,
-    # download the model (uv run python -c "from sentence_transformers import CrossEncoder;
-    # CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"), then set
-    # reranker_strategy: "cross-encoder" in rag_config.yaml.
-    logger.warning(
-        "reranker_strategy '%s' is not recognised or not enabled; returning original nodes.",
-        strategy,
-    )
-    return nodes
+    if rag_config.query.use_lost_in_middle and reranked:
+        reranked = _reorder_for_lost_in_middle(reranked)
+        logger.info("Lost-in-middle reordering applied to %d chunks", len(reranked))
+
+    return reranked
 
 
 def query_collection(

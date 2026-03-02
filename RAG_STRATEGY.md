@@ -28,8 +28,11 @@ Query → Hybrid Retrieval (BM25 + Vector) → Embedding Reranker → Top-K Chun
 | Stage | Implementation | Status |
 |-------|----------------|--------|
 | **1. Hybrid Retrieval** | BM25 + Vector via QueryFusionRetriever | ✅ Production |
-| **2. Embedding Reranker** | Cosine similarity re-scoring (nomic-embed-text) | ✅ Production |
-| **3. LLM Synthesis** | Ollama (qwen2.5:14b) with system prompt | ✅ Production |
+| **2. Multi-query expansion** | `num_queries=3` — LLM generates query variants for broader recall | ✅ Production |
+| **3. Embedding Reranker** | Cosine similarity re-scoring with optional MMR diversity | ✅ Production |
+| **4. Cross-encoder Reranker** | sentence-transformers CrossEncoder (joint query+doc scoring) | ✅ Production |
+| **5. Lost-in-middle reorder** | Highest-scoring chunks placed at context window ends | ✅ Production |
+| **6. LLM Synthesis** | Ollama (qwen2.5:14b) with system prompt | ✅ Production |
 
 ### Configuration
 
@@ -40,9 +43,13 @@ query:
   similarity_top_k: 10
   use_hybrid_search: true
   use_reranker: true
-  reranker_strategy: "embedding"
+  reranker_strategy: "embedding"    # switch to "cross-encoder" for higher quality
   reranker_retrieve_k: 20
   reranker_top_k: 8
+  num_queries: 3                    # query variants (1=off, 3=recommended)
+  use_mmr: true                     # diversity filter (0.7 = 70% relevance, 30% diversity)
+  mmr_threshold: 0.7
+  use_lost_in_middle: true          # reorder chunks for LLM attention
 ```
 
 ### Technology Stack
@@ -88,29 +95,30 @@ query:
 
 ### High Priority (Phase 1-2)
 
-| Enhancement | Benefit | Effort | When |
-|-------------|---------|--------|------|
-| **Metadata enrichment** | Scoped queries by section/type/source | Medium | Phase 1 |
-| **Structured output + citations** | Purview-ready format with source attribution | Low | Phase 2 |
-| **GraphRAG** | Relationship traversal for Erwin LDM | High | Phase 2 |
-| **MMR (Maximal Marginal Relevance)** | Prevents duplicate chunks in context | Low | Phase 1 |
+| Enhancement | Benefit | Effort | Status |
+|-------------|---------|--------|--------|
+| **Metadata enrichment** | Scoped queries by section/type/source | Medium | ⬜ Phase 2 — requires re-ingestion of fa_handbook |
+| **Structured output + citations** | Purview-ready format with source attribution | Low | ⬜ Phase 2 |
+| **GraphRAG** | Relationship traversal for Erwin LDM | High | ⬜ Phase 2 — requires re-ingestion of all collections |
+| **MMR (Maximal Marginal Relevance)** | Prevents duplicate chunks in context | Low | ✅ Implemented |
 
 ### Medium Priority (Phase 2-3)
 
-| Enhancement | Benefit | Effort | When |
-|-------------|---------|--------|------|
-| **Parent-child chunking** | Preserves full rule context for regulatory text | Medium | Phase 1 |
-| **Cross-encoder reranker** | Higher reranking quality (MiniLM-L-6-v2) | Medium | Phase 1 |
-| **RAGAS evaluation harness** | Objective quality baseline | Medium | Phase 1 |
+| Enhancement | Benefit | Effort | Status |
+|-------------|---------|--------|--------|
+| **Parent-child chunking** | Preserves full rule context for regulatory text | Medium | ⬜ Phase 2 — requires re-ingestion of fa_handbook |
+| **Cross-encoder reranker** | Higher reranking quality (MiniLM-L-6-v2) | Medium | ✅ Implemented |
+| **RAGAS evaluation harness** | Objective quality baseline | Medium | ⬜ Phase 2 |
 
 ### Lower Priority (Phase 3+)
 
-| Enhancement | Benefit | Effort | When |
-|-------------|---------|--------|------|
-| **Caching** | Repeated Copilot queries | Low | Phase 3 |
-| **Context compression** | Reduces token noise | Medium | Phase 2 |
-| **Query decomposition** | Multi-entity queries | Low | Phase 1 |
-| **HyDE (query-time)** | Vague/exploratory queries | Low | Phase 1 |
+| Enhancement | Benefit | Effort | Status |
+|-------------|---------|--------|--------|
+| **Caching** | Repeated Copilot queries | Low | ⬜ Phase 3 |
+| **Context compression** | Reduces token noise | Medium | ⬜ Phase 2 |
+| **Query decomposition / Multi-query** | Multi-entity queries, broader recall | Low | ✅ Implemented |
+| **Lost-in-the-middle mitigation** | Better LLM attention on context window | Low | ✅ Implemented |
+| **HyDE (query-time)** | Vague/exploratory queries | Low | ⬜ Phase 2 |
 
 ---
 
@@ -213,19 +221,19 @@ Auto-extract and attach structured metadata during ingestion: section number, ru
 
 ### Query Strategies (Planned)
 
-#### MMR (Maximal Marginal Relevance)
+#### MMR (Maximal Marginal Relevance) ✅ Implemented
 Penalise candidate chunks that are too similar to already-selected ones.
 
 **Value**: Prevents top-8 being near-duplicate adjacent paragraphs — ensures LLM sees varied evidence.
 
-**Implementation**: LlamaIndex supports `mmr` mode on vector retrievers.
+**Implementation**: Custom MMR in a single embedding pass inside `_rerank_nodes_embedding`. Controlled by `use_mmr: true` and `mmr_threshold: 0.7` in `rag_config.yaml`.
 
-#### Query Decomposition / Multi-Query
-Break complex queries into sub-questions, retrieve for each independently, merge before reranking.
+#### Query Decomposition / Multi-Query ✅ Implemented
+Generate additional query variants using the LLM, retrieve for each, merge before reranking.
 
-**Value**: Consumer queries are compound (multi-entity, multi-domain).
+**Value**: Consumer queries are compound (multi-entity, multi-domain). `num_queries=3` generates 2 additional query variants for broader retrieval coverage.
 
-**Current State**: `num_queries=1` in QueryFusionRetriever.
+**Note**: Each additional query variant adds one LLM call during retrieval. Set `num_queries: 1` in `rag_config.yaml` to disable for batch jobs where runtime is critical.
 
 #### Caching
 Cache query embeddings and results for repeated or near-identical queries.
@@ -253,14 +261,12 @@ Build knowledge graph from LeanIX relationships at ingest time, then use graph t
 
 ### Reranking Strategies (Planned)
 
-#### Cross-Encoder Reranker
+#### Cross-Encoder Reranker ✅ Implemented
 Cross-encoder sees query + document *together* rather than independently.
 
 **Value**: Higher ranking quality than embedding cosine similarity.
 
-**Implementation**: `cross-encoder/ms-marco-MiniLM-L-6-v2` via `sentence-transformers`.
-
-**Current State**: Config has `reranker_strategy: "cross-encoder"` but requires `sentence-transformers` package installation.
+**Implementation**: `cross-encoder/ms-marco-MiniLM-L-6-v2` via `sentence-transformers` (added to `elt-llm-query` dependencies). Switch with `reranker_strategy: "cross-encoder"` in `rag_config.yaml`. Falls back to embedding reranker if package unavailable.
 
 **Latency**: 200–800ms (vs. 100–500ms for embedding reranker)
 
@@ -268,12 +274,12 @@ Cross-encoder sees query + document *together* rather than independently.
 
 ### Context Assembly Strategies (Planned)
 
-#### Lost-in-the-Middle Mitigation
+#### Lost-in-the-Middle Mitigation ✅ Implemented
 LLMs attend better to content at start and end of context. Reorder reranked chunks: highest-scoring first and last, lowest-scoring in middle.
 
 **Value**: Improves LLM attention across larger context windows.
 
-**Effort**: Low (reorder only, no additional computation)
+**Implementation**: `_reorder_for_lost_in_middle()` in `query.py`. Enabled via `use_lost_in_middle: true` in `rag_config.yaml`. Applied as the final post-processing step after reranking.
 
 #### Context Compression
 After retrieval, strip irrelevant sentences from each chunk before passing to LLM.
@@ -325,10 +331,13 @@ Automated RAG evaluation framework scoring:
 
 **RAG Requirements**:
 - Hybrid retrieval (implemented)
-- Embedding reranker (implemented)
+- Multi-query expansion — `num_queries=3` (implemented)
+- Embedding reranker with MMR diversity (implemented)
+- Cross-encoder reranker — `reranker_strategy: "cross-encoder"` (implemented)
+- Lost-in-the-middle reordering (implemented)
 - Structured JSON output (implemented)
 
-**Next**: Metadata enrichment, MMR, RAGAS evaluation
+**Next**: Metadata enrichment, parent-child chunking (both require fa_handbook re-ingestion), RAGAS evaluation
 
 ---
 
