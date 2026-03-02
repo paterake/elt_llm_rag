@@ -177,6 +177,45 @@ This ensures each collection has representation in the candidate pool while the 
 3. **Precision over recall**: Reranking ensures only the most relevant chunks reach the LLM
 4. **Transparency**: Retrieval scores and sources logged for debugging
 
+## Delivery Context
+
+The RAG platform is being built in three phases. Enhancement priorities in the backlog below are set against this roadmap.
+
+### Phase 1 — Data Asset Catalog (current)
+
+**Goal**: Produce a structured, reviewable catalog linking FA Handbook regulatory terms to LeanIX conceptual model entities and inventory descriptions.
+
+**Direction**: FA Handbook defined terms are the starting point (atomic, ~700+ terms). Each term is mapped back to its LeanIX conceptual model entity — not the reverse. The conceptual model is the organising frame; the Handbook provides the business/SME definition at a finer granularity.
+
+**Output**: Structured JSON per term — `entity_name`, `domain`, `description`, `formal_definition`, `governance_rules`, `fact_sheet_id` — reviewed with data modellers and stakeholders before downstream ingestion.
+
+**Consumers**: `business_glossary.py`, `fa_handbook_model_builder.py`, `fa_coverage_validator.py`, `fa_integrated_catalog.py`
+
+---
+
+### Phase 2 — Purview + Erwin LDM
+
+**Goal**: Import the reviewed catalog into Microsoft Purview as a governed business glossary, and embed entity definitions and relationships into an Erwin Logical Data Model.
+
+**RAG implications**:
+- **Structured output + citations** becomes critical — Purview expects term, definition, steward, domain, and related asset IDs in a consistent, parseable format
+- **GraphRAG** becomes critical — Erwin LDM requires entity *relationships* (not just definitions); relationship traversal across the LeanIX graph is needed to produce the lineage that feeds the LDM
+- Output format must be JSON (not CSV) for reliable downstream ingestion
+
+---
+
+### Phase 3 — Intranet + MS Fabric / Copilot
+
+**Goal**: Publish the catalog to the FA intranet and integrate with MS Fabric's agentic semantic model for use in Microsoft Copilot.
+
+**RAG implications**:
+- MS Fabric's semantic model (Power BI-style: measures, dimensions, relationships) uses the catalog as its grounding for Copilot Q&A
+- The glossary/catalog output must be structured and traceable — Copilot cites the semantic model, so definitions must be unambiguous and linked to authoritative sources
+- **Caching** becomes important at scale — Copilot queries will be repeated across many users against the same underlying terms
+- GraphRAG-derived relationship data feeds the semantic model's dimension/fact structure
+
+---
+
 ## Enhancement Backlog
 
 Strategies are grouped by pipeline stage and prioritised for this stack (FA Handbook regulatory text + LeanIX structured EA data).
@@ -185,26 +224,28 @@ Strategies are grouped by pipeline stage and prioritised for this stack (FA Hand
 
 | Priority | Strategy | Stage | Effort | Why it matters here |
 |----------|----------|-------|--------|---------------------|
-| **High** | Query decomposition / multi-query | Query | Low — `num_queries` config | Consumer queries are compound (multi-entity, multi-domain) |
-| **High** | MMR (Maximal Marginal Relevance) | Query | Low — mode flag | Prevents top-8 being near-duplicate adjacent paragraphs |
-| **High** | Metadata enrichment + filtering | Ingest + Query | Medium | Prerequisite for scoped queries; section/type/source filtering |
-| **Medium** | Parent-child chunking | Ingest | Medium — re-ingest | Preserves full rule context for FA Handbook regulatory text |
-| **Medium** | Cross-encoder reranker | Reranking | Medium — local model | Higher reranking quality than embedding cosine similarity |
-| **Medium** | GraphRAG | Ingest + Query | High | LeanIX is a native graph; relationship traversal answers what flat retrieval cannot |
-| **Medium** | RAGAS evaluation harness | Eval | Medium | Objective quality baseline; measures impact of config changes |
-| **Lower** | Lost-in-the-middle mitigation | Context | Low — reorder only | Zero latency cost; improves LLM attention across larger context windows |
-| **Lower** | Caching | Query | Low | Eliminates repeat latency for identical queries |
-| **Lower** | HyDE (query-time) | Query | Low — one extra LLM call | Helps vague/exploratory queries; BM25 already handles keyword queries |
-| **Lower** | Sentence window retrieval | Ingest | Low-Medium | Lightweight alternative to parent-child chunking |
-| **Lower** | Proposition chunking | Ingest | Medium | Atomic facts improve precision; good for LeanIX entity definitions |
-| **Lower** | HyDE ingest variant | Ingest | Medium — LLM at ingest | Bridges formal document language vs informal query vocabulary |
-| **Lower** | Time-weighted retrieval | Query | Low | Deprioritises stale LeanIX export versions after refresh |
-| **Lower** | LLM-as-reranker | Reranking | Low-Medium | Highest reranking quality; too slow for default path |
-| **Lower** | Context compression | Context | Medium | Reduces token noise in top-K chunks before LLM sees them |
-| **Lower** | Map-Reduce / Refine synthesis | Context | Medium | Handles context overflow when querying many collections |
-| **Lower** | Structured output + citations | LLM | Low — prompt change | Improves consumer parsing reliability; adds source auditability |
-| **Lower** | Self-RAG / CRAG | LLM | High | Corrective re-retrieval for multi-hop questions spanning Handbook + LeanIX |
-| **Lower** | FLARE | LLM | High | Iterative retrieval during generation for long-form answers |
+| Priority | Strategy | Stage | Effort | Phase | Why it matters |
+|----------|----------|-------|--------|-------|----------------|
+| **High** | Query decomposition / multi-query | Query | Low — `num_queries` config | 1 | Consumer queries are compound (multi-entity, multi-domain) |
+| **High** | MMR (Maximal Marginal Relevance) | Query | Low — mode flag | 1 | Prevents top-8 being near-duplicate adjacent paragraphs |
+| **High** | Metadata enrichment + filtering | Ingest + Query | Medium | 1 | Prerequisite for scoped queries; section/type/source filtering |
+| **High** | Structured output + citations | LLM | Low — prompt change | 2 | Purview import requires consistent, parseable term/definition/asset format |
+| **High** | GraphRAG | Ingest + Query | High | 2 | Erwin LDM requires relationship traversal; LeanIX is a native graph |
+| **Medium** | Parent-child chunking | Ingest | Medium — re-ingest | 1 | Preserves full rule context for FA Handbook regulatory text |
+| **Medium** | Cross-encoder reranker | Reranking | Medium — local model | 1 | Higher reranking quality than embedding cosine similarity |
+| **Medium** | RAGAS evaluation harness | Eval | Medium | 1 | Objective quality baseline; measures impact of config changes |
+| **Lower** | Lost-in-the-middle mitigation | Context | Low — reorder only | 1 | Zero latency cost; improves LLM attention across larger context windows |
+| **Lower** | Caching | Query | Low | 3 | Repeated Copilot queries across many users against the same terms |
+| **Lower** | HyDE (query-time) | Query | Low — one extra LLM call | 1 | Helps vague/exploratory queries; BM25 already handles keyword queries |
+| **Lower** | Sentence window retrieval | Ingest | Low-Medium | 1 | Lightweight alternative to parent-child chunking |
+| **Lower** | Proposition chunking | Ingest | Medium | 1 | Atomic facts improve precision; good for LeanIX entity definitions |
+| **Lower** | HyDE ingest variant | Ingest | Medium — LLM at ingest | 1 | Bridges formal document language vs informal query vocabulary |
+| **Lower** | Time-weighted retrieval | Query | Low | 2 | Deprioritises stale LeanIX export versions after refresh |
+| **Lower** | LLM-as-reranker | Reranking | Low-Medium | 1 | Highest reranking quality; too slow for default path |
+| **Lower** | Context compression | Context | Medium | 1 | Reduces token noise in top-K chunks before LLM sees them |
+| **Lower** | Map-Reduce / Refine synthesis | Context | Medium | 1 | Handles context overflow when querying many collections |
+| **Lower** | Self-RAG / CRAG | LLM | High | 2 | Corrective re-retrieval for multi-hop questions spanning Handbook + LeanIX |
+| **Lower** | FLARE | LLM | High | 3 | Iterative retrieval during generation for Copilot long-form answers |
 
 ---
 
