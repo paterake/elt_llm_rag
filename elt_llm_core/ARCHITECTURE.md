@@ -9,7 +9,7 @@
 - Configuration ([config.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/src/elt_llm_core/config.py))
   - Dataclasses for `ChromaConfig`, `OllamaConfig`, `ChunkingConfig`, `QueryConfig`, `RagConfig`
   - YAML → dataclass mapping with fields:
-    - Query: `similarity_top_k`, `use_hybrid_search`, `use_reranker`, `reranker_strategy`, `reranker_retrieve_k`, `reranker_top_k`, `system_prompt`
+    - Query: `similarity_top_k`, `use_hybrid_search`, `use_reranker`, `reranker_strategy`, `reranker_retrieve_k`, `reranker_top_k`, `reranker_model`, `num_queries`, `use_mmr`, `mmr_threshold`, `use_lost_in_middle`, `system_prompt`
     - Chunking: `strategy`, `chunk_size`, `chunk_overlap`, `sentence_split_threshold`
 - Models ([models.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/src/elt_llm_core/models.py))
   - Embeddings: `OllamaEmbedding` (e.g., `nomic-embed-text`)
@@ -37,7 +37,13 @@ query:
   reranker_strategy: "embedding"   # "embedding" | "cross-encoder"
   reranker_retrieve_k: 20
   reranker_top_k: 8
+  num_queries: 3          # LLM-generated query variants (1=off)
+  use_mmr: true           # MMR diversity filter
+  mmr_threshold: 0.7      # 0=max diversity, 1=max relevance
+  use_lost_in_middle: true  # Reorder chunks for LLM attention
 ```
+
+See [RAG_STRATEGY.md](../RAG_STRATEGY.md) for config knob trade-offs.
 
 ## Guarantees
 - Local-first operation: all inference via Ollama; no external dependencies required for the embedding reranker.

@@ -18,7 +18,7 @@
 - [3. Technology Stack](#3-technology-stack)
 - [4. RAG Pipeline](#4-rag-pipeline)
 - [5. Consumer Layer](#5-consumer-layer)
-- [6. Implementation Roadmap](#6-implementation-roadmap)
+- [6. Delivery Roadmap](#6-delivery-roadmap)
 
 ---
 
@@ -81,11 +81,9 @@ elt_llm_rag/
 │   └── app.py              # Gradio web application
 │
 └── elt_llm_consumer/       # Output generators
-    ├── fa_consolidated_catalog.py  # Target output
-    ├── fa_integrated_catalog.py
+    ├── fa_consolidated_catalog.py  # Target output (primary)
     ├── fa_handbook_model_builder.py
-    ├── fa_coverage_validator.py
-    └── business_glossary.py
+    └── fa_coverage_validator.py
 ```
 
 ---
@@ -98,7 +96,7 @@ elt_llm_rag/
 | Embeddings | Ollama | `nomic-embed-text` (768 dims) |
 | LLM | Ollama | `qwen2.5:14b` (8K context) |
 | Retrieval | LlamaIndex | BM25 + Vector hybrid |
-| Reranking | Embedding | Cosine similarity (top-20 → top-8) |
+| Reranking | Embedding or Cross-encoder | Cosine similarity or CrossEncoder (top-20 → top-8) |
 | Dependency Mgmt | uv | Python 3.11-3.13 |
 
 ---
@@ -108,26 +106,14 @@ elt_llm_rag/
 ### 4.1 Retrieval Flow
 
 ```
-Query → Hybrid Retrieval (BM25 + Vector) → Top-20 candidates
-      → Embedding Reranker (cosine similarity) → Top-8 chunks
-      → LLM Synthesis (qwen2.5:14b) → Structured output
+Query → Multi-query expansion → Hybrid Retrieval (BM25 + Vector)
+      → Embedding or Cross-encoder Reranker + MMR diversity
+      → Lost-in-middle reorder → LLM Synthesis → Structured output
 ```
 
-### 4.2 Configuration
+See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, and performance characteristics.
 
-Defined in `elt_llm_ingest/config/rag_config.yaml`:
-
-```yaml
-query:
-  similarity_top_k: 8
-  use_hybrid_search: true
-  use_reranker: true
-  reranker_strategy: "embedding"
-  reranker_retrieve_k: 20
-  reranker_top_k: 8
-```
-
-### 4.3 Collection Structure
+### 4.2 Collection Structure
 
 | Collection | Source | Content |
 |------------|--------|---------|
@@ -166,69 +152,20 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 | Consumer | Purpose | When to Use |
 |----------|---------|-------------|
-| `fa_integrated_catalog` | ToR per entity | Alternative output format |
-| `fa_handbook_model_builder` | Handbook-only extraction | No LeanIX available |
-| `fa_coverage_validator` | Coverage scoring | Model refinement cycle |
-| `business_glossary` | Inventory-driven glossary | Different output format |
+| `fa_handbook_model_builder` | Handbook-only entity extraction | No LeanIX available; gap discovery |
+| `fa_coverage_validator` | Coverage scoring against Handbook | Model refinement cycle; gap analysis |
 
 ---
 
-## 6. Implementation Roadmap
+## 6. Delivery Roadmap
 
-### 6.1 Phase 1: Foundation (Weeks 1-4)
+Phase 1 (Data Asset Catalog) is complete. Phases 2–5 (Purview, Erwin LDM, Intranet, MS Fabric/Copilot) are planned.
 
-| Task | Owner | Status |
-|------|-------|--------|
-| LeanIX glossary export | Development Team | TODO |
-| ISO Reference Data ingestion | Development Team | TODO |
-| FAGlossaryPreprocessor | Development Team | TODO |
-| FDM ingestion + alignment | Data Team | TODO |
-
-### 6.2 Phase 2: SAD Quality + Generation (Weeks 5-8)
-
-| Task | Owner | Status |
-|------|-------|--------|
-| SAD Quality Checker | Development Team | TODO |
-| Confluence scraper | Development Team | TODO |
-| SAD template definition | Development Team + Data Team | TODO |
-
-### 6.3 Phase 3: ERD Automation (Weeks 9-12)
-
-| Task | Owner | Status |
-|------|-------|--------|
-| PlantUML ERD generator | Development Team | TODO |
-| draw.io export | Development Team | TODO |
-| Conceptual → Logical mapping | Data Team | TODO |
-
-### 6.4 Phase 4: Purview Integration (Weeks 13-16)
-
-| Task | Owner | Status |
-|------|-------|--------|
-| Purview glossary export | Development Team | TODO |
-| Purview schema import | Development Team | TODO |
-| Lineage query interface | Development Team | TODO |
-
-### 6.5 Phase 5: Vendor Assessment (Weeks 17-20)
-
-| Task | Owner | Status |
-|------|-------|--------|
-| Vendor assessment template | Development Team + Data Team | TODO |
-| Vendor comparison generator | Development Team | TODO |
+See [ORCHESTRATION.md](ORCHESTRATION.md) for full phase detail, runbooks, and current status.
 
 ---
 
-## 7. Success Metrics
-
-| Metric | Baseline | Target |
-|--------|----------|--------|
-| SAD authoring time | 2-3 weeks | 3-5 days |
-| Glossary term lookup | Manual search | <10 seconds |
-| ERD creation | Manual (days) | Automated (minutes) |
-| Reference data conformance | Unknown | 95%+ validated |
-
----
-
-## 8. References
+## 7. References
 
 - [README.md](README.md) — Quick start
 - [SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md) — Stakeholder presentation

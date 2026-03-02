@@ -103,7 +103,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 | **Embeddings** | Ollama | `nomic-embed-text` (768 dimensions) |
 | **LLM** | Ollama | `qwen2.5:14b` (8K context) |
 | **Retrieval** | Hybrid | BM25 + Vector via QueryFusionRetriever |
-| **Reranking** | Embedding | Cosine similarity (top-20 → top-8) |
+| **Reranking** | Embedding or Cross-encoder | Cosine similarity or CrossEncoder (top-20 → top-8) |
 | **Orchestration** | LlamaIndex | Query engine with synthesis |
 
 ### 2.3 RAG Strategy
@@ -158,16 +158,7 @@ uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 - LLM synthesis with system prompts
 - Structured output parsing
 
-**Configuration** (`rag_config.yaml`):
-```yaml
-query:
-  similarity_top_k: 8
-  use_hybrid_search: true
-  use_reranker: true
-  reranker_strategy: "embedding"
-  reranker_retrieve_k: 20
-  reranker_top_k: 8
-```
+**Configuration**: see `elt_llm_ingest/config/rag_config.yaml` and [RAG_STRATEGY.md](RAG_STRATEGY.md) for full config reference.
 
 ### 3.3 Consumer Layer (`elt_llm_consumer`)
 
@@ -423,8 +414,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model 
 | Consumer | Purpose | When to Use |
 |----------|---------|-------------|
 | `coverage-validator` | Coverage scoring (STRONG/MODERATE/THIN/ABSENT) | Model refinement cycle |
-| `handbook-model` | Handbook-only entity extraction | No LeanIX available |
-| `integrated-catalog` | Alternative ToR generation | Different output format |
+| `handbook-model` | Handbook-only entity extraction | No LeanIX available; gap discovery |
 
 ---
 

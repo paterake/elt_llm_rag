@@ -68,13 +68,11 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model 
 
 ## All Consumers
 
-| # | Script | Entry Point | Purpose | Runtime |
-|---|--------|-------------|---------|---------|
-|  | `fa_consolidated_catalog.py` | `elt-llm-consumer-consolidated-catalog` | **Target output** — merged catalog with all 7 requirements | ~5-10 min |
-| 1 | `fa_integrated_catalog.py` | `elt-llm-consumer-integrated-catalog` | Conceptual model + Handbook context (ToR per entity) | ~35-70 min |
-| 2 | `fa_handbook_model_builder.py` | `elt-llm-consumer-handbook-model` | Extract candidate entities from Handbook alone | ~20-40 min |
-| 3 | `fa_coverage_validator.py` | `elt-llm-consumer-coverage-validator` | Validate model coverage against Handbook (no LLM) | ~3-7 min |
-| 4 | `business_glossary.py` | `elt-llm-consumer-glossary` | LeanIX inventory → business glossary via RAG | ~35-40 min |
+| Script | Entry Point | Purpose | Runtime |
+|--------|-------------|---------|---------|
+| `fa_consolidated_catalog.py` | `elt-llm-consumer-consolidated-catalog` | **Target output** — merged catalog with all 7 requirements | ~5-10 min |
+| `fa_handbook_model_builder.py` | `elt-llm-consumer-handbook-model` | Extract candidate entities from Handbook alone | ~5-7 min |
+| `fa_coverage_validator.py` | `elt-llm-consumer-coverage-validator` | Validate model coverage against Handbook (no LLM) | ~3-7 min |
 
 ---
 
@@ -138,35 +136,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model 
 
 ---
 
-## 2. FA Integrated Catalog
-
-**File**: `fa_integrated_catalog.py`
-
-**Purpose**: Generate Terms of Reference (ToR) for each conceptual model entity.
-
-**Usage**:
-```bash
-uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
-
-# Targeted re-run for specific entities
-uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog \
-  --entities 'Club,Player,Referee'
-
-# Resume after interruption
-RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
-```
-
-**Output**:
-```
-.tmp/fa_terms_of_reference.json  ← ToR per entity
-.tmp/fa_integrated_catalog.json  ← Combined catalog
-```
-
-**Runtime**: ~217 entities × 10-20s ≈ 35-70 min
-
----
-
-## 3. FA Handbook Model Builder
+## 2. FA Handbook Model Builder
 
 **File**: `fa_handbook_model_builder.py`
 
@@ -198,7 +168,7 @@ RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
 
 ---
 
-## 4. FA Coverage Validator
+## 3. FA Coverage Validator
 
 **File**: `fa_coverage_validator.py`
 
@@ -236,34 +206,6 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 | `ABSENT` | < 0.40 | Not meaningfully present in handbook |
 
 **Runtime**: ~217 entities × 1-2s = 3-7 min (no LLM, retrieval only)
-
----
-
-## 5. Business Glossary Generator
-
-**File**: `business_glossary.py`
-
-**Purpose**: Generate business glossary from LeanIX inventory via RAG queries.
-
-**Usage**:
-```bash
-uv run --package elt-llm-consumer elt-llm-consumer-glossary
-
-# By type
-uv run --package elt-llm-consumer elt-llm-consumer-glossary --type dataobjects
-uv run --package elt-llm-consumer elt-llm-consumer-glossary --type interfaces
-
-# Resume after interruption
-RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-glossary
-```
-
-**Output**:
-```
-.fa_business_catalog_dataobjects.json
-.fa_business_catalog_interfaces.json
-```
-
-**Runtime**: ~229 DataObjects × 10s ≈ 35-40 min
 
 ---
 

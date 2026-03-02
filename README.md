@@ -122,24 +122,18 @@ uv run python -m elt_llm_api.app
 
 ### elt_llm_consumer
 
-Purpose-built output generators: consolidated catalog, integrated catalog, handbook model builder, coverage validator, business glossary.
+Purpose-built output generators: consolidated catalog, handbook model builder, coverage validator.
 
 ```bash
 # Primary output: consolidated catalog
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
 
-# Alternative: integrated catalog
-uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog
-
 # Handbook-only entity extraction
 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
 
 # Coverage validation
 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
-
-# Business glossary from inventory
-uv run --package elt-llm-consumer elt-llm-consumer-glossary
 ```
 
 **Docs**: [elt_llm_consumer/README.md](elt_llm_consumer/README.md)
@@ -197,7 +191,7 @@ uv run python -m elt_llm_ingest.runner --cfg load_rag
 | Embeddings | Ollama (nomic-embed-text) |
 | LLM | Ollama (qwen2.5:14b) |
 | Retrieval | LlamaIndex (BM25 + Vector hybrid) |
-| Reranking | Embedding cosine similarity |
+| Reranking | Embedding (default) or Cross-encoder |
 | Dependency Management | uv |
 
 ---

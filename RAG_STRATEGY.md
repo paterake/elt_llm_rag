@@ -52,6 +52,16 @@ query:
   use_lost_in_middle: true          # reorder chunks for LLM attention
 ```
 
+### Config Knob Quick Reference
+
+| Key | What it does | Trade-off |
+|-----|-------------|-----------|
+| `num_queries` | LLM generates extra query variants for broader retrieval | Each extra variant = 1 extra LLM call per query. Set to `1` if batch job runs too slow |
+| `use_mmr` | Picks diverse chunks instead of top-N by score alone | Slight quality risk if threshold too low — keep at `0.7` |
+| `mmr_threshold` | Balance between relevance (`1.0`) and diversity (`0.0`) | Lower = more diverse but potentially less relevant |
+| `use_lost_in_middle` | Reorders chunks so best appear at start AND end of context window | No cost — pure reorder |
+| `reranker_strategy` | `"embedding"` = fast local (Ollama); `"cross-encoder"` = slower but higher quality | Cross-encoder adds ~200–800ms per query |
+
 ### Technology Stack
 
 | Component | Technology | Configuration |

@@ -14,10 +14,14 @@ Query local RAG collections with hybrid retrieval (BM25 + vector), optional embe
 3. Candidate pool size:
    - `similarity_top_k` (default)
    - `reranker_retrieve_k` when reranker enabled
-4. Reranking:
-   - `reranker_strategy: "embedding"` — cosine similarity using Ollama embeddings (no external downloads)
+4. Multi-query expansion (`num_queries`): LLM generates additional query variants for broader recall
+5. Reranking:
+   - `reranker_strategy: "embedding"` — cosine similarity using Ollama embeddings (local, no downloads)
+   - `reranker_strategy: "cross-encoder"` — sentence-transformers CrossEncoder (higher quality, ~200–800ms extra)
+   - Optional MMR (`use_mmr`) — picks diverse chunks to avoid near-duplicate context
    - `reranker_top_k` retained for LLM synthesis
-5. Synthesis:
+6. Lost-in-middle reorder (`use_lost_in_middle`): highest-scoring chunks placed at context window ends
+7. Synthesis:
    - Single LLM call (Ollama `llm_model`), optional `system_prompt`, with all top-k nodes merged across collections
 
 ## Profiles

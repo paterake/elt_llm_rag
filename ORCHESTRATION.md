@@ -20,12 +20,9 @@ The platform successfully delivers:
 | Conceptual model as the frame | LeanIX XML (217 entities across 11 domain collections) |  |
 | FA Handbook providing SME/business context | RAG collection with ~9,673 chunks |  |
 | LeanIX Inventory providing entity descriptions | Excel-driven join via `fact_sheet_id` (100% match rate) |  |
-| Glossary terms linked to LeanIX Data Objects | `fa_integrated_catalog.json` + `fa_terms_of_reference.json` |  |
-| Export to CSV | Consolidated catalog with CSV export |  |
+| Glossary terms linked to LeanIX Data Objects | `fa_consolidated_catalog.json` — BOTH/LEANIX_ONLY/HANDBOOK_ONLY classification |  |
 
 **Key Achievement**: 100% match rate — all 217 conceptual model entities linked to inventory descriptions with FA Handbook governance context.
-
-**New**: Consolidated Catalog script merges LeanIX + Handbook entities with source attribution and CSV export for Purview import.
 
 ---
 
@@ -38,7 +35,6 @@ The platform successfully delivers:
 | **Ingestion** |  Complete | `uv run python -m elt_llm_ingest.runner --cfg load_rag` |
 | **Query (CLI)** |  Complete | `uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture` |
 | **Query (GUI)** |  Complete | `uv run python -m elt_llm_api.app` |
-| **Integrated Catalog** |  Complete | `elt-llm-consumer-integrated-catalog` |
 | **Coverage Validator** |  Complete | `elt-llm-consumer-coverage-validator --gap-analysis` |
 | **Handbook Model Builder** |  Complete | `elt-llm-consumer-handbook-model` |
 | **Consolidated Catalog** |  Complete | `elt-llm-consumer-consolidated-catalog` |
@@ -66,17 +62,15 @@ Produce a structured catalog linking FA Handbook regulatory terms to LeanIX conc
 
 ### Deliverables
 
-| File | Location | Description |
-|------|----------|-------------|
-| `fa_terms_of_reference.json` | `~/.tmp/elt_llm_consumer/` | Structured ToR per entity: definition + domain context + governance |
-| `fa_integrated_catalog.json` | `~/.tmp/elt_llm_consumer/` | Combined catalog for bulk use |
-| `fa_handbook_candidate_entities.json` | `~/.tmp/elt_llm_consumer/` | Entities discovered from Handbook only |
-| `fa_handbook_candidate_relationships.json` | `~/.tmp/elt_llm_consumer/` | Relationships inferred from Handbook |
-| `fa_coverage_report.json` | `~/.tmp/elt_llm_consumer/` | Coverage scoring: Model → Handbook |
-| `fa_gap_analysis.json` | `~/.tmp/elt_llm_consumer/` | Gap analysis: Handbook → Model |
-| `fa_consolidated_catalog.json` | `~/.tmp/elt_llm_consumer/` | **NEW**: Merged LeanIX + Handbook entities with source attribution |
-| `fa_consolidated_catalog.csv` | `~/.tmp/elt_llm_consumer/` | **NEW**: CSV export for Purview import |
-| `fa_consolidated_relationships.json` | `~/.tmp/elt_llm_consumer/` | **NEW**: Merged relationships with source lineage |
+| File | Location | Consumer | Description |
+|------|----------|----------|-------------|
+| `fa_consolidated_catalog.json` | `.tmp/` | `consolidated-catalog` | Merged LeanIX + Handbook entities with source attribution — **primary output** |
+| `fa_consolidated_relationships.json` | `.tmp/` | `consolidated-catalog` | Relationships with source lineage |
+| `fa_handbook_candidate_entities.json` | `.tmp/` | `handbook-model` | Entities discovered from Handbook only |
+| `fa_handbook_candidate_relationships.json` | `.tmp/` | `handbook-model` | Relationships inferred from Handbook |
+| `fa_handbook_terms_of_reference.json` | `.tmp/` | `handbook-model` | Consolidated ToR per Handbook term |
+| `fa_coverage_report.json` | `.tmp/` | `coverage-validator` | Coverage scoring: Model → Handbook |
+| `fa_gap_analysis.json` | `.tmp/` | `coverage-validator` | Gap analysis: Handbook → Model |
 
 ### Entity Classification (in Consolidated Catalog)
 
@@ -101,23 +95,17 @@ Produce a structured catalog linking FA Handbook regulatory terms to LeanIX conc
 # Step 1: Ensure collections are ingested
 uv run python -m elt_llm_ingest.runner --cfg load_rag
 
-# Step 2: Generate integrated catalog (conceptual model as frame)
-uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qwen2.5:14b
-
-# Step 3: Build candidate model from Handbook only (Handbook-first approach)
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
-
-# Step 4: Run gap analysis (identify Handbook entities missing from Model)
-uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
-
-# Step 5: Generate consolidated catalog (merge LeanIX + Handbook with source attribution)
+# Step 2: Generate consolidated catalog (primary output)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen2.5:14b
 
-# Step 6 (optional): Enrich HANDBOOK_ONLY entities with additional RAG queries
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --enrich-handbook-only
+# Step 3 (optional): Build candidate model from Handbook only
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
 
-# Step 7: Review outputs
-ls -lh ~/.tmp/elt_llm_consumer/
+# Step 4 (optional): Run gap analysis
+uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
+
+# Step 5: Review outputs
+ls -lh .tmp/
 ```
 
 ### Review Workflow
@@ -139,11 +127,7 @@ ls -lh ~/.tmp/elt_llm_consumer/
    - Backlog of entities to add to LeanIX conceptual model
    - Updated JSON with review status
 
-**Post-review CSV export**:
-```bash
-# After updating review_status in JSON, re-export CSV
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --csv-only
-```
+**Post-review**: After updating `review_status` fields in JSON, re-run the consumer to regenerate the output or transform the reviewed JSON for downstream import.
 
 ---
 
@@ -170,12 +154,11 @@ Import reviewed catalog into Microsoft Purview as a governed business glossary a
 ### Runbook: Phase 2 (TBD)
 
 ```bash
-# Step 1: Ensure consolidated catalog CSV is up to date
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --csv-only
+# Step 1: Ensure consolidated catalog is up to date
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 # Step 2: Import to Purview (manual or API)
-# TBD: Purview import process
-# Expected: Import fa_consolidated_catalog.csv via Purview API or UI
+# TBD: Transform fa_consolidated_catalog.json → Purview import format
 
 # Step 3: Generate Erwin LDM (GraphRAG required)
 # TBD: Erwin integration method
@@ -321,26 +304,17 @@ uv run python -m elt_llm_api.app
 ### Consumer Scripts (Phase 1 Deliverables)
 
 ```bash
-# Generate integrated catalog (conceptual model as frame)
-uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --model qwen2.5:14b
+# Primary output: consolidated catalog (merge LeanIX + Handbook with source attribution)
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
-# Generate business glossary (LeanIX inventory as driver)
-uv run --package elt-llm-consumer elt-llm-consumer-glossary --model qwen2.5:14b
+# Faster run (skip relationship extraction)
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
 
-# Build candidate model from Handbook only
+# Build candidate model from Handbook only (optional — for gap analysis input)
 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
 
 # Validate coverage + gap analysis
 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
-
-# Generate consolidated catalog (merge LeanIX + Handbook with source attribution)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen2.5:14b
-
-# Enrich HANDBOOK_ONLY entities with additional RAG queries
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --enrich-handbook-only
-
-# Re-export CSV after review status updates
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --csv-only
 ```
 
 ### Model Options
@@ -362,20 +336,17 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --csv-on
 | **Ollama not running** | `ollama serve` (in separate terminal) |
 | **Model not found** | `ollama pull nomic-embed-text` and `ollama pull qwen2.5:14b` |
 | **Collections missing** | Run `uv run python -m elt_llm_ingest.runner --cfg load_rag` |
-| **Consumer script fails** | Check `~/.tmp/elt_llm_consumer/` exists and is writable |
+| **Consumer script fails** | Check `.tmp/` directory at project root exists and is writable |
 | **Out of memory** | Reduce batch size or use smaller model (`llama3.1:8b`) |
 
 ### Output Location
 
-All consumer outputs written to:
+All consumer outputs written to `.tmp/` at the project root:
 ```
-~/.tmp/elt_llm_consumer/
+elt_llm_rag/.tmp/
 ```
 
-To change output directory:
-```bash
-uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --output-dir /custom/path
-```
+To change output directory, pass `--output-dir /custom/path` to any consumer script.
 
 ---
 
@@ -422,19 +393,17 @@ uv run --package elt-llm-consumer elt-llm-consumer-integrated-catalog --output-d
 
 ### Output Files
 
-| File | Phase | Purpose |
-|------|-------|---------|
-| `fa_terms_of_reference.json` | 1 | Structured ToR per entity |
-| `fa_integrated_catalog.json` | 1 | Combined catalog |
-| `fa_handbook_candidate_entities.json` | 1 | Handbook-discovered entities |
-| `fa_handbook_candidate_relationships.json` | 1 | Handbook-discovered relationships |
-| `fa_coverage_report.json` | 1 | Coverage scoring |
-| `fa_gap_analysis.json` | 1 | Gap analysis |
-| `fa_consolidated_catalog.json` | 1 | Merged LeanIX + Handbook entities with source attribution |
-| `fa_consolidated_catalog.csv` | 1 | CSV export for Purview import |
-| `fa_consolidated_relationships.json` | 1 | Merged relationships with source lineage |
-| `purview_glossary.csv` | 2 | Purview import (TBD) |
-| `erwin_ldm.json` | 2 | Erwin LDM (TBD) |
+| File | Phase | Consumer | Purpose |
+|------|-------|----------|---------|
+| `fa_consolidated_catalog.json` | 1 | `consolidated-catalog` | Merged LeanIX + Handbook entities — **primary output** |
+| `fa_consolidated_relationships.json` | 1 | `consolidated-catalog` | Relationships with source lineage |
+| `fa_handbook_candidate_entities.json` | 1 | `handbook-model` | Handbook-discovered entities |
+| `fa_handbook_candidate_relationships.json` | 1 | `handbook-model` | Handbook-discovered relationships |
+| `fa_handbook_terms_of_reference.json` | 1 | `handbook-model` | ToR per Handbook term |
+| `fa_coverage_report.json` | 1 | `coverage-validator` | Coverage scoring |
+| `fa_gap_analysis.json` | 1 | `coverage-validator` | Gap analysis |
+| `purview_glossary.csv` | 2 | TBD | Purview import (TBD) |
+| `erwin_ldm.json` | 2 | TBD | Erwin LDM (TBD) |
 
 ---
 
