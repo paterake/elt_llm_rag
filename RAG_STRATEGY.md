@@ -1,18 +1,61 @@
 # RAG Strategy
 
-This document defines the Retrieval-Augmented Generation (RAG) strategy employed by `elt_llm_rag`.
+**Status**: Production-ready for FA glossary/catalogue generation  
+**Last Updated**: March 2026
 
-## Overview
+---
 
-The system implements a **hybrid retrieval** strategy combining dense vector search, sparse keyword matching, and embedding-based reranking to maximise retrieval quality before LLM synthesis.
+## Executive Summary
+
+The system implements a **hybrid retrieval + reranking** strategy:
 
 ```
 Query → Hybrid Retrieval (BM25 + Vector) → Embedding Reranker → Top-K Chunks → LLM → Answer
 ```
 
-All retrieval steps — including LLM synthesis — are owned by `elt_llm_query`. Consumers (`elt_llm_consumer`, `elt_llm_api`) call into it and receive a completed `QueryResult`.
+**Key Design Decisions**:
+- **Hybrid search**: BM25 (keyword) + Vector (semantic) — captures both exact matches and conceptual similarity
+- **Embedding reranking**: Re-scores retrieved chunks by query-document cosine similarity before LLM synthesis
+- **Local-first**: All embeddings and inference via Ollama — no external API dependencies
+- **Precision over recall**: Reranking ensures only the most relevant chunks reach the LLM
 
-## Package Boundaries
+---
+
+## What's Implemented (Production)
+
+### Retrieval Pipeline
+
+| Stage | Implementation | Status |
+|-------|----------------|--------|
+| **1. Hybrid Retrieval** | BM25 + Vector via QueryFusionRetriever | ✅ Production |
+| **2. Embedding Reranker** | Cosine similarity re-scoring (nomic-embed-text) | ✅ Production |
+| **3. LLM Synthesis** | Ollama (qwen2.5:14b) with system prompt | ✅ Production |
+
+### Configuration
+
+**File**: `elt_llm_ingest/config/rag_config.yaml`
+
+```yaml
+query:
+  similarity_top_k: 10
+  use_hybrid_search: true
+  use_reranker: true
+  reranker_strategy: "embedding"
+  reranker_retrieve_k: 20
+  reranker_top_k: 8
+```
+
+### Technology Stack
+
+| Component | Technology | Configuration |
+|-----------|------------|---------------|
+| Vector Store | ChromaDB | Persistent, tenant/database isolation |
+| Embeddings | Ollama | `nomic-embed-text` (768 dimensions) |
+| LLM | Ollama | `qwen2.5:14b` (8K context window) |
+| Hybrid Retrieval | LlamaIndex | BM25 + Vector via QueryFusionRetriever |
+| Reranking | Custom | Embedding cosine similarity |
+
+### Package Boundaries
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -27,7 +70,7 @@ All retrieval steps — including LLM synthesis — are owned by `elt_llm_query`
 │  → ChromaDB        │   │  2. BM25 (DocStore)                  │
 │  → DocStore        │   │  3. Hybrid Fusion (RRF)              │
 └────────────────────┘   │  4. Embedding Reranker               │
-                         │  5. LLM Synthesis  ← final step here │
+                         │  5. LLM Synthesis                    │
                          └──────────┬───────────────────────────┘
                                     │  QueryResult
                     ┌───────────────┴────────────────┐
@@ -39,87 +82,50 @@ All retrieval steps — including LLM synthesis — are owned by `elt_llm_query`
        └────────────────────────┘
 ```
 
-### Ingest vs Query responsibilities
+---
 
-| Module | Does | Does NOT do |
-|--------|------|-------------|
-| **`elt_llm_ingest`** | Chunk · embed · store in ChromaDB + DocStore | Retrieval · BM25 · reranking · querying |
-| **`elt_llm_query`** | Dense + BM25 retrieval · hybrid fusion · reranking · LLM synthesis | Ingestion · embedding generation |
+## What's Planned (Backlog)
 
-## Retrieval Pipeline (inside `elt_llm_query`)
+### High Priority (Phase 1-2)
 
-### Step 1: Hybrid Retrieval
+| Enhancement | Benefit | Effort | When |
+|-------------|---------|--------|------|
+| **Metadata enrichment** | Scoped queries by section/type/source | Medium | Phase 1 |
+| **Structured output + citations** | Purview-ready format with source attribution | Low | Phase 2 |
+| **GraphRAG** | Relationship traversal for Erwin LDM | High | Phase 2 |
+| **MMR (Maximal Marginal Relevance)** | Prevents duplicate chunks in context | Low | Phase 1 |
 
-Two parallel retrievers fetch candidate chunks:
+### Medium Priority (Phase 2-3)
 
-| Retriever | Technology | Strengths |
-|-----------|------------|-----------|
-| **Dense Vector** | LlamaIndex + ChromaDB | Finds conceptually related content even with different wording |
-| **Sparse (BM25)** | llama-index-retrievers-bm25 + bm25s | Finds exact terms, acronyms, version numbers, structured data |
+| Enhancement | Benefit | Effort | When |
+|-------------|---------|--------|------|
+| **Parent-child chunking** | Preserves full rule context for regulatory text | Medium | Phase 1 |
+| **Cross-encoder reranker** | Higher reranking quality (MiniLM-L-6-v2) | Medium | Phase 1 |
+| **RAGAS evaluation harness** | Objective quality baseline | Medium | Phase 1 |
 
-**Fusion**: `QueryFusionRetriever` in `reciprocal_rerank` mode combines both result sets, balancing semantic and keyword signals.
+### Lower Priority (Phase 3+)
 
-### Step 2: Embedding Reranker
+| Enhancement | Benefit | Effort | When |
+|-------------|---------|--------|------|
+| **Caching** | Repeated Copilot queries | Low | Phase 3 |
+| **Context compression** | Reduces token noise | Medium | Phase 2 |
+| **Query decomposition** | Multi-entity queries | Low | Phase 1 |
+| **HyDE (query-time)** | Vague/exploratory queries | Low | Phase 1 |
 
-The initial retrieval uses fast approximations (vector cosine similarity + BM25 scores). The reranker performs a more careful re-scoring pass:
+---
 
-1. Fetch top-20 candidates (`reranker_retrieve_k`)
-2. Embed each chunk using Ollama (`nomic-embed-text`)
-3. Compute query-document cosine similarity
-4. Keep top-8 (`reranker_top_k`) for LLM context
+## Retrieval Flow
 
-**Why reranking matters**: Initial retrieval optimises for speed. Reranking optimises for relevance — ensuring the LLM receives the most pertinent chunks.
-
-### Step 3: LLM Synthesis
-
-The reranked chunks are passed to the LLM (via Ollama) with an optional system prompt. This is the final step executed inside `query_collection()` / `query_collections()` — the result is returned as a `QueryResult` to the caller.
-
-## Configuration
-
-Defined in `elt_llm_ingest/config/rag_config.yaml`:
-
-```yaml
-query:
-  similarity_top_k: 8
-  use_hybrid_search: true          # Combine BM25 + vector
-  use_reranker: true               # Enable reranking
-  reranker_strategy: "embedding"   # "embedding" | "cross-encoder"
-  reranker_retrieve_k: 20          # Candidates before reranking
-  reranker_top_k: 8                # Chunks passed to LLM
-```
-
-## Technologies
-
-| Component | Technology | Notes |
-|-----------|------------|-------|
-| **Shared infrastructure** | `elt_llm_core` | Models, vector store, config, base query engine |
-| **Dense Vector Store** | ChromaDB | `chromadb` + `llama-index-vector-stores-chroma` |
-| **Sparse Retrieval** | BM25 | `bm25s` + `llama-index-retrievers-bm25` |
-| **Embeddings** | Ollama | `nomic-embed-text` |
-| **LLM** | Ollama | Local models (e.g. `qwen2.5:14b`, `llama3.1`, `mistral`) |
-| **Reranking** | Embedding cosine similarity | Custom implementation via Ollama embeddings |
-
-## Why This Strategy?
-
-| Retriever | Weakness without hybrid |
-|-----------|------------------------|
-| **Vector-only** | Struggles with exact matches (version numbers, acronyms, IDs) |
-| **BM25-only** | Misses semantic equivalence ("How do I join?" ≠ "Membership process") |
-
-Combining both captures what either alone misses. The reranker then re-scores all candidates by genuine relevance so the LLM receives the highest-precision chunks.
-
-## Retrieval Flow (Single Collection)
+### Single Collection
 
 ```
 ┌─────────────┐
 │   Query     │
 └──────┬──────┘
        │
-       ├──→ [Vector Retriever] ──→ Top-K dense vectors
-       │      (ChromaDB)
+       ├──→ [Vector Retriever] ──→ Top-K dense vectors (ChromaDB)
        │
-       └──→ [BM25 Retriever] ────→ Top-K keyword matches
-              (Docstore)
+       └──→ [BM25 Retriever] ────→ Top-K keyword matches (DocStore)
                     │
                     ↓
        ┌────────────────────────┐
@@ -142,25 +148,31 @@ Combining both captures what either alone misses. The reranker then re-scores al
               QueryResult
 ```
 
-## Multi-Collection Queries
+### Multi-Collection
 
-When querying across multiple RAG collections (e.g. multiple LeanIX domains):
+When querying across multiple collections (e.g., multiple LeanIX domains):
 
 1. Retrieve `reranker_retrieve_k / num_collections` from each collection
 2. Merge all candidates
 3. Apply embedding reranker globally
 4. Keep top-`reranker_top_k` overall
 
-This ensures each collection has representation in the candidate pool while the reranker selects the most relevant overall.
+**Benefit**: Each collection has representation while reranker selects the most relevant overall.
+
+---
 
 ## Performance Characteristics
 
 | Operation | Latency | Notes |
 |-----------|---------|-------|
-| Vector retrieval | ~10–50ms | ChromaDB ANN search |
-| BM25 retrieval | ~5–20ms | In-memory index |
-| Embedding reranker | ~100–500ms | Ollama embedding (20 candidates) |
-| LLM synthesis | ~1–5s | Depends on model and context size |
+| Vector retrieval | 10–50ms | ChromaDB ANN search |
+| BM25 retrieval | 5–20ms | In-memory index |
+| Embedding reranker | 100–500ms | Ollama embedding (20 candidates) |
+| LLM synthesis | 1–5s | Depends on model and context size |
+
+**Total typical latency**: 2–6 seconds per query
+
+---
 
 ## Fallback Behaviour
 
@@ -170,6 +182,8 @@ This ensures each collection has representation in the candidate pool while the 
 | Reranker disabled | Direct top-K from fusion retriever |
 | Ollama unavailable | Query fails (no cloud fallback) |
 
+---
+
 ## Design Principles
 
 1. **Local-first**: All embeddings and inference via Ollama — no external API dependencies
@@ -177,177 +191,177 @@ This ensures each collection has representation in the candidate pool while the 
 3. **Precision over recall**: Reranking ensures only the most relevant chunks reach the LLM
 4. **Transparency**: Retrieval scores and sources logged for debugging
 
+---
+
+## Enhancement Details
+
+### Ingestion Strategies (Planned)
+
+#### Parent-Child Chunking
+Store small chunks for precise retrieval; expand to parent chunk for LLM context. LlamaIndex supports this natively (`HierarchicalNodeParser` + `AutoMergingRetriever`).
+
+**Value**: Preserves full rule context for FA Handbook regulatory text where rules span multiple sentences.
+
+#### Metadata Enrichment
+Auto-extract and attach structured metadata during ingestion: section number, rule type, entity names, relationship types.
+
+**Value**: Enables hard pre-filtering before vector search (e.g., "only Handbook Section C", "only LeanIX relationships").
+
+**Current State**: Domain/subdomain set manually in config; structural metadata from documents not yet extracted.
+
+---
+
+### Query Strategies (Planned)
+
+#### MMR (Maximal Marginal Relevance)
+Penalise candidate chunks that are too similar to already-selected ones.
+
+**Value**: Prevents top-8 being near-duplicate adjacent paragraphs — ensures LLM sees varied evidence.
+
+**Implementation**: LlamaIndex supports `mmr` mode on vector retrievers.
+
+#### Query Decomposition / Multi-Query
+Break complex queries into sub-questions, retrieve for each independently, merge before reranking.
+
+**Value**: Consumer queries are compound (multi-entity, multi-domain).
+
+**Current State**: `num_queries=1` in QueryFusionRetriever.
+
+#### Caching
+Cache query embeddings and results for repeated or near-identical queries.
+
+**Value**: Eliminates retrieval and LLM latency on cache hits. Useful for consumer scripts running same entity queries in batch.
+
+---
+
+### Graph-Based Retrieval (Planned)
+
+#### GraphRAG
+Build knowledge graph from LeanIX relationships at ingest time, then use graph traversal during retrieval.
+
+**Value**: LeanIX is natively a graph (Applications → Interfaces → DataObjects → BusinessCapabilities). Questions like "what data objects flow through this interface?" are graph traversal problems, not similarity search problems.
+
+**Implementation Options**:
+- LlamaIndex `KnowledgeGraphIndex` — extracts triples, stores in graph
+- Neo4j + LlamaIndex — persistent graph store with Cypher query support
+- Hybrid — GraphRAG for relationship queries, flat retrieval for descriptive queries
+
+**Effort**: High (requires re-ingestion with relationship extraction)  
+**Priority**: Phase 2 (critical for Erwin LDM relationship export)
+
+---
+
+### Reranking Strategies (Planned)
+
+#### Cross-Encoder Reranker
+Cross-encoder sees query + document *together* rather than independently.
+
+**Value**: Higher ranking quality than embedding cosine similarity.
+
+**Implementation**: `cross-encoder/ms-marco-MiniLM-L-6-v2` via `sentence-transformers`.
+
+**Current State**: Config has `reranker_strategy: "cross-encoder"` but requires `sentence-transformers` package installation.
+
+**Latency**: 200–800ms (vs. 100–500ms for embedding reranker)
+
+---
+
+### Context Assembly Strategies (Planned)
+
+#### Lost-in-the-Middle Mitigation
+LLMs attend better to content at start and end of context. Reorder reranked chunks: highest-scoring first and last, lowest-scoring in middle.
+
+**Value**: Improves LLM attention across larger context windows.
+
+**Effort**: Low (reorder only, no additional computation)
+
+#### Context Compression
+After retrieval, strip irrelevant sentences from each chunk before passing to LLM.
+
+**Value**: Reduces token consumption, focuses LLM on signal.
+
+**Implementation**: `LLMChainFilter` or `EmbeddingsFilter`
+
+---
+
+### LLM Synthesis Strategies (Planned)
+
+#### Structured Output + Forced Citation
+Prompt LLM to return structured JSON including answer and which chunk IDs were used.
+
+**Value**: Makes consumer parsing reliable; adds full auditability of source evidence.
+
+**Priority**: Phase 2 (critical for Purview import format)
+
+#### Self-RAG / CRAG (Corrective RAG)
+After generating answer, LLM evaluates whether retrieved context was sufficient. If not, triggers second retrieval pass with reformulated query.
+
+**Value**: Reduces hallucinations on multi-hop questions requiring both Handbook and LeanIX context.
+
+**Effort**: High (requires iterative retrieval loop)
+
+---
+
+### Evaluation (Planned)
+
+#### RAGAS Evaluation Harness
+Automated RAG evaluation framework scoring:
+- **Faithfulness**: Answer grounded in context?
+- **Answer Relevance**: Answers the question?
+- **Context Precision**: Right chunks retrieved?
+- **Context Recall**: All relevant chunks found?
+
+**Value**: Objective quality baseline; measures impact of config changes.
+
+**Current State**: No automated quality baseline.
+
+---
+
 ## Delivery Context
 
-The RAG platform is being built in three phases. Enhancement priorities in the backlog below are set against this roadmap.
+### Phase 1 — Data Asset Catalog (Current)
 
-### Phase 1 — Data Asset Catalog (current)
+**Goal**: Produce structured catalog linking FA Handbook terms to LeanIX conceptual model entities and inventory descriptions.
 
-**Goal**: Produce a structured, reviewable catalog linking FA Handbook regulatory terms to LeanIX conceptual model entities and inventory descriptions.
+**RAG Requirements**:
+- Hybrid retrieval (implemented)
+- Embedding reranker (implemented)
+- Structured JSON output (implemented)
 
-**Direction**: FA Handbook defined terms are the starting point (atomic, ~700+ terms). Each term is mapped back to its LeanIX conceptual model entity — not the reverse. The conceptual model is the organising frame; the Handbook provides the business/SME definition at a finer granularity.
-
-**Output**: Structured JSON per term — `entity_name`, `domain`, `description`, `formal_definition`, `governance_rules`, `fact_sheet_id` — reviewed with data modellers and stakeholders before downstream ingestion.
-
-**Consumers**: `business_glossary.py`, `fa_handbook_model_builder.py`, `fa_coverage_validator.py`, `fa_integrated_catalog.py`
+**Next**: Metadata enrichment, MMR, RAGAS evaluation
 
 ---
 
 ### Phase 2 — Purview + Erwin LDM
 
-**Goal**: Import the reviewed catalog into Microsoft Purview as a governed business glossary, and embed entity definitions and relationships into an Erwin Logical Data Model.
+**Goal**: Import reviewed catalog to Microsoft Purview + embed in Erwin Logical Data Model.
 
-**RAG implications**:
-- **Structured output + citations** becomes critical — Purview expects term, definition, steward, domain, and related asset IDs in a consistent, parseable format
-- **GraphRAG** becomes critical — Erwin LDM requires entity *relationships* (not just definitions); relationship traversal across the LeanIX graph is needed to produce the lineage that feeds the LDM
-- Output format must be JSON (not CSV) for reliable downstream ingestion
+**RAG Requirements**:
+- Structured output + citations (planned)
+- GraphRAG for relationship extraction (planned)
+- JSON format for reliable ingestion (implemented)
+
+**Next**: GraphRAG implementation, citation forcing in prompts
 
 ---
 
 ### Phase 3 — Intranet + MS Fabric / Copilot
 
-**Goal**: Publish the catalog to the FA intranet and integrate with MS Fabric's agentic semantic model for use in Microsoft Copilot.
+**Goal**: Publish to intranet + integrate with MS Fabric semantic model for Copilot.
 
-**RAG implications**:
-- MS Fabric's semantic model (Power BI-style: measures, dimensions, relationships) uses the catalog as its grounding for Copilot Q&A
-- The glossary/catalog output must be structured and traceable — Copilot cites the semantic model, so definitions must be unambiguous and linked to authoritative sources
-- **Caching** becomes important at scale — Copilot queries will be repeated across many users against the same underlying terms
-- GraphRAG-derived relationship data feeds the semantic model's dimension/fact structure
+**RAG Requirements**:
+- Caching for repeated Copilot queries (planned)
+- GraphRAG for semantic model relationships (planned)
+- Low-latency responses (optimisation needed)
 
----
-
-## Enhancement Backlog
-
-Strategies are grouped by pipeline stage and prioritised for this stack (FA Handbook regulatory text + LeanIX structured EA data).
-
-### Priority
-
-| Priority | Strategy | Stage | Effort | Why it matters here |
-|----------|----------|-------|--------|---------------------|
-| Priority | Strategy | Stage | Effort | Phase | Why it matters |
-|----------|----------|-------|--------|-------|----------------|
-| **High** | Query decomposition / multi-query | Query | Low — `num_queries` config | 1 | Consumer queries are compound (multi-entity, multi-domain) |
-| **High** | MMR (Maximal Marginal Relevance) | Query | Low — mode flag | 1 | Prevents top-8 being near-duplicate adjacent paragraphs |
-| **High** | Metadata enrichment + filtering | Ingest + Query | Medium | 1 | Prerequisite for scoped queries; section/type/source filtering |
-| **High** | Structured output + citations | LLM | Low — prompt change | 2 | Purview import requires consistent, parseable term/definition/asset format |
-| **High** | GraphRAG | Ingest + Query | High | 2 | Erwin LDM requires relationship traversal; LeanIX is a native graph |
-| **Medium** | Parent-child chunking | Ingest | Medium — re-ingest | 1 | Preserves full rule context for FA Handbook regulatory text |
-| **Medium** | Cross-encoder reranker | Reranking | Medium — local model | 1 | Higher reranking quality than embedding cosine similarity |
-| **Medium** | RAGAS evaluation harness | Eval | Medium | 1 | Objective quality baseline; measures impact of config changes |
-| **Lower** | Lost-in-the-middle mitigation | Context | Low — reorder only | 1 | Zero latency cost; improves LLM attention across larger context windows |
-| **Lower** | Caching | Query | Low | 3 | Repeated Copilot queries across many users against the same terms |
-| **Lower** | HyDE (query-time) | Query | Low — one extra LLM call | 1 | Helps vague/exploratory queries; BM25 already handles keyword queries |
-| **Lower** | Sentence window retrieval | Ingest | Low-Medium | 1 | Lightweight alternative to parent-child chunking |
-| **Lower** | Proposition chunking | Ingest | Medium | 1 | Atomic facts improve precision; good for LeanIX entity definitions |
-| **Lower** | HyDE ingest variant | Ingest | Medium — LLM at ingest | 1 | Bridges formal document language vs informal query vocabulary |
-| **Lower** | Time-weighted retrieval | Query | Low | 2 | Deprioritises stale LeanIX export versions after refresh |
-| **Lower** | LLM-as-reranker | Reranking | Low-Medium | 1 | Highest reranking quality; too slow for default path |
-| **Lower** | Context compression | Context | Medium | 1 | Reduces token noise in top-K chunks before LLM sees them |
-| **Lower** | Map-Reduce / Refine synthesis | Context | Medium | 1 | Handles context overflow when querying many collections |
-| **Lower** | Self-RAG / CRAG | LLM | High | 2 | Corrective re-retrieval for multi-hop questions spanning Handbook + LeanIX |
-| **Lower** | FLARE | LLM | High | 3 | Iterative retrieval during generation for Copilot long-form answers |
+**Next**: Caching layer, performance optimisation
 
 ---
-
-### Ingestion Strategies
-
-**Hierarchical / Parent-Child Chunking**
-Store small chunks for precise retrieval; expand to the parent chunk for LLM context. LlamaIndex supports this natively (`HierarchicalNodeParser` + `AutoMergingRetriever`). High value for FA Handbook where rules span multiple sentences.
-
-**Sentence Window Retrieval**
-Index individual sentences but return surrounding context (e.g. ±2 sentences) when a sentence is retrieved. Lower overhead than full parent-child, similar benefit.
-
-**Proposition Chunking**
-Decompose each chunk into atomic factual statements at ingest time. Better retrieval precision — you retrieve a single fact rather than a paragraph containing it. Good for LeanIX entity definitions.
-
-**Hypothetical Question Generation (HyDE — ingest variant)**
-For each chunk, generate 3–5 questions that chunk would answer; embed those questions alongside the chunk. Bridges the vocabulary gap between formal document language and informal user queries.
-
-**Metadata Enrichment**
-Auto-extract and attach structured metadata during ingestion: section number, rule type, entity names, relationship types. Enables hard pre-filtering before vector search. Currently domain/subdomain are set manually in config; structural metadata from within documents is not yet extracted.
-
----
-
-### Query / Retrieval Strategies
-
-**Query Decomposition / Multi-Query**
-Break complex queries into sub-questions, retrieve for each independently, merge before reranking. Currently `num_queries=1` in `QueryFusionRetriever`. Directly benefits compound consumer queries.
-
-**HyDE (Hypothetical Document Embedding — query-time)**
-Generate a hypothetical answer to the query using the LLM, embed that answer, and use it for vector search instead of the raw query. Hypothetical answers are in the same language space as document chunks. Adds one LLM call pre-retrieval; best for vague queries (BM25 already handles keyword-heavy queries well).
-
-**Maximal Marginal Relevance (MMR)**
-Penalise candidate chunks that are too similar to already-selected ones. Balances relevance with diversity, ensuring the LLM sees varied evidence rather than near-duplicate adjacent paragraphs. LlamaIndex supports `mmr` mode on vector retrievers.
-
-**Metadata Filtering**
-Apply hard filters (source, section, date range, document type) before vector search to scope retrieval. Requires metadata enrichment at ingest time.
-
-**Time-Weighted Retrieval**
-Decay relevance scores of older document versions. Relevant when LeanIX exports are refreshed and stale versions should be deprioritised.
-
-**Caching**
-Cache query embeddings and results for repeated or near-identical queries. Eliminates retrieval and LLM latency entirely on cache hits. Particularly useful for consumer scripts that run the same entity queries in batch.
-
----
-
-### Graph-Based Retrieval
-
-**GraphRAG**
-Build a knowledge graph from LeanIX relationships at ingest time, then use graph traversal during retrieval to follow entity relationships rather than relying solely on chunk proximity. LeanIX is natively a graph (Applications → Interfaces → DataObjects → BusinessCapabilities → Providers). Questions like "what data objects flow through this interface?" or "which applications depend on this IT component?" are graph traversal problems, not similarity search problems — flat retrieval gives partial answers at best.
-
-Implementation options:
-- **LlamaIndex `KnowledgeGraphIndex`** — extracts triples from text and stores in a graph; queries traverse it
-- **Neo4j + LlamaIndex** — persistent graph store with Cypher query support; higher setup cost, much richer traversal
-- **Hybrid** — use GraphRAG for relationship queries, flat hybrid retrieval for descriptive/definitional queries; route based on query classification
-
-This is the highest-effort enhancement but potentially the highest-value one for LeanIX data specifically.
-
----
-
-### Reranking Strategies
-
-**Cross-Encoder Reranker**
-A cross-encoder sees query + document *together* rather than independently, giving much higher ranking quality than embedding cosine similarity. `cross-encoder/ms-marco-MiniLM-L-6-v2` runs fully locally via `sentence-transformers`. Higher latency (~200–800ms). Already in config as `reranker_strategy: "cross-encoder"` — requires `sentence-transformers` package.
-
-**LLM-as-Reranker**
-Pass top-N candidates to the LLM with a prompt asking it to rank by relevance. Highest possible reranking quality; high latency. Best used selectively for low-volume, high-stakes queries rather than as the default path.
-
----
-
-### Context Assembly Strategies
-
-**Context Compression**
-After retrieval, strip irrelevant sentences from each chunk before passing to the LLM (`LLMChainFilter` or `EmbeddingsFilter`). Reduces token consumption and focuses the LLM on signal rather than noise. Useful when `reranker_top_k` is high.
-
-**Lost-in-the-Middle Mitigation**
-LLMs attend better to content at the start and end of context. Reorder reranked chunks so the highest-scoring appear first and last, lowest-scoring in the middle. Zero latency cost; measurable quality improvement for larger context windows.
-
-**Map-Reduce / Refine Synthesis**
-For very large context (many collections), process chunks in batches: either summarise each batch then combine (map-reduce), or iteratively refine a running answer with each new chunk (refine). Prevents context window overflow when querying across all LeanIX collections simultaneously.
-
----
-
-### LLM Synthesis Strategies
-
-**Structured Output + Forced Citation**
-Prompt the LLM to return structured JSON including answer and which chunk IDs were used. Makes consumer parsing more reliable than regex over free text; adds full auditability of source evidence.
-
-**Self-RAG / CRAG (Corrective RAG)**
-After generating an answer, the LLM evaluates whether its retrieved context was sufficient. If not, it triggers a second retrieval pass with a reformulated query. Reduces hallucinations on multi-hop questions that require both Handbook and LeanIX context. Significantly higher latency and complexity.
-
-**FLARE (Forward-Looking Active Retrieval)**
-Retrieval is triggered iteratively *during* generation — when the LLM is uncertain about the next token, it pauses and retrieves before continuing. Most powerful for long-form answers that require evidence at multiple points.
-
----
-
-### Evaluation
-
-**RAGAS**
-Automated RAG evaluation framework scoring on: faithfulness (answer grounded in context?), answer relevance (answers the question?), context precision (right chunks retrieved?), context recall (all relevant chunks found?). Run offline against a small test set to objectively measure whether config changes improve or regress quality. Currently there is no automated quality baseline.
 
 ## References
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Full system architecture and package overview
-- `elt_llm_core/src/elt_llm_core/query_engine.py` — Base query engine (shared infrastructure)
-- `elt_llm_query/src/elt_llm_query/query.py` — Retrieval, reranking, and LLM synthesis
+- [README.md](README.md) — Quick start
+- [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture
+- `elt_llm_core/src/elt_llm_core/query_engine.py` — Base query engine
+- `elt_llm_query/src/elt_llm_query/query.py` — Retrieval, reranking, synthesis
 - `elt_llm_ingest/config/rag_config.yaml` — Configuration reference

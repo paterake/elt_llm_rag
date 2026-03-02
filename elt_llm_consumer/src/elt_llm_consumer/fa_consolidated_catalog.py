@@ -126,6 +126,19 @@ _DEF_LINE_PAT = re.compile(
     r"\*\*FA Handbook defined term\*\* \[source: (\w+)\]: (.+?) means (.+)",
 )
 
+# Matches entity list lines from doc_leanix_parser domain sections:
+#   - **Club** *(LeanIX ID: `abc123-uuid`)*
+#   - **Club**   (no ID variant)
+_ENTITY_LINE_PAT = re.compile(
+    r"^- \*\*([^*]+)\*\*(?:\s+\*\(LeanIX ID: `([^`]*)`\)\*)?$"
+)
+
+# Matches relationship lines from doc_leanix_parser:
+#   - **Club** relates to (zero or more to zero or more) **Player**
+_REL_LINE_PAT = re.compile(
+    r"^- \*\*([^*]+)\*\*\s+(.+?)\s+\*\*([^*]+)\*\*$"
+)
+
 
 def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
     """Extract defined terms from fa_handbook docstore.
@@ -208,39 +221,33 @@ def extract_entities_from_conceptual_model(
         storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
         nodes = list(storage.docstore.docs.values())
 
+        domain = coll_name.replace(
+            "fa_leanix_dat_enterprise_conceptual_model_", ""
+        ).upper()
+
         for node in nodes:
             text = getattr(node, "text", "") or ""
             for line in text.splitlines():
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line:
                     continue
-
-                # Extract entity-like patterns from chunk text
-                # Format: "EntityName: description" or "EntityName (Level N)"
-                if len(line) < 150 and line[0].isupper():
-                    # Extract entity name
-                    name = line.split(':')[0].split('(')[0].strip()
-                    if len(name) < 3 or len(name) > 100:
-                        continue
-
-                    key = name.lower()
-                    if key in seen:
-                        continue
-                    seen.add(key)
-
-                    # Extract domain from collection name
-                    domain = coll_name.replace('fa_leanix_dat_enterprise_conceptual_model_', '').upper()
-
-                    # Extract hierarchy level if present
-                    level_match = re.search(r'Level\s*(\d+)', line, re.IGNORECASE)
-                    level = f"Level {level_match.group(1)}" if level_match else ""
-
-                    entities.append({
-                        "entity_name": name,
-                        "domain": domain,
-                        "fact_sheet_id": "",  # Will be enriched via RAG
-                        "hierarchy_level": level,
-                    })
+                m = _ENTITY_LINE_PAT.match(line)
+                if not m:
+                    continue
+                name = m.group(1).strip()
+                fsid = (m.group(2) or "").strip()
+                if not name or len(name) > 100:
+                    continue
+                key = name.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                entities.append({
+                    "entity_name": name,
+                    "domain": domain,
+                    "fact_sheet_id": fsid,
+                    "hierarchy_level": "",
+                })
 
     print(f"  {len(entities)} unique entities extracted from conceptual model")
     return entities
@@ -387,39 +394,22 @@ def extract_relationships_from_conceptual_model(
 
         for node in nodes:
             text = getattr(node, "text", "") or ""
-            # Look for relationship patterns in chunk text
-            # Format: "EntityA → EntityB" or "EntityA relates to EntityB"
             for line in text.splitlines():
                 line = line.strip()
-
-                # Pattern 1: "A → B" or "A -> B"
-                arrow_match = re.search(r'([A-Z][\w\s]+?)\s*[→-]+\s*([A-Z][\w\s]+)', line)
-                if arrow_match:
-                    source = arrow_match.group(1).strip()
-                    target = arrow_match.group(2).strip()
-                    relationships.setdefault(source.lower(), []).append({
-                        "target_entity": target,
-                        "relationship_type": "Related to",
-                        "cardinality": "",
-                        "direction": "bidirectional",
-                    })
+                m = _REL_LINE_PAT.match(line)
+                if not m:
                     continue
-
-                # Pattern 2: "A relates to B" or "A connects to B"
-                rel_match = re.search(
-                    r'([A-Z][\w\s]+?)\s+(?:relates? to|connects? to|links? to)\s+([A-Z][\w\s]+)',
-                    line,
-                    re.IGNORECASE,
-                )
-                if rel_match:
-                    source = rel_match.group(1).strip()
-                    target = rel_match.group(2).strip()
-                    relationships.setdefault(source.lower(), []).append({
-                        "target_entity": target,
-                        "relationship_type": "Related to",
-                        "cardinality": "",
-                        "direction": "bidirectional",
-                    })
+                source = m.group(1).strip()
+                cardinality_desc = m.group(2).strip()
+                target = m.group(3).strip()
+                card_m = re.search(r'\(([^)]+)\)', cardinality_desc)
+                cardinality = card_m.group(1) if card_m else ""
+                relationships.setdefault(source.lower(), []).append({
+                    "target_entity": target,
+                    "relationship_type": "relates to",
+                    "cardinality": cardinality,
+                    "direction": "unidirectional",
+                })
 
     rel_count = sum(len(v) for v in relationships.values())
     print(f"  {rel_count} relationships extracted from conceptual model")
@@ -455,31 +445,49 @@ def consolidate_catalog(
 
     print("\n=== Consolidating Entities ===")
 
+    # Build reverse mapping: normalised entity name → (term_lower, mapping_dict)
+    # handbook_mappings is keyed by term (e.g. "club") but we need to look up by
+    # entity name (e.g. "Club") — a term "Competition Rules" may map to entity "Competition".
+    entity_to_mapping: dict[str, tuple[str, dict]] = {}
+    for term_lower, mapping in handbook_mappings.items():
+        mapped_entity = _normalize(mapping.get("mapped_entity", ""))
+        if mapped_entity and mapped_entity not in ("not mapped", "none"):
+            entity_to_mapping[mapped_entity] = (term_lower, mapping)
+
+    # Original casing lookup: term_lower → term string as extracted from Handbook
+    term_casing: dict[str, str] = {
+        t["term"].lower(): t["term"] for t in handbook_terms
+    }
+
     # Step 1: Process all conceptual model entities
     for entity in conceptual_entities:
         name = entity.get("entity_name", "")
-        name_lower = name.lower()
+        name_norm = _normalize(name)
         fsid = entity.get("fact_sheet_id", "")
         domain = entity.get("domain", "UNKNOWN")
 
-        seen_names.add(name_lower)
+        seen_names.add(name_norm)
 
-        # Determine source classification
-        mapped = handbook_mappings.get(name_lower, {})
-        if mapped.get("mapped_entity", "").lower() not in ("not mapped", ""):
+        # Determine source classification using reverse mapping
+        term_match = entity_to_mapping.get(name_norm)
+        if term_match:
             source = "BOTH"
+            term_lower, mapped = term_match
+            handbook_term_name: str | None = term_casing.get(term_lower, term_lower)
         else:
             source = "LEANIX_ONLY"
+            mapped = {}
+            handbook_term_name = None
 
         # Get inventory description
-        inv = inventory_descriptions.get(name_lower, {})
+        inv = inventory_descriptions.get(name_norm, {})
         leanix_description = inv.get("description", "Not documented")
 
         # Get handbook context
-        hb_context = handbook_context.get(name_lower, {})
+        hb_context = handbook_context.get(name_norm, {})
 
         # Get relationships
-        entity_rels = relationships.get(name_lower, [])
+        entity_rels = relationships.get(name_norm, [])
 
         record = {
             "fact_sheet_id": fsid,
@@ -491,7 +499,7 @@ def consolidate_catalog(
             "formal_definition": hb_context.get("formal_definition", ""),
             "domain_context": hb_context.get("domain_context", ""),
             "governance_rules": hb_context.get("governance_rules", ""),
-            "handbook_term": None,
+            "handbook_term": handbook_term_name,
             "mapping_confidence": mapped.get("mapping_confidence", ""),
             "mapping_rationale": mapped.get("mapping_rationale", ""),
             "review_status": "PENDING",
@@ -505,19 +513,19 @@ def consolidate_catalog(
     handbook_only_count = 0
     for term_entry in handbook_terms:
         term = term_entry["term"]
-        term_lower = term.lower()
+        term_norm = _normalize(term)
 
-        if term_lower in seen_names:
+        if term_norm in seen_names:
             continue
 
-        mapped = handbook_mappings.get(term_lower, {})
+        mapped = handbook_mappings.get(term.lower(), {})
         if mapped.get("mapped_entity", "").lower() not in ("not mapped", ""):
             continue
 
         handbook_only_count += 1
 
         # Get handbook context for this term
-        hb_context = handbook_context.get(term_lower, {})
+        hb_context = handbook_context.get(term_norm, {})
 
         record = {
             "fact_sheet_id": "",
@@ -602,7 +610,7 @@ def generate_consolidated_catalog(
     for entity in conceptual_entities:
         name = entity.get("entity_name", "")
         inv = get_inventory_description_for_entity(name, inventory_collections, rag_config)
-        inventory_descriptions[name.lower()] = inv
+        inventory_descriptions[_normalize(name)] = inv
     print(f"  {len(inventory_descriptions)} inventory descriptions extracted")
 
     # Step 3: Extract Handbook defined terms from docstore
@@ -633,7 +641,7 @@ def generate_consolidated_catalog(
         print(f"  {name}…", end=" ", flush=True)
 
         context = get_handbook_context_for_entity(name, domain, handbook_collections, rag_config)
-        handbook_context[name.lower()] = context
+        handbook_context[_normalize(name)] = context
         print("done")
 
     # Step 6: Extract relationships from conceptual model
