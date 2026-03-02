@@ -28,33 +28,34 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 ## 1. The Challenge
 
-### 1.1 Original Requirements
+### 1.1 Business Requirements
 
-From stakeholder discussions:
+**Primary Objective**: Generate a comprehensive business glossary from the FA Handbook, reverse-engineered and mapped to the LeanIX conceptual data model as the organising frame.
 
-> *"I think what we are after is glossary terms from the FA Handbook reverse engineered and mapped to the conceptual model. As the handbook is going to be more atomic."*
+**Specific Requirements**:
 
-> *"The conceptual model is the frame, the FA Handbook is the SME knowledge/Business Context."*
+| # | Requirement | Source | Priority |
+|---|-------------|--------|----------|
+| 1 | Conceptual model as the organising frame for all artefacts | LeanIX XML | Primary |
+| 2 | FA Handbook as SME/business context provider | FA Handbook PDF | Primary |
+| 3 | LeanIX Inventory for entity descriptions | LeanIX Excel | Primary |
+| 4 | Glossary terms linked to LeanIX Data Objects | Handbook → Model mapping | Primary |
+| 5 | Structured export format for downstream import | Purview-ready | Primary |
+| 6 | Gap analysis: identify Handbook entities missing from conceptual model | Handbook vs Model comparison | Secondary |
+| 7 | Capture governance rules and terms of reference per entity | Handbook extraction | Secondary |
 
-> *"We need to generate the glossary from the FA Handbook, integrations, and conceptual data model as a frame."*
+**Stakeholder Expectations**:
 
-> *"Once you work your magic we can get a mini group of us together to review the completed picture — thinking data modellers and business SMEs to review definitions."*
+- **Data Modelling Team**: Review and validate entity definitions and mappings
+- **Business SMEs**: Confirm glossary terms reflect operational reality
+- **Data Governance Lead**: Approve governance rules and terms of reference
+- **Architecture Review Board**: Endorse conceptual model alignment
 
-> *"Then it's onto Phase 2: how we can get them all put back into Purview, and embedded into an Erwin LDM."*
+**Downstream Integration Path**:
 
-> *"Phase 3: how and where do we publish on the intranet, and how can we get plumbed into MS Fabric Agentic semantic model for use in Copilot."*
-
-### 1.2 Specific Requirements
-
-| # | Requirement | Source |
-|---|-------------|--------|
-| 1 | Conceptual model as the frame | LeanIX XML |
-| 2 | FA Handbook providing SME/business context | FA Handbook PDF |
-| 3 | LeanIX Inventory providing entity descriptions | LeanIX Excel |
-| 4 | Glossary terms linked to LeanIX Data Objects | Handbook → Model mapping |
-| 5 | Export to CSV (or structured format) | Purview import ready |
-| 6 | Identify entities in Handbook not in conceptual model | Gap analysis |
-| 7 | Capture governance rules, terms of reference | Handbook extraction |
+- **Phase 1**: Generate review-ready glossary/catalogue (current deliverable)
+- **Phase 2**: Import to Microsoft Purview business glossary + embed in Erwin LDM
+- **Phase 3**: Publish to intranet + integrate with MS Fabric semantic model for Copilot
 
 ---
 
