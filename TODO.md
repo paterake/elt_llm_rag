@@ -1,7 +1,8 @@
 # Enhancement Backlog
 
 Enhancements identified after the initial FA consolidated catalog run.
-Complete verification of the current consumer fix (208 entities, 17 relationships) before starting.
+Baseline verified 2026-03-03: 208 LeanIX entities, 86 HANDBOOK_ONLY, 294 total. BOTH: 18 | LEANIX_ONLY: 190.
+PARTY: 27 entities (0 with fact_sheet_id — paragraph format). Ready to begin Enhancement 1a.
 
 ---
 
@@ -802,10 +803,20 @@ HANDBOOK_ONLY entities are currently written with `"domain": "HANDBOOK_DISCOVERE
 subgroup. These are genuine LeanIX model gaps. The LLM can infer the correct domain and
 subgroup from the existing taxonomy structure and the entity's Handbook definition.
 
-### Approach
+### Approach — Three-Tier Inference
 
 Build a taxonomy context string from the already-extracted `conceptual_entities` and pass it
-with each HANDBOOK_ONLY entity to the LLM for classification.
+with each HANDBOOK_ONLY entity to the LLM. The LLM follows a **three-tier decision process**
+in priority order:
+
+| Tier | Rule | `inference_tier` value | `review_status` |
+|---|---|---|---|
+| 1 — Existing | Entity clearly fits an existing domain/subgroup | `"existing"` | `"PENDING"` (high confidence) or `"NEEDS_CLARIFICATION"` (medium/low) |
+| 2 — Proposed new | No existing match, but context allows proposing a new Domain/Subgroup | `"new_proposed"` | `"PROPOSED_NEW_TAXONOMY"` |
+| 3 — Unknown | Genuinely no context available | `"unknown"` | `"NEEDS_CLARIFICATION"` |
+
+Tier 3 should be rare in practice — the LLM should prefer Tier 2 (propose new taxonomy) over
+Tier 3 whenever entity context provides enough signal to name a domain and subgroup.
 
 ### New function: `infer_domain_for_handbook_entity()`
 
@@ -827,8 +838,13 @@ def infer_domain_for_handbook_entity(
         rag_config:          RAG config.
 
     Returns:
-        Dict with entity_domain, entity_subgroup, inference_confidence,
+        Dict with entity_domain, entity_subgroup, inference_tier, inference_confidence,
         inference_reasoning, alternative_domain.
+
+        inference_tier values:
+          "existing"      — mapped to known taxonomy (preferred)
+          "new_proposed"  — no existing match; LLM proposed a new domain/subgroup
+          "unknown"       — last resort; no usable context
     """
     query = _DOMAIN_INFERENCE_PROMPT.format(
         taxonomy_context=taxonomy_context,
@@ -840,15 +856,27 @@ def infer_domain_for_handbook_entity(
         response = result.response.strip()
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
-            return json.loads(json_match.group())
+            parsed = json.loads(json_match.group())
+            tier = parsed.get("inference_tier", "unknown")
+            confidence = parsed.get("inference_confidence", "low")
+            # Derive review_status from tier and confidence
+            if tier == "existing" and confidence == "high":
+                parsed["review_status"] = "PENDING"
+            elif tier == "new_proposed":
+                parsed["review_status"] = "PROPOSED_NEW_TAXONOMY"
+            else:
+                parsed["review_status"] = "NEEDS_CLARIFICATION"
+            return parsed
     except Exception:
         pass
     return {
-        "entity_domain": "HANDBOOK_DISCOVERED",
-        "entity_subgroup": "",
+        "entity_domain": "unknown",
+        "entity_subgroup": "unknown",
+        "inference_tier": "unknown",
         "inference_confidence": "low",
         "inference_reasoning": "LLM inference failed",
         "alternative_domain": "",
+        "review_status": "NEEDS_CLARIFICATION",
     }
 ```
 
@@ -856,30 +884,45 @@ def infer_domain_for_handbook_entity(
 
 ```python
 _DOMAIN_INFERENCE_PROMPT = """\
-You are classifying a business entity into a data architecture taxonomy.
+You are classifying a business entity into the FA (The Football Association) \
+data architecture taxonomy.
 
-The FA (The Football Association) LeanIX Enterprise Conceptual Data Model has \
-the following domain and subgroup structure:
+The current known domains and subgroups are:
 {taxonomy_context}
-
-Task: Assign the following entity to the most appropriate domain and subgroup.
 
 Entity name: {entity_name}
 FA Handbook definition: {handbook_definition}
 
-Return a JSON object with exactly these fields:
-- entity_domain:         domain name — MUST be one of the domains listed above
-- entity_subgroup:       subgroup name — MUST be one of the subgroups for that domain, \
-                         or "" if the domain has no subgroups or no subgroup matches
-- inference_confidence:  "high" | "medium" | "low"
-  - high:   clear semantic match, only one plausible domain
-  - medium: plausible but two or more domains could apply
-  - low:    genuinely ambiguous or no strong match
-- inference_reasoning:   one sentence explaining the assignment
-- alternative_domain:    next most likely domain if confidence is not "high", else ""
+Follow this DECISION PROCESS in priority order:
 
-Use domain and subgroup names EXACTLY as listed in the taxonomy. \
-Do not invent new domains or subgroups.
+TIER 1 — Map to existing taxonomy (strongly preferred):
+  If the entity clearly belongs to an existing domain/subgroup, assign it there.
+  Set inference_tier: "existing"
+
+TIER 2 — Propose new taxonomy:
+  If the entity does not fit any existing domain/subgroup, but the entity context
+  provides enough information to propose a meaningful new Domain and/or Subgroup,
+  propose sensible names that follow the same naming conventions as the existing taxonomy.
+  Set inference_tier: "new_proposed"
+  Note: prefer this over Tier 3 whenever possible.
+
+TIER 3 — Unknown (last resort):
+  Only if there is genuinely insufficient context to classify the entity.
+  Set inference_tier: "unknown"
+
+Return a JSON object with exactly these fields:
+- entity_domain:       domain name (existing, proposed new name, or "unknown")
+- entity_subgroup:     subgroup name (existing, proposed new name, "" if none, or "unknown")
+- inference_tier:      "existing" | "new_proposed" | "unknown"
+- inference_confidence: "high" | "medium" | "low"
+  - high:   clear semantic match, only one plausible option
+  - medium: plausible but two or more options could apply
+  - low:    genuinely ambiguous
+- inference_reasoning: one or two sentences explaining the assignment
+- alternative_domain:  next most likely domain if confidence is not "high", else ""
+
+For Tier 1, use domain and subgroup names EXACTLY as listed in the taxonomy.
+For Tier 2, follow the same Title Case naming conventions as existing entries.
 Return only the JSON object, no other text."""
 ```
 
@@ -940,9 +983,11 @@ for term_entry in handbook_terms:
             "formal_definition": term_entry.get("definition", ""),
             # ... other existing fields ...
             "inferred": True,
+            "inference_tier": inferred.get("inference_tier", "unknown"),
             "inference_confidence": inferred.get("inference_confidence", "low"),
             "inference_reasoning": inferred.get("inference_reasoning", ""),
             "alternative_domain": inferred.get("alternative_domain", ""),
+            "review_status": inferred.get("review_status", "NEEDS_CLARIFICATION"),
         }
 ```
 
@@ -953,8 +998,17 @@ Include this in the taxonomy context or system prompt context:
 - **medium** — plausible but ambiguous (e.g. "Sponsorship Reporting" → AGREEMENTS or CAMPAIGN?)
 - **low** — genuinely unclear (e.g. "Arbitration Panel" → AGREEMENTS or GOVERNANCE?)
 
-Low-confidence assignments must be reviewed manually before use downstream.
-Flag them in the catalog with `"review_status": "NEEDS_CLARIFICATION"` instead of `"PENDING"`.
+**Review status mapping:**
+
+| Tier | Confidence | `review_status` |
+|---|---|---|
+| existing | high | `PENDING` |
+| existing | medium or low | `NEEDS_CLARIFICATION` |
+| new_proposed | any | `PROPOSED_NEW_TAXONOMY` |
+| unknown | any | `NEEDS_CLARIFICATION` |
+
+`PROPOSED_NEW_TAXONOMY` entries require SME sign-off before the proposed domain/subgroup
+is considered for inclusion in the LeanIX conceptual model.
 
 ---
 
@@ -983,18 +1037,29 @@ parallel once Enhancement 1a is complete.
 Validation commands assume the catalog JSON is at `.tmp/fa_consolidated_catalog.json`
 and entity relationships at `.tmp/fa_entity_relationships.json`.
 
+**Confirmed baseline metrics (run 2026-03-03):**
+- Total entities: 294 (208 LeanIX, 86 HANDBOOK_ONLY)
+- BOTH: 18 | LEANIX_ONLY: 190 | HANDBOOK_ONLY: 86
+- PARTY: 27 entities, **0 with fact_sheet_id** (paragraph extraction has no IDs)
+- PARTY+CHANNEL+ACCOUNTS+ASSETS+ADDITIONAL = 68 (all from `additional_entities` collection)
+- Subgroup field: empty on all 294 entities
+
 | Step | Validation command | Expected result |
 |---|---|---|
-| 0 — baseline | `jq '[.[] \| .domain] \| unique' .tmp/fa_consolidated_catalog.json` | PARTY is absent (all Party entities in ADDITIONAL) |
-| 1a — parser fix | `jq '[.[] \| select(.domain == "PARTY")] \| length' .tmp/fa_consolidated_catalog.json` | ≥ 28 entities with domain PARTY |
-| 1a — shrink check | `jq '[.[] \| select(.domain == "ADDITIONAL" or .domain == "PARTY")] \| length' .tmp/fa_consolidated_catalog.json` | Was 68 before fix; should now be ~38 (CHANNEL+ACCOUNTS+ASSETS only) |
+| 0 — baseline domains | `jq '[.[] \| .domain] \| unique' .tmp/fa_consolidated_catalog.json` | PARTY IS present (27 entities via paragraph format `_ENTITY_GROUP_PAT`); all 27 have empty `fact_sheet_id` |
+| 0 — baseline PARTY ids | `python3 -c "import json; d=json.load(open('.tmp/fa_consolidated_catalog.json')); p=[e for e in d if e.get('domain')=='PARTY']; print(sum(1 for e in p if e.get('fact_sheet_id')), '/', len(p))"` | `0 / 27` (baseline: all PARTY entities lack IDs — paragraph format) |
+| 1a — parser fix | `jq '[.[] \| select(.domain == "PARTY")] \| length' .tmp/fa_consolidated_catalog.json` | ≥ 27 entities with domain PARTY (count unchanged; now from bullet format) |
+| 1a — fact_sheet_id | `python3 -c "import json; d=json.load(open('.tmp/fa_consolidated_catalog.json')); p=[e for e in d if e.get('domain')=='PARTY']; print(sum(1 for e in p if e.get('fact_sheet_id')), '/', len(p))"` | `27 / 27` (all PARTY entities now have fact_sheet_id from bullet format) |
+| 1a — shrink check | `python3 -c "import json; d=json.load(open('.tmp/fa_consolidated_catalog.json')); n=[e for e in d if e.get('domain') in ('CHANNEL','ACCOUNTS','ASSETS','ADDITIONAL')]; print(len(n))"` | ~41 (was 41 before fix; PARTY:27 has moved out of this group — total `additional_entities` drops from 68 to 41) |
 | 1b — subgroups | `jq '[.[] \| select(.subgroup != "" and .subgroup != null)] \| length' .tmp/fa_consolidated_catalog.json` | ≥ 100 entities across all domains have a non-empty subgroup |
 | 1b — per domain | `jq '[.[] \| select(.subgroup != "")] \| group_by(.domain) \| map({domain: .[0].domain, count: length})' .tmp/fa_consolidated_catalog.json` | AGREEMENTS, PRODUCT, TRANSACTION AND EVENTS, CAMPAIGN, PARTY all show counts > 0 |
 | 3 — entity rels | `jq 'length' .tmp/fa_entity_relationships.json` | 50–150 bidirectional entity relationships |
 | 3 — bidirectional | `jq '[.[] \| .source_entity] \| unique \| length' .tmp/fa_entity_relationships.json` | Each relationship appears from both directions |
-| 4 — inferred count | `jq '[.[] \| select(.inferred == true)] \| length' .tmp/fa_consolidated_catalog.json` | ~84 (one per HANDBOOK_ONLY entity) |
-| 4 — no HANDBOOK_DISCOVERED | `jq '[.[] \| select(.domain == "HANDBOOK_DISCOVERED")] \| length' .tmp/fa_consolidated_catalog.json` | 0 after Enhancement 4 (all assigned a real domain) |
-| 4 — needs review | `jq '[.[] \| select(.review_status == "NEEDS_CLARIFICATION")] \| length' .tmp/fa_consolidated_catalog.json` | > 0 (low-confidence inferences flagged) |
+| 4 — inferred count | `python3 -c "import json; d=json.load(open('.tmp/fa_consolidated_catalog.json')); print(sum(1 for e in d if e.get('inferred')))"` | ~86 (one per HANDBOOK_ONLY entity) |
+| 4 — no HANDBOOK_DISCOVERED | `python3 -c "import json; d=json.load(open('.tmp/fa_consolidated_catalog.json')); print(sum(1 for e in d if e.get('domain')=='HANDBOOK_DISCOVERED'))"` | 0 (all assigned — existing, proposed, or unknown) |
+| 4 — tier breakdown | `python3 -c "import json; from collections import Counter; d=json.load(open('.tmp/fa_consolidated_catalog.json')); print(Counter(e.get('inference_tier','n/a') for e in d if e.get('inferred')))"` | existing: majority, new_proposed: some, unknown: few or zero |
+| 4 — proposed new | `python3 -c "import json; d=json.load(open('.tmp/fa_consolidated_catalog.json')); print([(e['entity_name'],e['entity_domain'],e['entity_subgroup']) for e in d if e.get('inference_tier')=='new_proposed'])"` | List of proposed new taxonomy entries for SME review |
+| 4 — needs review | `python3 -c "import json; d=json.load(open('.tmp/fa_consolidated_catalog.json')); print(sum(1 for e in d if e.get('review_status')=='NEEDS_CLARIFICATION'))"` | > 0 (low-confidence or unknown-tier inferences flagged) |
 
 ---
 

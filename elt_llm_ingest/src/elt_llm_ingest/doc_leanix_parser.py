@@ -66,6 +66,7 @@ class LeanIXExtractor:
         self.assets: Dict[str, LeanIXAsset] = {}
         self.relationships: List[LeanIXRelationship] = []
         self.groups: Dict[str, str] = {}  # group_id -> group_label
+        self._group_parents: Dict[str, str] = {}  # group_id -> parent_id
         self.parent_map = {}  # child -> parent mapping for efficient lookups
 
     def parse_xml(self):
@@ -92,31 +93,65 @@ class LeanIXExtractor:
         
     def extract_groups(self):
         """Extract group containers (like PARTY, AGREEMENTS, etc.)
-        
-        Groups are identified as mxCell elements with style containing 'group'.
+
+        Two types of group container exist in the draw.io XML:
+
+        Type 1 — bare mxCell with group style (most domains):
+            <mxCell id="412" style="group" vertex="1" parent="1"/>
+
+        Type 2 — object-wrapped mxCell with group style (PARTY domain):
+            <object id="409" type="factSheet" ...>
+              <mxCell style="...group;" vertex="1" parent="1"/>
+            </object>
+
+        The original code only detected Type 1. This fix detects both.
         """
+        group_parents: Dict[str, str] = {}
+
+        # Type 1: bare mxCell with group style
         for mxcell in self.root.iter('mxCell'):
             style = mxcell.get('style', '')
             if 'group' in style and mxcell.get('vertex') == '1':
-                group_id = mxcell.get('id')
-                # Find the factSheet object that is the container within this group
-                for obj in self.root.iter('object'):
-                    obj_cell = obj.find('mxCell')
-                    if obj_cell is not None and obj_cell.get('parent') == group_id:
-                        # This object is directly in the group - use it as the group label
-                        label = obj.get('label', '')
-                        if label and obj.get('type') == 'factSheet':
-                            self.groups[group_id] = self.clean_label(label)
-                            break
+                gid = mxcell.get('id')
+                if gid:
+                    group_parents[gid] = mxcell.get('parent', '1')
+
+        # Type 2: object-wrapped mxCell with group style (e.g. PARTY container id=409)
+        for obj in self.root.iter('object'):
+            cell = obj.find('mxCell')
+            if cell is not None:
+                style = cell.get('style', '')
+                if 'group' in style and cell.get('vertex') == '1':
+                    oid = obj.get('id')
+                    if oid and oid not in group_parents:
+                        group_parents[oid] = cell.get('parent', '1')
+
+        # Label each group from its first factSheet child
+        for group_id in group_parents:
+            for obj in self.root.iter('object'):
+                obj_cell = obj.find('mxCell')
+                if obj_cell is not None and obj_cell.get('parent') == group_id:
+                    label = obj.get('label', '')
+                    if label and obj.get('type') == 'factSheet':
+                        self.groups[group_id] = self.clean_label(label)
+                        break
+
+        # Store parent chain for use by _assign_subgroups() in Enhancement 1b
+        self._group_parents = group_parents
     
     def extract_assets(self):
         """Extract all fact sheet assets"""
         for obj in self.root.iter('object'):
             if obj.get('type') == 'factSheet':
+                # Skip object-wrapped group containers (Type 2 groups detected in
+                # extract_groups). They are structural containers, not leaf entities.
+                # Their entity content is represented by a child factSheet inside them.
+                if obj.get('id') in self._group_parents:
+                    continue
                 asset = self.parse_asset(obj)
                 if asset:
                     self.assets[asset.id] = asset
-                    
+
         print(f"Extracted {len(self.assets)} assets")
         
     def parse_asset(self, obj: ET.Element) -> Optional[LeanIXAsset]:

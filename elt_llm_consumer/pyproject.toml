@@ -16,6 +16,7 @@ dependencies = [
 elt-llm-consumer-consolidated-catalog = "elt_llm_consumer.fa_consolidated_catalog:main"
 elt-llm-consumer-coverage-validator = "elt_llm_consumer.fa_coverage_validator:main"
 elt-llm-consumer-handbook-model = "elt_llm_consumer.fa_handbook_model_builder:main"
+elt-llm-consumer-leanix-validate = "elt_llm_consumer.fa_leanix_model_validate:main"
 
 [build-system]
 requires = ["uv_build>=0.9.15,<0.10.0"]
