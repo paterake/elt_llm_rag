@@ -35,7 +35,7 @@ query:
   # Multi-query retrieval: generate num_queries-1 additional query variants via LLM.
   # Higher values improve recall for compound queries at the cost of extra LLM calls.
   # Recommended: 3 for quality, 1 to disable (batch jobs where runtime is critical).
-  num_queries: 3
+  num_queries: 1
 
   # MMR: select diverse chunks instead of top-N by score alone.
   # Prevents near-duplicate adjacent paragraphs consuming all top-k slots.

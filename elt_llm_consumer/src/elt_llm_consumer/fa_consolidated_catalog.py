@@ -646,11 +646,13 @@ def generate_consolidated_catalog(
     # Step 2: Get inventory descriptions via RAG
     print("\n=== Step 2: Extract Inventory Descriptions ===")
     inventory_descriptions: dict[str, dict] = {}
-    for entity in conceptual_entities:
+    total = len(conceptual_entities)
+    for i, entity in enumerate(conceptual_entities, 1):
         name = entity.get("entity_name", "")
+        print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
         inv = get_inventory_description_for_entity(name, inventory_collections, rag_config)
         inventory_descriptions[_normalize(name)] = inv
-    print(f"  {len(inventory_descriptions)} inventory descriptions extracted")
+    print(f"  {len(inventory_descriptions)} inventory descriptions extracted      ")
 
     # Step 3: Extract Handbook defined terms from docstore
     print("\n=== Step 3: Extract Handbook Defined Terms ===")
@@ -659,29 +661,26 @@ def generate_consolidated_catalog(
     # Step 4: Map Handbook terms to conceptual model entities via RAG
     print("\n=== Step 4: Map Handbook Terms to Conceptual Model ===")
     handbook_mappings: dict[str, dict] = {}
+    total = len(handbook_terms)
     for i, term_entry in enumerate(handbook_terms, 1):
         term = term_entry["term"]
         definition = term_entry["definition"]
-        print(f"  [{i}/{len(handbook_terms)}] {term}…", end=" ", flush=True)
-
+        print(f"  [{i:>3}/{total}] {term[:50]:<50}", end="\r", flush=True)
         mapping = map_handbook_term_to_entity(term, definition, model_collections, rag_config)
         handbook_mappings[term.lower()] = mapping
-
-        mapped_entity = mapping.get("mapped_entity", "Not mapped")
-        print(f"→ {mapped_entity}" if mapped_entity.lower() != "not mapped" else "→ not mapped")
+    print(f"  {len(handbook_mappings)} handbook terms mapped                              ")
 
     # Step 5: Get handbook context for all entities
     print("\n=== Step 5: Extract Handbook Context ===")
     handbook_context: dict[str, dict] = {}
-
-    for entity in conceptual_entities:
+    total = len(conceptual_entities)
+    for i, entity in enumerate(conceptual_entities, 1):
         name = entity.get("entity_name", "")
         domain = entity.get("domain", "UNKNOWN")
-        print(f"  {name}…", end=" ", flush=True)
-
+        print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
         context = get_handbook_context_for_entity(name, domain, handbook_collections, rag_config)
         handbook_context[_normalize(name)] = context
-        print("done")
+    print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 
     # Step 6: Extract relationships from conceptual model
     print("\n=== Step 6: Extract Relationships ===")
@@ -793,6 +792,7 @@ def main() -> None:
         print(f"  num_queries override: {args.num_queries}")
 
     print(f"  LLM: {rag_config.ollama.llm_model}")
+    print(f"  num_queries: {rag_config.query.num_queries}")
 
     # Resolve collections
     print("\nResolving collections…")
