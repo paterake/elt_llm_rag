@@ -452,7 +452,7 @@ than reading a synthesised answer and re-interpreting it.
 **Entry point**: `elt-llm-consumer-consolidated-catalog`
 **Driver**: All sources merged via RAG+LLM
 **Output**: `fa_consolidated_catalog.json` (stakeholder review)
-**Runtime**: ~5-10 minutes
+**Runtime**: ~3-4 hr with `num_queries=3` (default); ~45-60 min with `num_queries=1` in `rag_config.yaml`
 
 **Purpose**: Single consolidated catalog merging all sources — the target output
 for stakeholder review and Purview import.

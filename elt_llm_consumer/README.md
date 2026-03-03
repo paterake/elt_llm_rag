@@ -40,11 +40,11 @@ uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 
 ```bash
 # Full consolidation (entities + Handbook context + relationships)
-# Runtime: ~5-10 min
+# Runtime: ~3-4 hr (num_queries=3) or ~45-60 min (num_queries=1)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 # Faster run (skip relationship extraction)
-# Runtime: ~3-5 min
+# Runtime: ~2-3 hr (num_queries=3) or ~30-45 min (num_queries=1)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
 
 # With specific model override
@@ -70,7 +70,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model 
 
 | Script | Entry Point | Purpose | Runtime |
 |--------|-------------|---------|---------|
-| `fa_consolidated_catalog.py` | `elt-llm-consumer-consolidated-catalog` | **Target output** — merged catalog with all 7 requirements | ~5-10 min |
+| `fa_consolidated_catalog.py` | `elt-llm-consumer-consolidated-catalog` | **Target output** — merged catalog with all 7 requirements | ~3-4 hr (`num_queries=3`) / ~45-60 min (`num_queries=1`) |
 | `fa_handbook_model_builder.py` | `elt-llm-consumer-handbook-model` | Extract candidate entities from Handbook alone | ~5-7 min |
 | `fa_coverage_validator.py` | `elt-llm-consumer-coverage-validator` | Validate model coverage against Handbook (no LLM) | ~3-7 min |
 
