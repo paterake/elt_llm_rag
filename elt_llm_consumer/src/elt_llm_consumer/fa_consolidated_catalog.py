@@ -771,6 +771,10 @@ def main() -> None:
         "--skip-relationships", action="store_true",
         help="Skip relationship extraction (saves a few seconds — relationships are domain-level only)",
     )
+    parser.add_argument(
+        "--num-queries", type=int, default=None,
+        help="Override num_queries (1=fastest, 3=best recall; default: from rag_config.yaml)",
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir.expanduser()
@@ -783,6 +787,10 @@ def main() -> None:
     if args.model:
         rag_config.ollama.llm_model = args.model
         print(f"  Model override: {args.model}")
+
+    if args.num_queries is not None:
+        rag_config.query.num_queries = args.num_queries
+        print(f"  num_queries override: {args.num_queries}")
 
     print(f"  LLM: {rag_config.ollama.llm_model}")
 
