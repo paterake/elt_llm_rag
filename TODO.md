@@ -1138,3 +1138,9 @@ def validate_cardinality_against_leanix(entity_relationships, domain_relationshi
 
 This is low priority — entity-level cardinality is legitimately more specific than
 domain-level. Flag conflicts as informational, not errors.
+
+
+
+
+## TODO
+Allow running for a single domain from the conceptual model for the consolidation

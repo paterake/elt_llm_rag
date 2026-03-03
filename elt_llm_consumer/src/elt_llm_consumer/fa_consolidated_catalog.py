@@ -689,6 +689,7 @@ def consolidate_catalog(
     relationships: dict[str, list[dict]],
     model_collections: list[str],
     rag_config: RagConfig,
+    skip_handbook_only: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """Merge conceptual model + Handbook entities into unified catalog.
 
@@ -767,9 +768,12 @@ def consolidate_catalog(
         consolidated.append(record)
 
     # Step 2: Add HANDBOOK_ONLY entities (with LLM domain/subgroup inference)
+    # Skipped for domain-scoped runs — full taxonomy context is required for inference.
+    if skip_handbook_only:
+        print("\n  Skipping HANDBOOK_ONLY inference (domain-scoped run)")
     taxonomy_context = build_taxonomy_context(conceptual_entities)
     handbook_only_count = 0
-    for term_entry in handbook_terms:
+    for term_entry in ([] if skip_handbook_only else handbook_terms):
         term = term_entry["term"]
         term_norm = _normalize(term)
 
@@ -863,11 +867,24 @@ def generate_consolidated_catalog(
     handbook_collections: list[str],
     output_dir: Path,
     skip_relationships: bool,
+    domain_filter: str | None = None,
 ) -> None:
     """Generate consolidated catalog via RAG+LLM queries."""
 
-    catalog_json_path = output_dir / "fa_consolidated_catalog.json"
-    relationships_json_path = output_dir / "fa_consolidated_relationships.json"
+    if domain_filter:
+        domain_filter = domain_filter.upper()
+        suffix = f"_{domain_filter.lower()}"
+        model_collections = [c for c in model_collections if c.endswith(suffix)]
+        if not model_collections:
+            print(f"\nERROR: No collection found for domain '{domain_filter}'.", file=sys.stderr)
+            print(f"  Expected a collection ending with '{suffix}'.", file=sys.stderr)
+            sys.exit(1)
+        catalog_json_path = output_dir / f"fa_consolidated_catalog_{domain_filter.lower()}.json"
+        relationships_json_path = output_dir / f"fa_consolidated_relationships_{domain_filter.lower()}.json"
+        print(f"\n  Domain filter: {domain_filter} ({len(model_collections)} collection(s))")
+    else:
+        catalog_json_path = output_dir / "fa_consolidated_catalog.json"
+        relationships_json_path = output_dir / "fa_consolidated_relationships.json"
 
     print("\n=== FA Consolidated Catalog (RAG+LLM) ===")
     print(f"  Model: {rag_config.ollama.llm_model}")
@@ -879,6 +896,12 @@ def generate_consolidated_catalog(
     # Step 1: Extract entities from conceptual model docstores
     print("\n=== Step 1: Extract Conceptual Model Entities ===")
     conceptual_entities = extract_entities_from_conceptual_model(rag_config, model_collections)
+    if domain_filter:
+        conceptual_entities = [
+            e for e in conceptual_entities
+            if e.get("domain", "").upper() == domain_filter
+        ]
+        print(f"  After domain filter ({domain_filter}): {len(conceptual_entities)} entities")
 
     # Step 2: Get inventory descriptions via RAG
     print("\n=== Step 2: Extract Inventory Descriptions ===")
@@ -956,6 +979,7 @@ def generate_consolidated_catalog(
         relationships,
         model_collections=model_collections,
         rag_config=rag_config,
+        skip_handbook_only=domain_filter is not None,
     )
 
     # Write JSON outputs
@@ -1030,6 +1054,14 @@ def main() -> None:
         "--num-queries", type=int, default=None,
         help="Override num_queries (1=fastest, 3=best recall; default: from rag_config.yaml)",
     )
+    parser.add_argument(
+        "--domain", default=None, metavar="DOMAIN",
+        help=(
+            "Restrict to a single domain (e.g. PARTY, AGREEMENTS). "
+            "Filters to the matching collection, skips HANDBOOK_ONLY inference, "
+            "and writes to fa_consolidated_catalog_{domain}.json."
+        ),
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir.expanduser()
@@ -1080,11 +1112,13 @@ def main() -> None:
         handbook_collections=handbook_collections,
         output_dir=output_dir,
         skip_relationships=args.skip_relationships,
+        domain_filter=args.domain,
     )
 
+    domain_suffix = f"_{args.domain.lower()}" if args.domain else ""
     print("\n=== Complete ===")
-    print(f"  Consolidated catalog (JSON) → {output_dir / 'fa_consolidated_catalog.json'}")
-    print(f"  Consolidated relationships  → {output_dir / 'fa_consolidated_relationships.json'}")
+    print(f"  Consolidated catalog (JSON) → {output_dir / f'fa_consolidated_catalog{domain_suffix}.json'}")
+    print(f"  Consolidated relationships  → {output_dir / f'fa_consolidated_relationships{domain_suffix}.json'}")
     print("\nNext steps:")
     print("  1. Review fa_consolidated_catalog.json with Data Architects")
     print("  2. Update review_status fields (APPROVED/REJECTED/NEEDS_CLARIFICATION)")
