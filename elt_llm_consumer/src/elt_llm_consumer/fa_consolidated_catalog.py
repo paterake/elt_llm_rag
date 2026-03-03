@@ -117,6 +117,84 @@ Cite section and rule numbers where possible (e.g. Rule A3.1, Section C).
 If no handbook rules apply, state 'Not documented in FA Handbook — outside governance scope'.]
 """
 
+_ENTITY_RELATIONSHIP_PROMPT = """\
+You are analysing the FA (The Football Association) Handbook to identify \
+entity-to-entity relationships.
+
+Source domain: {source_domain}
+Source entities (sample): {source_entities}
+
+Target domain: {target_domain}
+Target entities (sample): {target_entities}
+
+Domain-level relationship: {source_domain} {domain_cardinality} {target_domain}
+
+Task: Identify all specific entity-to-entity relationships between the source \
+and target entity lists as described in the FA Handbook. For every relationship \
+found, return BOTH the forward and inverse directions as separate records.
+
+Return a JSON array. Each item must have exactly these fields:
+- source_entity:         name of the source entity (must be from source entities list)
+- source_domain:         source domain name
+- target_entity:         name of the target entity (must be from target entities list)
+- target_domain:         target domain name
+- relationship:          verb phrase for the forward direction (e.g. "is registered with")
+- inverse_relationship:  verb phrase for the inverse direction (e.g. "has registered players")
+- cardinality:           forward cardinality — one of: "1:1", "1:many", "many:1", "many:many"
+- inverse_cardinality:   inverse cardinality — one of: "1:1", "1:many", "many:1", "many:many"
+- inferred:              true if inferred from context, false if explicitly stated
+- evidence:              brief quote or paraphrase from the Handbook (max 30 words)
+
+Rules:
+- Only include relationships supported by the FA Handbook content.
+- Do not invent relationships. If none are found, return [].
+- Both the forward and inverse record must reference each other via \
+  inverse_relationship / relationship fields.
+
+Return only the JSON array, no other text."""
+
+_DOMAIN_INFERENCE_PROMPT = """\
+You are classifying a business entity into the FA (The Football Association) \
+data architecture taxonomy.
+
+The current known domains and subgroups are:
+{taxonomy_context}
+
+Entity name: {entity_name}
+FA Handbook definition: {handbook_definition}
+
+Follow this DECISION PROCESS in priority order:
+
+TIER 1 — Map to existing taxonomy (strongly preferred):
+  If the entity clearly belongs to an existing domain/subgroup, assign it there.
+  Set inference_tier: "existing"
+
+TIER 2 — Propose new taxonomy:
+  If the entity does not fit any existing domain/subgroup, but the entity context
+  provides enough information to propose a meaningful new Domain and/or Subgroup,
+  propose sensible names that follow the same naming conventions as the existing taxonomy.
+  Set inference_tier: "new_proposed"
+  Note: prefer this over Tier 3 whenever possible.
+
+TIER 3 — Unknown (last resort):
+  Only if there is genuinely insufficient context to classify the entity.
+  Set inference_tier: "unknown"
+
+Return a JSON object with exactly these fields:
+- entity_domain:       domain name (existing, proposed new name, or "unknown")
+- entity_subgroup:     subgroup name (existing, proposed new name, "" if none, or "unknown")
+- inference_tier:      "existing" | "new_proposed" | "unknown"
+- inference_confidence: "high" | "medium" | "low"
+  - high:   clear semantic match, only one plausible option
+  - medium: plausible but two or more options could apply
+  - low:    genuinely ambiguous
+- inference_reasoning: one or two sentences explaining the assignment
+- alternative_domain:  next most likely domain if confidence is not "high", else ""
+
+For Tier 1, use domain and subgroup names EXACTLY as listed in the taxonomy.
+For Tier 2, follow the same Title Case naming conventions as existing entries.
+Return only the JSON object, no other text."""
+
 # ---------------------------------------------------------------------------
 # Definition marker extraction from docstore
 # ---------------------------------------------------------------------------
@@ -472,6 +550,126 @@ def extract_relationships_from_conceptual_model(
     return relationships
 
 
+def extract_entity_relationships_from_handbook(
+    domain_relationships: dict[str, list[dict]],
+    conceptual_entities: list[dict],
+    handbook_collections: list[str],
+    rag_config: RagConfig,
+) -> list[dict]:
+    """Extract entity-to-entity relationships from FA Handbook via RAG.
+
+    One query per unique domain pair (bounded by ~17 domain relationships).
+    """
+    domain_entities: dict[str, list[str]] = {}
+    for e in conceptual_entities:
+        d = e.get("domain", "").upper()
+        domain_entities.setdefault(d, []).append(e["entity_name"])
+
+    entity_relationships: list[dict] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for source_domain_lower, rels in domain_relationships.items():
+        source_domain = source_domain_lower.upper()
+        source_entities = domain_entities.get(source_domain, [])
+        if not source_entities:
+            continue
+
+        for rel in rels:
+            target_domain = rel.get("target_entity", "").upper()
+            target_entities = domain_entities.get(target_domain, [])
+            if not target_entities:
+                continue
+
+            pair_key = tuple(sorted([source_domain, target_domain]))
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)
+
+            query = _ENTITY_RELATIONSHIP_PROMPT.format(
+                source_domain=source_domain,
+                source_entities=", ".join(source_entities[:20]),
+                target_domain=target_domain,
+                target_entities=", ".join(target_entities[:20]),
+                domain_cardinality=rel.get("cardinality", "relates to"),
+            )
+
+            print(f"  Querying {source_domain} ↔ {target_domain}…", end="\r", flush=True)
+            try:
+                result = query_collections(handbook_collections, query, rag_config)
+                response = result.response.strip()
+                json_match = re.search(r'\[.*\]', response, re.DOTALL)
+                if json_match:
+                    records = json.loads(json_match.group())
+                    entity_relationships.extend(records)
+            except Exception as exc:
+                print(f"  [warn] {source_domain}↔{target_domain}: {exc}")
+
+    return entity_relationships
+
+
+def build_taxonomy_context(conceptual_entities: list[dict]) -> str:
+    """Build a JSON taxonomy string from known entities for use in inference prompts."""
+    taxonomy: dict[str, dict[str, list[str]]] = {}
+    for e in conceptual_entities:
+        domain = e.get("domain", "")
+        subgroup = e.get("subgroup", "")
+        name = e.get("entity_name", "")
+        if not domain:
+            continue
+        taxonomy.setdefault(domain, {})
+        taxonomy[domain].setdefault(subgroup or "_entities", []).append(name)
+
+    output: dict[str, dict[str, list[str]]] = {}
+    for domain, subgroups in sorted(taxonomy.items()):
+        output[domain] = {}
+        for sg, entities in sorted(subgroups.items()):
+            key = sg if sg != "_entities" else "entities"
+            output[domain][key] = sorted(entities)[:10]
+
+    return json.dumps(output, indent=2)
+
+
+def infer_domain_for_handbook_entity(
+    entity_name: str,
+    handbook_definition: str,
+    taxonomy_context: str,
+    model_collections: list[str],
+    rag_config: RagConfig,
+) -> dict:
+    """Use LLM to infer domain and subgroup for a HANDBOOK_ONLY entity (three-tier)."""
+    query = _DOMAIN_INFERENCE_PROMPT.format(
+        taxonomy_context=taxonomy_context,
+        entity_name=entity_name,
+        handbook_definition=handbook_definition,
+    )
+    try:
+        result = query_collections(model_collections, query, rag_config)
+        response = result.response.strip()
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            tier = parsed.get("inference_tier", "unknown")
+            confidence = parsed.get("inference_confidence", "low")
+            if tier == "existing" and confidence == "high":
+                parsed["review_status"] = "PENDING"
+            elif tier == "new_proposed":
+                parsed["review_status"] = "PROPOSED_NEW_TAXONOMY"
+            else:
+                parsed["review_status"] = "NEEDS_CLARIFICATION"
+            return parsed
+    except Exception:
+        pass
+    return {
+        "entity_domain": "unknown",
+        "entity_subgroup": "",
+        "inference_tier": "unknown",
+        "inference_confidence": "low",
+        "inference_reasoning": "LLM inference failed",
+        "alternative_domain": "",
+        "review_status": "NEEDS_CLARIFICATION",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Consolidation logic
 # ---------------------------------------------------------------------------
@@ -489,6 +687,8 @@ def consolidate_catalog(
     inventory_descriptions: dict[str, dict],
     handbook_context: dict[str, dict],
     relationships: dict[str, list[dict]],
+    model_collections: list[str],
+    rag_config: RagConfig,
 ) -> tuple[list[dict], list[dict]]:
     """Merge conceptual model + Handbook entities into unified catalog.
 
@@ -549,6 +749,7 @@ def consolidate_catalog(
             "fact_sheet_id": fsid,
             "entity_name": name,
             "domain": domain,
+            "subgroup": entity.get("subgroup", ""),
             "hierarchy_level": entity.get("hierarchy_level", ""),
             "source": source,
             "leanix_description": leanix_description,
@@ -565,7 +766,8 @@ def consolidate_catalog(
 
         consolidated.append(record)
 
-    # Step 2: Add HANDBOOK_ONLY entities
+    # Step 2: Add HANDBOOK_ONLY entities (with LLM domain/subgroup inference)
+    taxonomy_context = build_taxonomy_context(conceptual_entities)
     handbook_only_count = 0
     for term_entry in handbook_terms:
         term = term_entry["term"]
@@ -579,14 +781,27 @@ def consolidate_catalog(
             continue
 
         handbook_only_count += 1
+        print(
+            f"  [handbook-only {handbook_only_count}] Inferring domain for '{term[:40]}'…",
+            end="\r", flush=True,
+        )
 
         # Get handbook context for this term
         hb_context = handbook_context.get(term_norm, {})
 
+        inferred = infer_domain_for_handbook_entity(
+            entity_name=term,
+            handbook_definition=term_entry.get("definition", ""),
+            taxonomy_context=taxonomy_context,
+            model_collections=model_collections,
+            rag_config=rag_config,
+        )
+
         record = {
             "fact_sheet_id": "",
             "entity_name": term,
-            "domain": "HANDBOOK_DISCOVERED",
+            "domain": inferred.get("entity_domain", "HANDBOOK_DISCOVERED"),
+            "subgroup": inferred.get("entity_subgroup", ""),
             "hierarchy_level": "",
             "source": "HANDBOOK_ONLY",
             "leanix_description": "Not documented in LeanIX — candidate for conceptual model addition",
@@ -596,8 +811,13 @@ def consolidate_catalog(
             "handbook_term": term,
             "mapping_confidence": "low",
             "mapping_rationale": "Discovered in Handbook but not mapped to conceptual model",
-            "review_status": "PENDING",
-            "review_notes": f"Handbook term awaiting SME review for model inclusion",
+            "inferred": True,
+            "inference_tier": inferred.get("inference_tier", "unknown"),
+            "inference_confidence": inferred.get("inference_confidence", "low"),
+            "inference_reasoning": inferred.get("inference_reasoning", ""),
+            "alternative_domain": inferred.get("alternative_domain", ""),
+            "review_status": inferred.get("review_status", "NEEDS_CLARIFICATION"),
+            "review_notes": "Handbook term awaiting SME review for model inclusion",
             "relationships": [],
         }
 
@@ -708,6 +928,23 @@ def generate_consolidated_catalog(
     else:
         relationships = extract_relationships_from_conceptual_model(rag_config, model_collections)
 
+    # Step 6b: Entity-to-entity relationships from Handbook
+    print("\n=== Step 6b: Extract Entity-to-Entity Relationships from Handbook ===")
+    entity_relationships: list[dict] = []
+    if not skip_relationships and relationships:
+        entity_relationships = extract_entity_relationships_from_handbook(
+            domain_relationships=relationships,
+            conceptual_entities=conceptual_entities,
+            handbook_collections=handbook_collections,
+            rag_config=rag_config,
+        )
+        entity_rel_path = output_dir / "fa_entity_relationships.json"
+        with open(entity_rel_path, "w", encoding="utf-8") as f:
+            json.dump(entity_relationships, f, indent=2, ensure_ascii=False)
+        print(f"  {len(entity_relationships)} entity relationships → {entity_rel_path}")
+    else:
+        print("  Skipping (--skip-relationships or no domain relationships found)")
+
     # Step 7: Consolidate
     print("\n=== Step 7: Consolidating ===")
     consolidated_entities, consolidated_relationships = consolidate_catalog(
@@ -717,6 +954,8 @@ def generate_consolidated_catalog(
         inventory_descriptions,
         handbook_context,
         relationships,
+        model_collections=model_collections,
+        rag_config=rag_config,
     )
 
     # Write JSON outputs
