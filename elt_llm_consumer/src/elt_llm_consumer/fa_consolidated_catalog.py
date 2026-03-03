@@ -46,8 +46,8 @@ Available models:
     granite3.1-dense:8b, michaelborck/refuled
 
 Runtime:
-  - Full run: ~5-10 min
-  - Skip relationships: ~3-5 min
+  - Full run: ~3-4 hr (num_queries=3) / ~45-60 min (num_queries=1)
+  - Skip relationships: ~2-3 hr (num_queries=3) / ~30-45 min (num_queries=1)
 """
 from __future__ import annotations
 
@@ -133,11 +133,26 @@ _ENTITY_LINE_PAT = re.compile(
     r"^- \*\*([^*]+)\*\*(?:\s+\*\(LeanIX ID: `([^`]*)`\)\*)?$"
 )
 
-# Matches relationship lines from doc_leanix_parser:
-#   - **Club** relates to (zero or more to zero or more) **Player**
+# Matches relationship lines from doc_leanix_parser.
+# Domain sections write:     - **PARTY** relates to (cardinality) **ACCOUNTS**
+# Relationships collection:    **PARTY** relates to (cardinality) **ACCOUNTS**.
+# Pattern handles both: optional leading '- ' and optional trailing '.'
 _REL_LINE_PAT = re.compile(
-    r"^- \*\*([^*]+)\*\*\s+(.+?)\s+\*\*([^*]+)\*\*$"
+    r"^(?:- )?\*\*([^*]+)\*\*\s+(.+?)\s+\*\*([^*]+)\*\*\.?$"
 )
+
+# Matches paragraph-format entity group lines in the additional_entities collection:
+#   **Party Types (28 entities):** Club, Player, Individual, …
+_ENTITY_GROUP_PAT = re.compile(
+    r"^\*\*([^(]+?)\s*\(\d+\s+entities\):\*\*\s+(.+)"
+)
+_CATEGORY_DOMAIN: dict[str, str] = {
+    "Party Types": "PARTY",
+    "Channel Types": "CHANNEL",
+    "Account Types": "ACCOUNTS",
+    "Asset Types": "ASSETS",
+    "Other Entities": "ADDITIONAL",
+}
 
 
 def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
@@ -231,23 +246,47 @@ def extract_entities_from_conceptual_model(
                 line = line.strip()
                 if not line:
                     continue
+
+                # Bullet-list format: - **Entity Name** *(LeanIX ID: `uuid`)*
                 m = _ENTITY_LINE_PAT.match(line)
+                if m:
+                    name = m.group(1).strip()
+                    fsid = (m.group(2) or "").strip()
+                    if not name or len(name) > 100:
+                        continue
+                    key = name.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    entities.append({
+                        "entity_name": name,
+                        "domain": domain,
+                        "fact_sheet_id": fsid,
+                        "hierarchy_level": "",
+                    })
+                    continue
+
+                # Paragraph format from additional_entities collection:
+                # **Party Types (28 entities):** Club, Player, …
+                m = _ENTITY_GROUP_PAT.match(line)
                 if not m:
                     continue
-                name = m.group(1).strip()
-                fsid = (m.group(2) or "").strip()
-                if not name or len(name) > 100:
-                    continue
-                key = name.lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                entities.append({
-                    "entity_name": name,
-                    "domain": domain,
-                    "fact_sheet_id": fsid,
-                    "hierarchy_level": "",
-                })
+                category = m.group(1).strip()
+                entity_domain = _CATEGORY_DOMAIN.get(category, "PARTY")
+                for ename in m.group(2).strip().rstrip(".").split(","):
+                    ename = ename.strip().rstrip(".")
+                    if not ename or len(ename) > 100:
+                        continue
+                    key = ename.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    entities.append({
+                        "entity_name": ename,
+                        "domain": entity_domain,
+                        "fact_sheet_id": "",
+                        "hierarchy_level": "",
+                    })
 
     print(f"  {len(entities)} unique entities extracted from conceptual model")
     return entities
@@ -730,7 +769,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--skip-relationships", action="store_true",
-        help="Skip relationship extraction (faster, ~5 min)",
+        help="Skip relationship extraction (saves a few seconds — relationships are domain-level only)",
     )
     args = parser.parse_args()
 
