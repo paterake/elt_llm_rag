@@ -129,10 +129,12 @@ def run_validation(
         len(v) for k, v in domain_entities.items()
         if k not in ("HANDBOOK_DISCOVERED",)
     )
-    if total_leanix >= 200:
-        print(f"  ✓ LeanIX entity count: {total_leanix} (≥ 200 expected)")
+    # After Enhancement 1b, subgroup container labels are excluded from entity lists
+    # (~22 structural labels removed), so expected count drops from 208 to ~186.
+    if total_leanix >= 150:
+        print(f"  ✓ LeanIX entity count: {total_leanix} (≥ 150 expected)")
     else:
-        issues.append(f"  ✗ LeanIX entity count: {total_leanix} (expected ≥ 200)")
+        issues.append(f"  ✗ LeanIX entity count: {total_leanix} (expected ≥ 150)")
 
     subgrp_count = sum(1 for e in entities if e.get("subgroup"))
     if subgrp_count == 0:

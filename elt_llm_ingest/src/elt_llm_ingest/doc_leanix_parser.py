@@ -26,8 +26,9 @@ class LeanIXAsset:
     label: str
     fact_sheet_type: str
     fact_sheet_id: str
-    parent_group: Optional[str] = None
+    parent_group: Optional[str] = None   # top-level domain name
     parent_id: Optional[str] = None
+    subgroup: Optional[str] = None       # visual subgroup within domain (Enhancement 1b)
     x: Optional[float] = None
     y: Optional[float] = None
     width: Optional[float] = None
@@ -90,6 +91,7 @@ class LeanIXExtractor:
         self.extract_assets()
         self.extract_relationships()
         self.enrich_relationships()
+        self._assign_subgroups()
         
     def extract_groups(self):
         """Extract group containers (like PARTY, AGREEMENTS, etc.)
@@ -464,6 +466,55 @@ class LeanIXExtractor:
             return mapping[cardinality]
         return f"relates to ({cardinality})" if cardinality else "relates to"
     
+    def _assign_subgroups(self):
+        """Assign leaf entities to their visual subgroup using spatial containment.
+
+        All domain groups in this model use large rectangles as visual subgroup
+        containers and 100x40 boxes as leaf entities.  Both are detected purely
+        from parsed geometry — no hardcoded group IDs or coordinates.
+
+        Discriminator (verified across all domains):
+            subgroup container: width > 100  AND height > 40
+            leaf entity:        width <= 100  OR height <= 40
+
+        Edge case confirmed: "Targeted Promotion" in CAMPAIGN is 102x40 — height
+        is not > 40, so it is correctly treated as a leaf entity.
+        """
+        for group_id, domain_name in self.groups.items():
+            if not domain_name:
+                continue
+
+            subgroup_boxes: List[Tuple[str, float, float, float, float]] = []
+            leaf_assets: List[LeanIXAsset] = []
+
+            for asset in self.assets.values():
+                if asset.parent_id != group_id:
+                    continue
+                if asset.label.upper() == domain_name.upper():
+                    continue  # skip the root domain label node
+
+                w = asset.width or 0
+                h = asset.height or 0
+
+                if w > 100 and h > 40:
+                    subgroup_boxes.append(
+                        (asset.label, asset.x or 0, asset.y or 0, w, h)
+                    )
+                else:
+                    leaf_assets.append(asset)
+
+            if not subgroup_boxes:
+                continue  # domain has no visual subgroups (e.g. LOCATION)
+
+            # Assign each leaf to the subgroup whose bounding box contains its centre
+            for asset in leaf_assets:
+                cx = (asset.x or 0) + (asset.width or 0) / 2
+                cy = (asset.y or 0) + (asset.height or 0) / 2
+                for (sg_name, sg_x, sg_y, sg_w, sg_h) in subgroup_boxes:
+                    if sg_x <= cx <= sg_x + sg_w and sg_y <= cy <= sg_y + sg_h:
+                        asset.subgroup = sg_name
+                        break
+
     def _sanitize_section_key(self, name: str) -> str:
         """Sanitize a domain name into a valid section key for use in collection names."""
         key = name.lower()
@@ -505,28 +556,63 @@ class LeanIXExtractor:
         )
         for group_name in domain_names:
             group_assets = assets_by_group[group_name]
-            members = [a.label for a in group_assets if a.label.upper() != group_name.upper()]
-            md.append(f"The **{group_name}** domain contains {len(members)} entities.\n\n")
+            # Exclude domain root label and labels actively used as subgroup headings.
+            # Geometry-only filtering is avoided: some entities (e.g. Team, Household)
+            # have wider boxes but are genuine entities, not containers.
+            used_subgroups = {a.subgroup for a in group_assets if a.subgroup}
+            leaf_count = sum(
+                1 for a in group_assets
+                if a.label.upper() != group_name.upper()
+                and a.label not in used_subgroups
+            )
+            md.append(f"The **{group_name}** domain contains {leaf_count} entities.\n\n")
         sections["overview"] = "".join(md)
 
         # ── One section per domain ────────────────────────────────────────────
         for group_name in domain_names:
             group_assets = sorted(assets_by_group[group_name], key=lambda a: a.label)
-            domain_entities = [a for a in group_assets if a.label.upper() != group_name.upper()]
-            members = [a.label for a in domain_entities]
+            # Exclude domain root label and labels actively used as subgroup headings.
+            # A label that no entity references as its subgroup is a genuine entity.
+            used_subgroups = {a.subgroup for a in group_assets if a.subgroup}
+            leaf_entities = [
+                a for a in group_assets
+                if a.label.upper() != group_name.upper()
+                and a.label not in used_subgroups
+            ]
 
             md = []
             md.append(f"# {group_name} Domain — {self.model_name}\n\n")
             md.append(
                 f"The {group_name} domain is part of the {self.model_name}. "
-                f"It contains {len(members)} entities.\n\n"
+                f"It contains {len(leaf_entities)} entities.\n\n"
             )
-            if domain_entities:
+            if leaf_entities:
                 md.append(f"The entities within the {group_name} domain are:\n\n")
-                for asset in domain_entities:
-                    fsid = f" *(LeanIX ID: `{asset.fact_sheet_id}`)*" if asset.fact_sheet_id else ""
-                    md.append(f"- **{asset.label}**{fsid}\n")
-                md.append("\n")
+                has_subgroups = any(a.subgroup for a in leaf_entities)
+                if has_subgroups:
+                    by_subgroup: Dict[str, List[LeanIXAsset]] = defaultdict(list)
+                    unassigned: List[LeanIXAsset] = []
+                    for asset in leaf_entities:
+                        if asset.subgroup:
+                            by_subgroup[asset.subgroup].append(asset)
+                        else:
+                            unassigned.append(asset)
+                    for sg_name in sorted(by_subgroup.keys()):
+                        md.append(f"## {sg_name} Subgroup\n\n")
+                        for asset in sorted(by_subgroup[sg_name], key=lambda a: a.label):
+                            fsid = f" *(LeanIX ID: `{asset.fact_sheet_id}`)*" if asset.fact_sheet_id else ""
+                            md.append(f"- **{asset.label}**{fsid}\n")
+                        md.append("\n")
+                    for asset in sorted(unassigned, key=lambda a: a.label):
+                        fsid = f" *(LeanIX ID: `{asset.fact_sheet_id}`)*" if asset.fact_sheet_id else ""
+                        md.append(f"- **{asset.label}**{fsid}\n")
+                    if unassigned:
+                        md.append("\n")
+                else:
+                    for asset in leaf_entities:
+                        fsid = f" *(LeanIX ID: `{asset.fact_sheet_id}`)*" if asset.fact_sheet_id else ""
+                        md.append(f"- **{asset.label}**{fsid}\n")
+                    md.append("\n")
 
             # Include relationships that touch this domain (for co-location context)
             domain_rels = [

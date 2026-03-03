@@ -141,6 +141,10 @@ _REL_LINE_PAT = re.compile(
     r"^(?:- )?\*\*([^*]+)\*\*\s+(.+?)\s+\*\*([^*]+)\*\*\.?$"
 )
 
+# Matches subgroup heading lines emitted by to_section_files() after Enhancement 1b:
+#   ## Individual Subgroup
+_SUBGROUP_HEADING_PAT = re.compile(r"^## (.+?) Subgroup$")
+
 # Matches paragraph-format entity group lines in the additional_entities collection:
 #   **Party Types (28 entities):** Club, Player, Individual, …
 _ENTITY_GROUP_PAT = re.compile(
@@ -242,9 +246,21 @@ def extract_entities_from_conceptual_model(
 
         for node in nodes:
             text = getattr(node, "text", "") or ""
+            current_subgroup = ""  # reset per chunk — headings and entities co-locate in chunks
             for line in text.splitlines():
                 line = line.strip()
                 if not line:
+                    continue
+
+                # Subgroup heading: ## Individual Subgroup
+                m = _SUBGROUP_HEADING_PAT.match(line)
+                if m:
+                    current_subgroup = m.group(1).strip()
+                    continue
+
+                # Non-subgroup ## heading (e.g. ## PARTY Domain Relationships) — reset
+                if line.startswith("## ") and not _SUBGROUP_HEADING_PAT.match(line):
+                    current_subgroup = ""
                     continue
 
                 # Bullet-list format: - **Entity Name** *(LeanIX ID: `uuid`)*
@@ -263,6 +279,7 @@ def extract_entities_from_conceptual_model(
                         "domain": domain,
                         "fact_sheet_id": fsid,
                         "hierarchy_level": "",
+                        "subgroup": current_subgroup,
                     })
                     continue
 
