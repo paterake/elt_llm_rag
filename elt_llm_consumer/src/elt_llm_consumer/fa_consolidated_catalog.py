@@ -204,11 +204,31 @@ _DEF_LINE_PAT = re.compile(
     r"\*\*FA Handbook defined term\*\* \[source: (\w+)\]: (.+?) means (.+)",
 )
 
+# PDF navigation/header text that leaks into defined-term extraction.
+# These originate from definition table headers and contents-page links
+# in the regulatory PDF, not from actual defined terms.
+_ARTIFACT_TERM_FRAGMENTS = (
+    "CONTENTS PAGE",         # navigation link remnant
+    "DEFINITION INTERPRETATION",  # definition table header
+)
+
+
+def _is_artifact_term(term: str) -> bool:
+    """Return True if the term is a PDF navigation or header artifact, not a real defined term."""
+    if any(frag in term for frag in _ARTIFACT_TERM_FRAGMENTS):
+        return True
+    # Trailing ' -' indicates the term was truncated at a line/chunk boundary
+    if term.endswith(" -"):
+        return True
+    return False
+
 # Matches entity list lines from doc_leanix_parser domain sections:
 #   - **Club** *(LeanIX ID: `abc123-uuid`)*
 #   - **Club**   (no ID variant)
+# Leading '- ' is optional: chunk boundaries can split a line mid-way, causing
+# the first entity in a continuation chunk to appear without the bullet prefix.
 _ENTITY_LINE_PAT = re.compile(
-    r"^- \*\*([^*]+)\*\*(?:\s+\*\(LeanIX ID: `([^`]*)`\)\*)?$"
+    r"^(?:- )?\*\*([^*]+)\*\*(?:\s+\*\(LeanIX ID: `([^`]*)`\)\*)?$"
 )
 
 # Matches relationship lines from doc_leanix_parser.
@@ -273,6 +293,8 @@ def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
                 continue
             source = m.group(1).strip().lower()
             term = m.group(2).strip()
+            if _is_artifact_term(term):
+                continue
             defn = m.group(3).strip().rstrip(".")
             key = term.lower()
             if key in seen:
@@ -316,15 +338,20 @@ def extract_entities_from_conceptual_model(
             continue
 
         storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
-        nodes = list(storage.docstore.docs.values())
+        # Sort by start_char_idx so subgroup headings are encountered before their entities
+        # even when chunks are split mid-line at chunk boundaries.
+        nodes = sorted(
+            storage.docstore.docs.values(),
+            key=lambda n: getattr(n, "start_char_idx", 0) or 0,
+        )
 
         domain = coll_name.replace(
             "fa_leanix_dat_enterprise_conceptual_model_", ""
         ).upper()
 
+        current_subgroup = ""  # persists across chunks within the same collection
         for node in nodes:
             text = getattr(node, "text", "") or ""
-            current_subgroup = ""  # reset per chunk — headings and entities co-locate in chunks
             for line in text.splitlines():
                 line = line.strip()
                 if not line:
@@ -868,6 +895,7 @@ def generate_consolidated_catalog(
     output_dir: Path,
     skip_relationships: bool,
     domain_filter: str | None = None,
+    skip_handbook: bool = False,
 ) -> None:
     """Generate consolidated catalog via RAG+LLM queries."""
 
@@ -916,31 +944,41 @@ def generate_consolidated_catalog(
 
     # Step 3: Extract Handbook defined terms from docstore
     print("\n=== Step 3: Extract Handbook Defined Terms ===")
-    handbook_terms = extract_handbook_terms_from_docstore(rag_config)
+    if skip_handbook:
+        print("  Skipping (--skip-handbook)")
+        handbook_terms: list[dict] = []
+    else:
+        handbook_terms = extract_handbook_terms_from_docstore(rag_config)
 
     # Step 4: Map Handbook terms to conceptual model entities via RAG
     print("\n=== Step 4: Map Handbook Terms to Conceptual Model ===")
     handbook_mappings: dict[str, dict] = {}
-    total = len(handbook_terms)
-    for i, term_entry in enumerate(handbook_terms, 1):
-        term = term_entry["term"]
-        definition = term_entry["definition"]
-        print(f"  [{i:>3}/{total}] {term[:50]:<50}", end="\r", flush=True)
-        mapping = map_handbook_term_to_entity(term, definition, model_collections, rag_config)
-        handbook_mappings[term.lower()] = mapping
-    print(f"  {len(handbook_mappings)} handbook terms mapped                              ")
+    if skip_handbook:
+        print("  Skipping (--skip-handbook)")
+    else:
+        total = len(handbook_terms)
+        for i, term_entry in enumerate(handbook_terms, 1):
+            term = term_entry["term"]
+            definition = term_entry["definition"]
+            print(f"  [{i:>3}/{total}] {term[:50]:<50}", end="\r", flush=True)
+            mapping = map_handbook_term_to_entity(term, definition, model_collections, rag_config)
+            handbook_mappings[term.lower()] = mapping
+        print(f"  {len(handbook_mappings)} handbook terms mapped                              ")
 
     # Step 5: Get handbook context for all entities
     print("\n=== Step 5: Extract Handbook Context ===")
     handbook_context: dict[str, dict] = {}
-    total = len(conceptual_entities)
-    for i, entity in enumerate(conceptual_entities, 1):
-        name = entity.get("entity_name", "")
-        domain = entity.get("domain", "UNKNOWN")
-        print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
-        context = get_handbook_context_for_entity(name, domain, handbook_collections, rag_config)
-        handbook_context[_normalize(name)] = context
-    print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
+    if skip_handbook:
+        print("  Skipping (--skip-handbook)")
+    else:
+        total = len(conceptual_entities)
+        for i, entity in enumerate(conceptual_entities, 1):
+            name = entity.get("entity_name", "")
+            domain = entity.get("domain", "UNKNOWN")
+            print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
+            context = get_handbook_context_for_entity(name, domain, handbook_collections, rag_config)
+            handbook_context[_normalize(name)] = context
+        print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 
     # Step 6: Extract relationships from conceptual model
     print("\n=== Step 6: Extract Relationships ===")
@@ -1051,6 +1089,11 @@ def main() -> None:
         help="Skip relationship extraction (saves a few seconds — relationships are domain-level only)",
     )
     parser.add_argument(
+        "--skip-handbook", action="store_true",
+        help="Skip handbook term extraction, mapping, and context enrichment (steps 3-5). "
+             "Produces LEANIX_ONLY output only — useful for quickly testing entity/subgroup extraction.",
+    )
+    parser.add_argument(
         "--num-queries", type=int, default=None,
         help="Override num_queries (1=fastest, 3=best recall; default: from rag_config.yaml)",
     )
@@ -1113,6 +1156,7 @@ def main() -> None:
         output_dir=output_dir,
         skip_relationships=args.skip_relationships,
         domain_filter=args.domain,
+        skip_handbook=args.skip_handbook,
     )
 
     domain_suffix = f"_{args.domain.lower()}" if args.domain else ""
