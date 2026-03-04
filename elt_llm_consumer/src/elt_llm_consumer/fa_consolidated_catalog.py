@@ -72,10 +72,32 @@ _DEFAULT_RAG_CONFIG = Path(
 
 _DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
-_DEFAULT_MODEL_JSON = Path(
-    "~/Documents/__data/resources/thefa/"
-    "DAT_V00.01_FA Enterprise Conceptual Data Model_model.json"
+_INGEST_CONFIG = Path(
+    "~/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/"
+    "ingest_fa_leanix_dat_enterprise_conceptual_model.yaml"
 ).expanduser()
+
+
+def _resolve_default_model_json() -> Path:
+    """Derive _model.json path from the ingest config file_paths[0].
+
+    Reads the ingest YAML to get the source XML path, then derives the JSON
+    path by convention: <xml_dir>/<xml_stem>_model.json.
+    Falls back to a sensible error if the config is missing.
+    """
+    import yaml
+    if not _INGEST_CONFIG.exists():
+        raise FileNotFoundError(
+            f"Ingest config not found: {_INGEST_CONFIG}\n"
+            "Pass --model-json explicitly or fix the config path."
+        )
+    with open(_INGEST_CONFIG) as f:
+        data = yaml.safe_load(f)
+    xml_path = Path(data["file_paths"][0]).expanduser()
+    return xml_path.parent / f"{xml_path.stem}_model.json"
+
+
+_DEFAULT_MODEL_JSON = _resolve_default_model_json()
 
 # ---------------------------------------------------------------------------
 # System prompts
