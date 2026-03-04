@@ -1,8 +1,8 @@
-# Ingestion Config: LeanIX Enterprise Conceptual Data Model — CSV Mode
+# Ingestion Config: LeanIX Enterprise Conceptual Data Model
 #
-# CSV mode replaces the old split-mode (11 collections) with a two-collection
-# approach backed by flat per-entity Markdown.  The preprocessor also writes
-# two CSV files next to the source XML for direct consumer use — eliminating
+# json_md mode: two-collection approach backed by flat per-entity Markdown.
+# The preprocessor (doc_leanix_parser.py via LeanIXPreprocessor) also writes
+# a JSON file next to the source XML for direct consumer use — eliminating
 # docstore-scanning regex in the consumer layer.
 #
 # Collections produced:
@@ -17,7 +17,7 @@ collection_prefix: "fa_leanix_dat_enterprise_conceptual_model"
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
   class: "LeanIXPreprocessor"
-  output_format: "csv"
+  output_format: "json_md"
   enabled: true
   model_name: "FA Enterprise Conceptual Data Model"
   org_name: "The Football Association"

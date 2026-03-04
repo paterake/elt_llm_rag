@@ -71,7 +71,7 @@ class LeanIXPreprocessor(BasePreprocessor):
       one per domain group, additional entities, relationships) and populates
       :attr:`PreprocessorResult.section_collection_map` so the ingestion
       pipeline can load each file into its own ChromaDB collection.
-    - ``'csv'``: generates ``<stem>_model.json`` (written next to the source XML for
+    - ``'json_md'``: generates ``<stem>_model.json`` (written next to the source XML for
       consumer use) plus ``<stem>_entities.md`` and ``<stem>_relationships.md`` for
       RAG ingestion into two collections (``{collection_prefix}_entities`` and
       ``{collection_prefix}_relationships``).  This is the recommended mode — consumers
@@ -132,7 +132,7 @@ class LeanIXPreprocessor(BasePreprocessor):
             extractor.extract_all()
 
             # ── JSON mode: _model.json + flat markdowns for RAG ──────────────
-            if self.output_format == "csv":
+            if self.output_format in ("json_md", "csv"):  # "csv" kept for back-compat
                 # Model JSON written next to the source XML so consumers can find it
                 # by convention without needing extra config.
                 model_json = input_path.parent / f"{input_path.stem}_model.json"
