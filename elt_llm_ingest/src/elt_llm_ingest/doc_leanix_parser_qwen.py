@@ -117,6 +117,9 @@ class LeanIXExtractor:
 
         # Type 3: large domain boxes (width > 500, height > 200) with parent="1"
         # These are top-level domain containers without explicit group style
+        # Exclude subtype boxes (Individual, Organisation, etc.) which are inside domain containers
+        subtype_keywords = ['individual', 'organisation', 'organization', 'configuration']
+        
         for obj in self.root.iter('object'):
             oid = obj.get('id')
             if oid and oid in group_parents:
@@ -126,8 +129,9 @@ class LeanIXExtractor:
             if cell is None:
                 continue
 
-            # Check if it's a top-level box (parent="1")
-            if cell.get('parent') != '1':
+            # Check if it's a top-level box (parent="1" OR parent is a group container)
+            parent_id = cell.get('parent')
+            if parent_id not in ['1'] and parent_id not in group_parents:
                 continue
 
             # Check geometry - domain containers are large
@@ -138,10 +142,33 @@ class LeanIXExtractor:
             width = float(geometry.get('width', 0))
             height = float(geometry.get('height', 0))
 
-            # Domain containers are typically > 500x200
+            # Domain containers are typically > 500x200 (REFERENCE DATA is 390x290 - exception)
             # CHANNEL is 830x370, ASSETS is 550x265, ACCOUNTS is 580x220
+            # Subtype boxes are smaller: Individual 530x210, Organisation 530x150
+            # Use 550 width threshold to exclude subtype boxes
             if width > 500 and height > 200:
-                group_parents[oid] = '1'
+                # Additional check: exclude subtype boxes by label
+                label = obj.get('label', '').lower()
+                is_subtype = any(kw in label for kw in subtype_keywords)
+                
+                if not is_subtype:
+                    group_parents[oid] = parent_id
+            # Special case: REFERENCE DATA is 390x290 (width < 500 but still a domain)
+            elif width > 350 and height > 250:
+                label = obj.get('label', '').lower()
+                if 'reference' in label:
+                    group_parents[oid] = parent_id
+
+        # Type 4: Nested groups (groups inside groups)
+        # REFERENCE DATA has nested groups: Static Data (405), Time Bounded (406) inside group 258
+        # These are subtype containers, not domain containers
+        self.nested_group_ids = set()
+        for mxcell in self.root.iter('mxCell'):
+            style = mxcell.get('style', '')
+            parent_id = mxcell.get('parent')
+            if 'group' in style and mxcell.get('vertex') == '1' and parent_id in group_parents:
+                # This is a nested group inside a domain container
+                self.nested_group_ids.add(mxcell.get('id'))
 
         # Special handling for CHANNEL domain subtypes
         # CHANNEL subtypes (Physical Channel, Broadcast, etc.) have parent="1" but are visually inside CHANNEL
@@ -153,20 +180,45 @@ class LeanIXExtractor:
                 cell = obj.find('mxCell')
                 if cell is None or cell.get('parent') != '1':
                     continue
-                
+
                 geometry = cell.find('mxGeometry')
                 if geometry is None:
                     continue
-                
+
                 width = float(geometry.get('width', 0))
                 height = float(geometry.get('height', 0))
-                
+
                 # CHANNEL subtypes are medium boxes (300-450 x 140-170)
                 # Larger than entities (100x40) but smaller than domains (500x200)
                 if (300 <= width <= 450 and 140 <= height <= 200):
                     label = self._clean_label(obj.get('label', '')).lower()
                     if any(x in label for x in ['channel', 'broadcast', 'physically', 'personally', 'digitally']):
                         channel_subtype_ids.add(oid)
+                        # Don't add to group_parents - these are subtypes, not domains
+
+        # Special handling for ACCOUNTS domain subtypes
+        # ACCOUNTS subtypes (Financial Accounts, Service Accounts, etc.) have parent="1" but are visually inside ACCOUNTS
+        accounts_subtype_ids = set()
+        if '2' in group_parents:  # ACCOUNTS domain detected
+            for obj in self.root.iter('object'):
+                oid = obj.get('id')
+                cell = obj.find('mxCell')
+                if cell is None or cell.get('parent') != '1':
+                    continue
+
+                geometry = cell.find('mxGeometry')
+                if geometry is None:
+                    continue
+
+                width = float(geometry.get('width', 0))
+                height = float(geometry.get('height', 0))
+
+                # ACCOUNTS subtypes are medium boxes (250 x 70)
+                # Larger than entities (100x40) but smaller than domains (500x200)
+                if (200 <= width <= 300 and 60 <= height <= 100):
+                    label = self._clean_label(obj.get('label', '')).lower()
+                    if 'account' in label:
+                        accounts_subtype_ids.add(oid)
                         # Don't add to group_parents - these are subtypes, not domains
 
         # Build object map for Type 3 domain labelling
@@ -195,6 +247,41 @@ class LeanIXExtractor:
                 'x': x, 'y': y, 'w': width, 'h': height,
                 'label': label
             }
+
+        # Build ACCOUNTS subtype boxes for spatial containment
+        self.accounts_subtype_boxes = {}
+        for oid in accounts_subtype_ids:
+            obj = obj_map.get(oid)
+            if obj is None:
+                continue
+            cell = obj.find('mxCell')
+            if cell is None:
+                continue
+            geometry = cell.find('mxGeometry')
+            if geometry is None:
+                continue
+
+            x = float(geometry.get('x', 0))
+            y = float(geometry.get('y', 0))
+            width = float(geometry.get('width', 0))
+            height = float(geometry.get('height', 0))
+            label = self._clean_label(obj.get('label', ''))
+            fsid = obj.get('factSheetId', '')
+
+            self.accounts_subtype_boxes[oid] = {
+                'x': x, 'y': y, 'w': width, 'h': height,
+                'label': label
+            }
+
+            # ACCOUNTS subtype boxes ARE the entities (like ASSETS)
+            # Add them directly as entities
+            self.entities.append(Entity(
+                domain='ACCOUNTS',
+                subtype=label,
+                entity=label,
+                leanix_id=fsid,
+                hierarchy_level='Entity'
+            ))
 
         # Label each group
         for group_id in group_parents:
@@ -259,6 +346,29 @@ class LeanIXExtractor:
                     'x': x, 'y': y, 'w': width, 'h': height,
                     'cell_id': obj_id
                 }
+
+        # Handle nested groups (groups inside groups) as subtype containers
+        # REFERENCE DATA has nested groups: Static Data, Time Bounded Groupings
+        if hasattr(self, 'nested_group_ids'):
+            for nid in self.nested_group_ids:
+                # Find the domain this nested group belongs to
+                for gid, glabel in self.groups.items():
+                    # Find objects with parent=nid (the nested group)
+                    for obj in self.root.iter('object'):
+                        cell = obj.find('mxCell')
+                        if cell is not None and cell.get('parent') == nid:
+                            label = self._clean_label(obj.get('label', ''))
+                            geom = cell.find('mxGeometry')
+                            if geom is not None:
+                                x = float(geom.get('x', 0))
+                                y = float(geom.get('y', 0))
+                                w = float(geom.get('width', 0))
+                                h = float(geom.get('height', 0))
+                                # Add as subtype container for the parent domain
+                                subgroup_boxes.setdefault(glabel, {})[label] = {
+                                    'x': x, 'y': y, 'w': w, 'h': h,
+                                    'cell_id': obj.get('id')
+                                }
 
         # Special handling for CHANNEL domain
         if hasattr(self, 'channel_subtype_boxes'):
@@ -348,6 +458,15 @@ class LeanIXExtractor:
                     if (box['x'] <= cx <= box['x'] + box['w'] and
                         box['y'] <= cy <= box['y'] + box['h']):
                         domain = 'CHANNEL'
+                        break
+
+            # Special handling for ACCOUNTS entities with parent="1"
+            if parent_id == '1' and hasattr(self, 'accounts_subtype_boxes'):
+                cx, cy = x + width / 2, y + height / 2
+                for box_oid, box in self.accounts_subtype_boxes.items():
+                    if (box['x'] <= cx <= box['x'] + box['w'] and
+                        box['y'] <= cy <= box['y'] + box['h']):
+                        domain = 'ACCOUNTS'
                         break
 
             # Find subtype by spatial containment
@@ -551,6 +670,56 @@ class LeanIXExtractor:
         
         # Build domains list with LeanIX IDs
         domains_dict = {}
+        
+        # First, add all detected groups as domains (even those without leaf entities)
+        for gid, glabel in self.groups.items():
+            if glabel and glabel not in domains_dict:
+                # Skip nested groups that are subtypes (Static Data, Time Bounded, Individual, Organisation, etc.)
+                # Check if this group has a parent that's also a group/domain
+                is_nested = False
+                for parent_gid in self.groups.keys():
+                    if parent_gid != gid:
+                        # Check if this group is a child of another group
+                        for obj in self.root.iter('object'):
+                            cell = obj.find('mxCell')
+                            if cell is not None and cell.get('id') == gid:
+                                if cell.get('parent') == parent_gid:
+                                    is_nested = True
+                                    break
+                            # Also check if this is a factSheet inside another factSheet (subtype inside domain)
+                            if obj.get('id') == gid and obj.get('type') == 'factSheet':
+                                for parent_obj in self.root.iter('object'):
+                                    parent_cell = parent_obj.find('mxCell')
+                                    if parent_cell is not None and parent_cell.get('id') == cell.get('parent'):
+                                        if parent_obj.get('type') == 'factSheet':
+                                            # This factSheet is inside another factSheet - it's a subtype
+                                            is_nested = True
+                                            break
+                                if is_nested:
+                                    break
+                        if is_nested:
+                            break
+                
+                if not is_nested:
+                    # Find domain LeanIX ID
+                    domain_id = None
+                    if gid in obj_map:
+                        domain_id = obj_map[gid].get('factSheetId')
+                    else:
+                        # Type 1 groups (bare mxCell) - find first child factSheet
+                        for obj in self.root.iter('object'):
+                            cell = obj.find('mxCell')
+                            if cell is not None and cell.get('parent') == gid:
+                                domain_id = obj.get('factSheetId')
+                                break
+                    
+                    domains_dict[glabel] = {
+                        "domain": glabel,
+                        "leanix_id": domain_id,
+                        "entity_count": 0
+                    }
+        
+        # Then, count entities per domain
         for entity in self.entities:
             domain = entity.domain
             if domain not in domains_dict:
@@ -570,7 +739,7 @@ class LeanIXExtractor:
                                     break
                         if domain_id:
                             break
-                
+
                 domains_dict[domain] = {
                     "domain": domain,
                     "leanix_id": domain_id,

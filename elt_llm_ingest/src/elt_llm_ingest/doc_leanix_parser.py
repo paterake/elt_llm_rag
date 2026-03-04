@@ -69,6 +69,9 @@ class LeanIXExtractor:
         self.groups: Dict[str, str] = {}  # group_id -> group_label
         self._group_parents: Dict[str, str] = {}  # group_id -> parent_id
         self.parent_map = {}  # child -> parent mapping for efficient lookups
+        self._group_fact_sheet_ids: Dict[str, str] = {}  # group_id → fact_sheet_id of its label node
+        self._domain_ids: Dict[str, str] = {}             # domain_label → fact_sheet_id
+        self._subtype_ids: Dict[Tuple[str, str], str] = {}  # (domain_label, subtype_label) → fact_sheet_id
 
     def parse_xml(self):
         """Parse the XML file"""
@@ -93,6 +96,7 @@ class LeanIXExtractor:
         self.extract_relationships()
         self.enrich_relationships()
         self._assign_subgroups()
+        self._build_container_ids()
         
     def extract_groups(self):
         """Extract group containers (like PARTY, AGREEMENTS, etc.)
@@ -129,7 +133,8 @@ class LeanIXExtractor:
                     if oid and oid not in group_parents:
                         group_parents[oid] = cell.get('parent', '1')
 
-        # Label each group from its first factSheet child
+        # Label each group from its first factSheet child; capture fact_sheet_id
+        _group_fact_sheet_ids: Dict[str, str] = {}
         for group_id in group_parents:
             for obj in self.root.iter('object'):
                 obj_cell = obj.find('mxCell')
@@ -137,8 +142,10 @@ class LeanIXExtractor:
                     label = obj.get('label', '')
                     if label and obj.get('type') == 'factSheet':
                         self.groups[group_id] = self.clean_label(label)
+                        _group_fact_sheet_ids[group_id] = obj.get('factSheetId', '') or ''
                         break
 
+        self._group_fact_sheet_ids = _group_fact_sheet_ids
         # Store parent chain for use by _assign_subgroups() in Enhancement 1b
         self._group_parents = group_parents
     
@@ -338,7 +345,9 @@ class LeanIXExtractor:
 
         Excludes domain root labels and subgroup container labels (detected via
         the same geometry logic used in _assign_subgroups).  Each row has:
-            domain, subtype, entity_name, fact_sheet_id, fact_sheet_type
+            domain, domain_fact_sheet_id,
+            subtype, subtype_fact_sheet_id,
+            entity_name, fact_sheet_id, fact_sheet_type
         """
         by_group: Dict[str, List[LeanIXAsset]] = defaultdict(list)
         for asset in self.assets.values():
@@ -361,9 +370,12 @@ class LeanIXExtractor:
                 if key in seen:
                     continue
                 seen.add(key)
+                subtype = asset.subgroup or ""
                 rows.append({
                     "domain": domain,
-                    "subtype": asset.subgroup or "",
+                    "domain_fact_sheet_id": self._domain_ids.get(domain, ""),
+                    "subtype": subtype,
+                    "subtype_fact_sheet_id": self._subtype_ids.get((domain, subtype), "") if subtype else "",
                     "entity_name": asset.label,
                     "fact_sheet_id": asset.fact_sheet_id or "",
                     "fact_sheet_type": asset.fact_sheet_type or "",
@@ -409,9 +421,11 @@ class LeanIXExtractor:
               "entities": [
                 {
                   "domain": str,
-                  "subtype": str,        # visual subgroup label, may be ""
+                  "domain_fact_sheet_id": str,   # LeanIX UUID of the domain container
+                  "subtype": str,                # visual subgroup label, may be ""
+                  "subtype_fact_sheet_id": str,  # LeanIX UUID of the subtype container, may be ""
                   "entity_name": str,
-                  "fact_sheet_id": str,  # LeanIX UUID for inventory cross-reference
+                  "fact_sheet_id": str,          # LeanIX UUID of the entity itself
                   "fact_sheet_type": str
                 }
               ],
@@ -707,7 +721,53 @@ class LeanIXExtractor:
 
             # Register in groups dict and remove domain root from assets
             self.groups[root.id] = root.label
+            self._group_fact_sheet_ids[root.id] = root.fact_sheet_id or ''
             del self.assets[root.id]
+
+    def _build_container_ids(self):
+        """Populate _domain_ids and _subtype_ids from captured group fact sheet IDs.
+
+        Must be called after _assign_subgroups() so that asset.subgroup is set.
+
+        Sources:
+          - Type 1 / 2 groups (draw.io group containers) → _group_fact_sheet_ids,
+            distinguished by whether their parent is '1' (domain) or another group (subtype).
+          - Type 3 domain roots (visual containment, no draw.io group) → also in
+            _group_fact_sheet_ids, populated during _detect_type3_domains().
+          - Type 3 subgroup containers (large rectangles inside a Type 3 domain) →
+            remain in self.assets; identified by asset.label appearing as a subgroup
+            value on another asset in the same domain.
+        """
+        # Pass 1: draw.io group containers (Types 1, 2, and 3 domain roots)
+        for group_id, group_label in self.groups.items():
+            fid = self._group_fact_sheet_ids.get(group_id, '')
+            parent_of_group = self._group_parents.get(group_id, '1')
+            if parent_of_group == '1':
+                # Top-level domain
+                self._domain_ids[group_label] = fid
+            elif parent_of_group in self.groups:
+                # Nested subtype group (e.g. Static Data inside REFERENCE DATA)
+                parent_label = self.groups[parent_of_group]
+                grandparent = self._group_parents.get(parent_of_group, '1')
+                if grandparent in self.groups:
+                    # 3-level nesting (not expected): treat parent as domain, current as subtype
+                    domain_label = self.groups[grandparent]
+                    self._subtype_ids[(domain_label, parent_label)] = self._group_fact_sheet_ids.get(parent_of_group, '')
+                else:
+                    self._subtype_ids[(parent_label, group_label)] = fid
+
+        # Pass 2: Type 3 visual subgroup containers (assets filtered from leaf entities)
+        by_group: Dict[str, List[LeanIXAsset]] = defaultdict(list)
+        for asset in self.assets.values():
+            by_group[asset.parent_group or ""].append(asset)
+
+        for domain, group_assets in by_group.items():
+            if not domain:
+                continue
+            used_subgroups = {a.subgroup for a in group_assets if a.subgroup}
+            for asset in group_assets:
+                if asset.label in used_subgroups and (domain, asset.label) not in self._subtype_ids:
+                    self._subtype_ids[(domain, asset.label)] = asset.fact_sheet_id or ''
 
     def _assign_subgroups(self):
         """Assign leaf entities to their visual subgroup using spatial containment.
