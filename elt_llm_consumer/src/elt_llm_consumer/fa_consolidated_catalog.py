@@ -519,14 +519,17 @@ def get_handbook_context_for_entity(
         result = query_collections(handbook_collections, query, rag_config)
         response = result.response.strip()
 
-        # Parse sections
+        # Parse sections — map prompt section names to output field names.
+        # Note: "GOVERNANCE" → "governance_rules" (not "governance").
+        _section_key_map = {
+            "FORMAL_DEFINITION": "formal_definition",
+            "DOMAIN_CONTEXT": "domain_context",
+            "GOVERNANCE": "governance_rules",
+        }
         sections = {}
-        for key in ("FORMAL_DEFINITION", "DOMAIN_CONTEXT", "GOVERNANCE"):
-            match = re.search(rf"{key}:\s*(.*?)(?=\n[A-Z]+:|\Z)", response, re.DOTALL)
-            if match:
-                sections[key.lower()] = match.group(1).strip()
-            else:
-                sections[key.lower()] = ""
+        for prompt_key, output_key in _section_key_map.items():
+            match = re.search(rf"{prompt_key}:\s*(.*?)(?=\n[A-Z]+:|\Z)", response, re.DOTALL)
+            sections[output_key] = match.group(1).strip() if match else ""
 
         # Override formal_definition with a direct handbook definition when available.
         # Priority: entity name match → mapped handbook term match → keep RAG result.
@@ -1021,6 +1024,23 @@ def generate_consolidated_catalog(
         term_definitions: dict[str, str] = {
             t["term"].lower(): t["definition"] for t in handbook_terms
         }
+        # In --entity mode step 4 was skipped, so handbook_mappings is empty.
+        # Populate it with direct name-match entries so consolidate_catalog()
+        # correctly sets source="BOTH", handbook_term, mapping_confidence, etc.
+        # for any entity whose name exactly matches a handbook-defined term.
+        if entity_filter:
+            for entity in conceptual_entities:
+                name = entity["entity_name"]
+                if name.lower() in term_definitions:
+                    handbook_mappings[name.lower()] = {
+                        "mapped_entity": name,
+                        "domain": entity.get("domain", ""),
+                        "fact_sheet_id": entity.get("fact_sheet_id", ""),
+                        "mapping_confidence": "high",
+                        "mapping_rationale": "Direct handbook term match by entity name",
+                    }
+                    print(f"  Direct handbook match: '{name}' → source will be BOTH")
+
         # Build reverse mapping: normalised entity name → original-casing handbook term.
         entity_to_handbook_term: dict[str, str] = {}
         for term_lower, mapping in handbook_mappings.items():
