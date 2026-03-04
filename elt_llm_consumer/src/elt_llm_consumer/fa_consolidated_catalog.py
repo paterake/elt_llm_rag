@@ -117,6 +117,30 @@ Cite section and rule numbers where possible (e.g. Rule A3.1, Section C).
 If no handbook rules apply, state 'Not documented in FA Handbook — outside governance scope'.]
 """
 
+_GOVERNANCE_EXTRACTION_PROMPT = """\
+Find all FA Handbook rules, regulations, and governance requirements that apply to '{entity_name}'.
+
+Search for:
+- Registration or affiliation requirements
+- Eligibility criteria
+- Compliance obligations
+- Restrictions or prohibitions
+- Reporting requirements
+- Disciplinary provisions
+
+Cite specific section numbers, rule numbers, and page references where possible.
+
+Return as JSON array:
+[
+  {{
+    "rule_type": "registration | eligibility | compliance | restriction | reporting | disciplinary",
+    "citation": "Section X, Rule Y or page reference",
+    "requirement": "summary of the requirement"
+  }}
+]
+
+If no governance rules are found, return an empty array []."""
+
 _ENTITY_RELATIONSHIP_PROMPT = """\
 You are analysing the FA (The Football Association) Handbook to identify \
 entity-to-entity relationships.
@@ -550,6 +574,29 @@ def get_handbook_context_for_entity(
         }
 
 
+def extract_governance_rules_via_rag(
+    entity_name: str,
+    handbook_collections: list[str],
+    rag_config: RagConfig,
+) -> list[dict]:
+    """Dedicated governance RAG query — returns structured rules as a list.
+
+    Used as a fallback when the combined context prompt returns empty or
+    hedged governance text (e.g. "Not documented in FA Handbook...").
+    Returns [] if nothing found.
+    """
+    query = _GOVERNANCE_EXTRACTION_PROMPT.format(entity_name=entity_name)
+    try:
+        result = query_collections(handbook_collections, query, rag_config)
+        response = result.response.strip()
+        json_match = re.search(r"\[.*\]", response, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
+    except Exception:
+        pass
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Relationship extraction from conceptual model docstores
 # ---------------------------------------------------------------------------
@@ -766,7 +813,14 @@ def consolidate_catalog(
     for term_lower, mapping in handbook_mappings.items():
         mapped_entity = _normalize(mapping.get("mapped_entity", ""))
         if mapped_entity and mapped_entity not in ("not mapped", "none"):
-            entity_to_mapping[mapped_entity] = (term_lower, mapping)
+            # Prefer direct name matches (term == entity) over indirect matches.
+            # Without this, iteration order determines the winner when multiple terms
+            # map to the same entity — e.g. "Provisional Suspension" can overwrite
+            # the "Player" → Player direct match because it appears later alphabetically.
+            existing = entity_to_mapping.get(mapped_entity)
+            is_direct = term_lower == mapped_entity
+            if existing is None or is_direct:
+                entity_to_mapping[mapped_entity] = (term_lower, mapping)
 
     # Original casing lookup: term_lower → term string as extracted from Handbook
     term_casing: dict[str, str] = {
@@ -1062,6 +1116,12 @@ def generate_consolidated_catalog(
                 term_definitions=term_definitions,
                 handbook_term=entity_to_handbook_term.get(_normalize(name)),
             )
+            # If governance is empty or hedged, run a dedicated governance RAG query.
+            gov = context.get("governance_rules", "")
+            if not gov or gov.startswith("Not documented in FA Handbook"):
+                gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
+                if gov_rules:
+                    context["governance_rules"] = json.dumps(gov_rules, indent=2)
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 

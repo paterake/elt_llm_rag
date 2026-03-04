@@ -636,11 +636,17 @@ def consolidate_catalog(
     print("\n=== Consolidating Entities ===")
     
     # Build reverse mapping: normalized entity name → TermMapping
+    # Prefer direct name matches (term == entity) over indirect matches to avoid
+    # later alphabetical terms overwriting exact-name matches.
     entity_to_mapping: dict[str, TermMapping] = {}
     for mapping in handbook_mappings.values():
         mapped_entity = _normalize(mapping.mapped_entity)
         if mapped_entity and mapped_entity not in ("not mapped", "none"):
-            entity_to_mapping[mapped_entity] = mapping
+            term_norm = _normalize(mapping.term)
+            existing = entity_to_mapping.get(mapped_entity)
+            is_direct = term_norm == mapped_entity
+            if existing is None or is_direct:
+                entity_to_mapping[mapped_entity] = mapping
     
     # Term lookup: normalized name → HandbookTerm
     terms_by_name: dict[str, HandbookTerm] = {
