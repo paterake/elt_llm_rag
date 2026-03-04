@@ -494,8 +494,25 @@ def get_handbook_context_for_entity(
     domain: str,
     handbook_collections: list[str],
     rag_config: RagConfig,
+    term_definitions: dict[str, str] | None = None,
+    handbook_term: str | None = None,
 ) -> dict:
-    """Get FA Handbook context (definition, governance, domain context) for an entity."""
+    """Get FA Handbook context (definition, governance, domain context) for an entity.
+
+    Args:
+        entity_name:      Conceptual model entity name (used for the RAG query).
+        domain:           Domain of the entity.
+        handbook_collections: Handbook collection names for RAG.
+        rag_config:       RAG configuration.
+        term_definitions: Pre-built dict of {term_lower: definition} from Step 3.
+                          When provided, used for fast direct-lookup of formal_definition
+                          without any extra docstore I/O.
+        handbook_term:    The Step 4 mapped handbook term for this entity (if any).
+                          Used as a fallback for formal_definition lookup when the
+                          entity name itself has no direct handbook definition.
+    """
+    # RAG query always uses the entity name — the handbook term is only used for
+    # formal_definition lookup, not to drive retrieval.
     query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain)
 
     try:
@@ -510,6 +527,16 @@ def get_handbook_context_for_entity(
                 sections[key.lower()] = match.group(1).strip()
             else:
                 sections[key.lower()] = ""
+
+        # Override formal_definition with a direct handbook definition when available.
+        # Priority: entity name match → mapped handbook term match → keep RAG result.
+        # This is O(1) — no docstore I/O — because term_definitions was built once in Step 3.
+        if term_definitions:
+            direct_def = term_definitions.get(entity_name.lower())
+            if not direct_def and handbook_term:
+                direct_def = term_definitions.get(handbook_term.lower())
+            if direct_def:
+                sections["formal_definition"] = direct_def
 
         return sections
     except Exception as e:
@@ -896,6 +923,7 @@ def generate_consolidated_catalog(
     skip_relationships: bool,
     domain_filter: str | None = None,
     skip_handbook: bool = False,
+    entity_filter: str | None = None,
 ) -> None:
     """Generate consolidated catalog via RAG+LLM queries."""
 
@@ -931,6 +959,20 @@ def generate_consolidated_catalog(
         ]
         print(f"  After domain filter ({domain_filter}): {len(conceptual_entities)} entities")
 
+    if entity_filter:
+        entity_filter_norm = _normalize(entity_filter)
+        matched = [
+            e for e in conceptual_entities
+            if _normalize(e["entity_name"]) == entity_filter_norm
+        ]
+        if not matched:
+            print(f"\nERROR: Entity '{entity_filter}' not found.", file=sys.stderr)
+            avail = ", ".join(e["entity_name"] for e in conceptual_entities)
+            print(f"  Available: {avail}", file=sys.stderr)
+            sys.exit(1)
+        conceptual_entities = matched
+        print(f"  Entity filter: '{entity_filter}' (1 entity)")
+
     # Step 2: Get inventory descriptions via RAG
     print("\n=== Step 2: Extract Inventory Descriptions ===")
     inventory_descriptions: dict[str, dict] = {}
@@ -955,6 +997,10 @@ def generate_consolidated_catalog(
     handbook_mappings: dict[str, dict] = {}
     if skip_handbook:
         print("  Skipping (--skip-handbook)")
+    elif entity_filter:
+        # Skip the 141-LLM-call mapping step for single-entity runs.
+        # formal_definition will still be populated via direct term_definitions lookup in step 5.
+        print(f"  Skipping (--entity: single-entity mode — handbook_term will be empty)")
     else:
         total = len(handbook_terms)
         for i, term_entry in enumerate(handbook_terms, 1):
@@ -971,12 +1017,31 @@ def generate_consolidated_catalog(
     if skip_handbook:
         print("  Skipping (--skip-handbook)")
     else:
+        # Build term → definition lookup once (O(1) per entity, no extra docstore I/O).
+        term_definitions: dict[str, str] = {
+            t["term"].lower(): t["definition"] for t in handbook_terms
+        }
+        # Build reverse mapping: normalised entity name → original-casing handbook term.
+        entity_to_handbook_term: dict[str, str] = {}
+        for term_lower, mapping in handbook_mappings.items():
+            mapped_entity = _normalize(mapping.get("mapped_entity", ""))
+            if mapped_entity and mapped_entity not in ("not mapped", "none"):
+                original_term = next(
+                    (t["term"] for t in handbook_terms if t["term"].lower() == term_lower),
+                    term_lower,
+                )
+                entity_to_handbook_term[mapped_entity] = original_term
+
         total = len(conceptual_entities)
         for i, entity in enumerate(conceptual_entities, 1):
             name = entity.get("entity_name", "")
             domain = entity.get("domain", "UNKNOWN")
             print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
-            context = get_handbook_context_for_entity(name, domain, handbook_collections, rag_config)
+            context = get_handbook_context_for_entity(
+                name, domain, handbook_collections, rag_config,
+                term_definitions=term_definitions,
+                handbook_term=entity_to_handbook_term.get(_normalize(name)),
+            )
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 
@@ -1105,6 +1170,15 @@ def main() -> None:
             "and writes to fa_consolidated_catalog_{domain}.json."
         ),
     )
+    parser.add_argument(
+        "--entity", default=None, metavar="ENTITY",
+        help=(
+            "Restrict to a single entity name for fast validation (e.g. 'Player'). "
+            "Requires --domain. Skips step 4 (141 LLM mapping calls) — "
+            "formal_definition is populated via direct handbook term lookup only. "
+            "Useful for quickly validating RAG extraction and parsing for one entity."
+        ),
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir.expanduser()
@@ -1157,6 +1231,7 @@ def main() -> None:
         skip_relationships=args.skip_relationships,
         domain_filter=args.domain,
         skip_handbook=args.skip_handbook,
+        entity_filter=args.entity,
     )
 
     domain_suffix = f"_{args.domain.lower()}" if args.domain else ""
