@@ -7,7 +7,6 @@ they are ingested into the RAG system. Preprocessors can transform files
 
 from __future__ import annotations
 
-import csv
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -66,12 +65,17 @@ class LeanIXPreprocessor(BasePreprocessor):
     Extracts assets and relationships from LeanIX diagrams and outputs
     structured Markdown suitable for RAG embedding.
 
-    Supports three output modes:
+    Supports four output modes:
     - ``'markdown'`` / ``'md'`` / ``'both'``: single-file output (original behaviour).
     - ``'split'``: generates one Markdown file per logical section (overview,
       one per domain group, additional entities, relationships) and populates
       :attr:`PreprocessorResult.section_collection_map` so the ingestion
       pipeline can load each file into its own ChromaDB collection.
+    - ``'csv'``: generates ``<stem>_model.json`` (written next to the source XML for
+      consumer use) plus ``<stem>_entities.md`` and ``<stem>_relationships.md`` for
+      RAG ingestion into two collections (``{collection_prefix}_entities`` and
+      ``{collection_prefix}_relationships``).  This is the recommended mode — consumers
+      read the JSON directly instead of scanning docstores with regex.
     """
 
     def __init__(
@@ -127,21 +131,59 @@ class LeanIXPreprocessor(BasePreprocessor):
             extractor.parse_xml()
             extractor.extract_all()
 
+            # ── JSON mode: _model.json + flat markdowns for RAG ──────────────
+            if self.output_format == "csv":
+                # Model JSON written next to the source XML so consumers can find it
+                # by convention without needing extra config.
+                model_json = input_path.parent / f"{input_path.stem}_model.json"
+                model_json.write_text(extractor.to_model_json(), encoding="utf-8")
+
+                # Flat Markdowns go to the output dir for ChromaDB ingestion
+                output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+                entities_md = output_path_obj.parent / f"{output_path_obj.stem}_entities.md"
+                rels_md = output_path_obj.parent / f"{output_path_obj.stem}_relationships.md"
+                entities_md.write_text(extractor.to_flat_markdown(), encoding="utf-8")
+                rels_md.write_text(extractor.to_flat_relationships_markdown(), encoding="utf-8")
+
+                section_collection_map: Optional[Dict[str, str]] = None
+                if self.collection_prefix:
+                    section_collection_map = {
+                        str(entities_md): f"{self.collection_prefix}_entities",
+                        str(rels_md): f"{self.collection_prefix}_relationships",
+                    }
+
+                entity_count = len(extractor.to_entities_rows())
+                logger.info(
+                    "JSON mode: %d entities, %d relationships → %s",
+                    entity_count, len(extractor.relationships), model_json.name,
+                )
+
+                return PreprocessorResult(
+                    original_file=str(input_path),
+                    output_files=[str(entities_md), str(rels_md)],
+                    success=True,
+                    message=(
+                        f"JSON: {entity_count} entities, {len(extractor.relationships)} relationships; "
+                        f"Markdown: 2 files for RAG ingestion"
+                    ),
+                    section_collection_map=section_collection_map,
+                )
+
             # ── Split mode: one file per domain section + relationships ────────
             if self.output_format == "split":
                 section_dir = output_path_obj.parent / f"{output_path_obj.stem}_sections"
                 section_file_map = extractor.save_sections(str(section_dir))
 
-                section_collection_map: Optional[Dict[str, str]] = None
+                section_collection_map_split: Optional[Dict[str, str]] = None
                 if self.collection_prefix:
-                    section_collection_map = {
+                    section_collection_map_split = {
                         file_path: f"{self.collection_prefix}_{section_key}"
                         for section_key, file_path in section_file_map.items()
                     }
                     logger.info(
                         "Split into %d sections → collections: %s",
                         len(section_file_map),
-                        list(section_collection_map.values()),
+                        list(section_collection_map_split.values()),
                     )
 
                 return PreprocessorResult(
@@ -153,7 +195,7 @@ class LeanIXPreprocessor(BasePreprocessor):
                         f"{len(extractor.assets)} assets and "
                         f"{len(extractor.relationships)} relationships"
                     ),
-                    section_collection_map=section_collection_map,
+                    section_collection_map=section_collection_map_split,
                 )
 
             # ── Standard single-file modes (markdown / json / both) ───────────

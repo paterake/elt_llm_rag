@@ -89,6 +89,7 @@ class LeanIXExtractor:
         """Extract all assets and relationships"""
         self.extract_groups()
         self.extract_assets()
+        self._detect_type3_domains()
         self.extract_relationships()
         self.enrich_relationships()
         self._assign_subgroups()
@@ -178,11 +179,22 @@ class LeanIXExtractor:
         # Determine parent group
         parent_id = mxcell.get('parent')
         parent_group = self.groups.get(parent_id)
-        
+
+        # Handle nested groups: if parent is a group that is itself nested inside
+        # another group (e.g. Static Data / Time Bounded Groupings inside REFERENCE
+        # DATA), elevate domain to the top-level group and use the intermediate
+        # group label as the pre-assigned subgroup.
+        pre_subgroup: Optional[str] = None
+        if parent_group is not None:
+            grandparent_id = self._group_parents.get(parent_id)
+            if grandparent_id and grandparent_id in self.groups:
+                parent_group = self.groups[grandparent_id]
+                pre_subgroup = self.groups.get(parent_id)
+
         # Clean label (remove HTML tags and decode entities)
         raw_label = obj.get('label', '')
         label = self.clean_label(raw_label)
-        
+
         return LeanIXAsset(
             id=obj_id,
             label=label,
@@ -190,6 +202,7 @@ class LeanIXExtractor:
             fact_sheet_id=obj.get('factSheetId', ''),
             parent_group=parent_group,
             parent_id=parent_id,
+            subgroup=pre_subgroup,
             x=x,
             y=y,
             width=width,
@@ -315,7 +328,155 @@ class LeanIXExtractor:
     def to_json(self, indent: int = 2) -> str:
         """Convert to JSON string"""
         return json.dumps(self.to_dict(), indent=indent, default=str)
-    
+
+    # ------------------------------------------------------------------
+    # Structured output (JSON + Markdown)
+    # ------------------------------------------------------------------
+
+    def to_entities_rows(self) -> List[Dict]:
+        """Return flat list of leaf entity rows.
+
+        Excludes domain root labels and subgroup container labels (detected via
+        the same geometry logic used in _assign_subgroups).  Each row has:
+            domain, subtype, entity_name, fact_sheet_id, fact_sheet_type
+        """
+        by_group: Dict[str, List[LeanIXAsset]] = defaultdict(list)
+        for asset in self.assets.values():
+            by_group[asset.parent_group or ""].append(asset)
+
+        rows: List[Dict] = []
+        seen: set = set()
+
+        for domain in sorted(by_group.keys()):
+            group_assets = by_group[domain]
+            # Subgroup container labels: any label that appears as another asset's subgroup
+            used_subgroups = {a.subgroup for a in group_assets if a.subgroup}
+            leaf_entities = [
+                a for a in group_assets
+                if a.label.upper() != (domain.upper() if domain else "")
+                and a.label not in used_subgroups
+            ]
+            for asset in sorted(leaf_entities, key=lambda a: (a.subgroup or "", a.label)):
+                key = asset.label.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append({
+                    "domain": domain,
+                    "subtype": asset.subgroup or "",
+                    "entity_name": asset.label,
+                    "fact_sheet_id": asset.fact_sheet_id or "",
+                    "fact_sheet_type": asset.fact_sheet_type or "",
+                })
+        return rows
+
+    def to_relationships_rows(self) -> List[Dict]:
+        """Return flat list of relationship rows.
+
+        Each row has:
+            source_entity, source_domain, target_entity, target_domain,
+            cardinality, relationship_type
+        """
+        rows: List[Dict] = []
+        for rel in self.relationships:
+            src = self.assets.get(rel.source_id)
+            tgt = self.assets.get(rel.target_id)
+            rows.append({
+                "source_entity": rel.source_label or "",
+                "source_domain": src.parent_group if src else "",
+                "target_entity": rel.target_label or "",
+                "target_domain": tgt.parent_group if tgt else "",
+                "cardinality": rel.cardinality or "",
+                "relationship_type": rel.relationship_type or "",
+            })
+        return rows
+
+    def to_model_json(self, indent: int = 2) -> str:
+        """Return a structured JSON representation of the model.
+
+        Produces a single JSON document containing metadata, all leaf entities,
+        and all relationships.  This is the canonical structured output for
+        consumer scripts — structured, self-describing, and suitable for RAG.
+
+        Schema:
+            {
+              "metadata": {
+                "model_name": str,
+                "source_file": str,
+                "entity_count": int,
+                "relationship_count": int
+              },
+              "entities": [
+                {
+                  "domain": str,
+                  "subtype": str,        # visual subgroup label, may be ""
+                  "entity_name": str,
+                  "fact_sheet_id": str,  # LeanIX UUID for inventory cross-reference
+                  "fact_sheet_type": str
+                }
+              ],
+              "relationships": [
+                {
+                  "source_entity": str,
+                  "source_domain": str,
+                  "target_entity": str,
+                  "target_domain": str,
+                  "cardinality": str,
+                  "relationship_type": str
+                }
+              ]
+            }
+        """
+        entity_rows = self.to_entities_rows()
+        rel_rows = self.to_relationships_rows()
+        doc = {
+            "metadata": {
+                "model_name": self.model_name,
+                "source_file": self.xml_file.name,
+                "entity_count": len(entity_rows),
+                "relationship_count": len(rel_rows),
+            },
+            "entities": entity_rows,
+            "relationships": rel_rows,
+        }
+        return json.dumps(doc, indent=indent, ensure_ascii=False)
+
+    def to_flat_markdown(self) -> str:
+        """Per-entity Markdown for RAG ingestion.
+
+        Each entity gets its own ## heading so the chunker produces one chunk
+        per entity — no character-count splitting needed.  Every chunk is
+        self-contained: it carries domain, subtype, entity name, and LeanIX ID.
+        """
+        md: List[str] = [f"# {self.model_name} — Entity Catalogue\n\n"]
+        for row in self.to_entities_rows():
+            md.append(f"## {row['entity_name']}\n\n")
+            md.append(f"- **Domain:** {row['domain']}\n")
+            if row["subtype"]:
+                md.append(f"- **Subtype:** {row['subtype']}\n")
+            if row["fact_sheet_id"]:
+                md.append(f"- **LeanIX ID:** `{row['fact_sheet_id']}`\n")
+            if row["fact_sheet_type"]:
+                md.append(f"- **Type:** {row['fact_sheet_type']}\n")
+            md.append("\n")
+        return "".join(md)
+
+    def to_flat_relationships_markdown(self) -> str:
+        """Per-relationship Markdown for RAG ingestion."""
+        md: List[str] = [f"# {self.model_name} — Relationships\n\n"]
+        for row in self.to_relationships_rows():
+            md.append(f"## {row['source_entity']} → {row['target_entity']}\n\n")
+            if row["source_domain"]:
+                md.append(f"- **Source domain:** {row['source_domain']}\n")
+            if row["target_domain"]:
+                md.append(f"- **Target domain:** {row['target_domain']}\n")
+            if row["cardinality"]:
+                md.append(f"- **Cardinality:** {row['cardinality']}\n")
+            if row["relationship_type"]:
+                md.append(f"- **Type:** {row['relationship_type']}\n")
+            md.append("\n")
+        return "".join(md)
+
     def to_markdown(self) -> str:
         """Convert to sentence-format Markdown optimised for RAG ingestion.
 
@@ -466,6 +627,88 @@ class LeanIXExtractor:
             return mapping[cardinality]
         return f"relates to ({cardinality})" if cardinality else "relates to"
     
+    def _detect_type3_domains(self):
+        """Detect domains that use no draw.io group mechanism (Type 3).
+
+        CHANNEL, ACCOUNTS, and ASSETS are laid out without draw.io group containers:
+        every element — domain root label, subgroup rectangles, and leaf entities —
+        has parent=1 (the canvas root) with purely visual nesting via absolute
+        bounding-box geometry.
+
+        Algorithm:
+          1. Collect all factSheet assets at parent=1 with no parent_group.
+          2. Sort by area descending.
+          3. An element is a domain root if its centre is not contained within
+             any larger element at the same level.
+          4. Assign all elements whose centre falls inside a domain root's bbox
+             to that domain (parent_group = domain label, parent_id = domain id).
+          5. Remove domain roots from self.assets (structural containers, not
+             leaf entities) and register them in self.groups so that
+             _assign_subgroups() processes them normally.
+        """
+        # Ungrouped assets: at parent=1 with no group assignment yet
+        ungrouped = [
+            a for a in self.assets.values()
+            if a.parent_id == '1' and a.parent_group is None
+            and a.x is not None and a.y is not None
+        ]
+        if not ungrouped:
+            return
+
+        # Sort largest-first so the containment check hits domain roots quickly
+        sorted_by_area = sorted(
+            ungrouped,
+            key=lambda a: (a.width or 0) * (a.height or 0),
+            reverse=True,
+        )
+
+        # Domain roots: elements whose bounding box is NOT fully enclosed by any
+        # other element.  Using full-bbox containment (not centre-point) avoids
+        # false positives when a wide domain root's centre happens to fall inside
+        # one of its own child rectangles (observed for CHANNEL and ASSETS).
+        domain_roots: List[LeanIXAsset] = []
+        for candidate in sorted_by_area:
+            cx1 = candidate.x or 0
+            cy1 = candidate.y or 0
+            cx2 = cx1 + (candidate.width or 0)
+            cy2 = cy1 + (candidate.height or 0)
+            fully_inside = False
+            for other in sorted_by_area:
+                if other.id == candidate.id:
+                    continue
+                ox1 = other.x or 0
+                oy1 = other.y or 0
+                ox2 = ox1 + (other.width or 0)
+                oy2 = oy1 + (other.height or 0)
+                if ox1 <= cx1 and cx2 <= ox2 and oy1 <= cy1 and cy2 <= oy2:
+                    fully_inside = True
+                    break
+            if not fully_inside:
+                domain_roots.append(candidate)
+
+        if not domain_roots:
+            return
+
+        print(f"Detected {len(domain_roots)} Type-3 domain(s): "
+              f"{[r.label for r in domain_roots]}")
+
+        # Assign children and register domains
+        for root in domain_roots:
+            rx, ry = (root.x or 0), (root.y or 0)
+            rw, rh = (root.width or 0), (root.height or 0)
+            for asset in ungrouped:
+                if asset.id == root.id:
+                    continue
+                cx = (asset.x or 0) + (asset.width or 0) / 2
+                cy = (asset.y or 0) + (asset.height or 0) / 2
+                if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
+                    asset.parent_group = root.label
+                    asset.parent_id = root.id  # virtual reparent for _assign_subgroups
+
+            # Register in groups dict and remove domain root from assets
+            self.groups[root.id] = root.label
+            del self.assets[root.id]
+
     def _assign_subgroups(self):
         """Assign leaf entities to their visual subgroup using spatial containment.
 
@@ -773,10 +1016,12 @@ class LeanIXExtractor:
 
     def save(self, output_path: str, format: str = "both"):
         """Save extracted data to file(s).
-        
+
         Args:
-            output_path: Output file path. If format is 'both', this is used as base name.
-            format: Output format - 'json', 'markdown', 'md', or 'both'.
+            output_path: Output file path (used as stem for multi-file formats).
+            format: 'json', 'markdown'/'md', 'both', or 'csv' (alias for structured JSON output).
+                'csv' writes <stem>_model.json alongside
+                <stem>_entities.md and <stem>_relationships.md for RAG ingestion.
         """
         output_path = Path(output_path)
 
@@ -791,6 +1036,21 @@ class LeanIXExtractor:
             with open(md_file, 'w', encoding='utf-8') as f:
                 f.write(self.to_markdown())
             print(f"Saved Markdown to {md_file}")
+
+        if format == "csv":
+            # 'csv' is a legacy alias — outputs _model.json + flat markdowns (no CSV files)
+            stem = output_path.stem
+            parent = output_path.parent
+            model_json = parent / f"{stem}_model.json"
+            entities_md = parent / f"{stem}_entities.md"
+            rels_md = parent / f"{stem}_relationships.md"
+            model_json.write_text(self.to_model_json(), encoding="utf-8")
+            entities_md.write_text(self.to_flat_markdown(), encoding="utf-8")
+            rels_md.write_text(self.to_flat_relationships_markdown(), encoding="utf-8")
+            rows = self.to_entities_rows()
+            print(f"Saved model JSON to {model_json} ({len(rows)} entities, {len(self.relationships)} relationships)")
+            print(f"Saved entities Markdown to {entities_md}")
+            print(f"Saved relationships Markdown to {rels_md}")
 
 
 def extract_leanix_file(input_path: str, output_path: str, format: str = "markdown") -> str:

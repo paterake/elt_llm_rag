@@ -1,29 +1,23 @@
-# Ingestion Config: LeanIX Enterprise Conceptual Data Model — Split Mode
+# Ingestion Config: LeanIX Enterprise Conceptual Data Model — CSV Mode
 #
-# Generates one ChromaDB collection per logical domain section, plus a
-# dedicated relationships collection. This avoids the chunking fragmentation
-# that occurs when entity lists and relationships are interleaved in a single
-# large Markdown file.
+# CSV mode replaces the old split-mode (11 collections) with a two-collection
+# approach backed by flat per-entity Markdown.  The preprocessor also writes
+# two CSV files next to the source XML for direct consumer use — eliminating
+# docstore-scanning regex in the consumer layer.
 #
-# Collections produced (prefix = 'fa_leanix_cm'):
-#   fa_leanix_cm_overview            — model summary and domain list
-#   fa_leanix_cm_agreements          — AGREEMENTS domain entities
-#   fa_leanix_cm_campaign            — CAMPAIGN domain entities
-#   fa_leanix_cm_location            — LOCATION domain entities
-#   fa_leanix_cm_product             — PRODUCT domain entities
-#   fa_leanix_cm_reference_data      — REFERENCE DATA domain entities
-#   fa_leanix_cm_static_data         — Static Data domain entities
-#   fa_leanix_cm_time_bounded_groupings — Time Bounded Groupings domain
-#   fa_leanix_cm_transaction_and_events — TRANSACTION AND EVENTS domain
-#   fa_leanix_cm_additional_entities — Party types, channel types, accounts, assets
-#   fa_leanix_cm_relationships       — All 16 domain-level relationships (dedicated)
+# Collections produced:
+#   fa_leanix_dat_enterprise_conceptual_model_entities      — one chunk per entity
+#   fa_leanix_dat_enterprise_conceptual_model_relationships — one chunk per relationship
+#
+# JSON file written next to source XML (for consumers):
+#   <xml_dir>/<xml_stem>_model.json
 
 collection_prefix: "fa_leanix_dat_enterprise_conceptual_model"
 
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
   class: "LeanIXPreprocessor"
-  output_format: "split"
+  output_format: "csv"
   enabled: true
   model_name: "FA Enterprise Conceptual Data Model"
   org_name: "The Football Association"
@@ -31,7 +25,7 @@ preprocessor:
 file_paths:
   - "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
 
-# Metadata attached to all chunks in every section collection
+# Metadata attached to all chunks in both collections
 metadata:
   domain: "architecture"
   subdomain: "diagrams"
@@ -39,11 +33,10 @@ metadata:
   type: "enterprise_architecture"
   source: "LeanIX Enterprise Conceptual Model"
 
-# Larger chunks than the global default (1024 chars) are appropriate here:
-# - Entity lists need enough room to list all members of a domain
-# - Relationship sections are self-contained ~400-600 char blocks
+# Each entity/relationship is its own ## section — chunk_size just needs to
+# exceed a single entry (~200 chars). Overlap not needed between entities.
 chunking:
   chunk_size: 512
-  chunk_overlap: 64
+  chunk_overlap: 0
 
 rebuild: true

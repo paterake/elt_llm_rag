@@ -72,6 +72,11 @@ _DEFAULT_RAG_CONFIG = Path(
 
 _DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
+_DEFAULT_MODEL_JSON = Path(
+    "~/Documents/__data/resources/thefa/"
+    "DAT_V00.01_FA Enterprise Conceptual Data Model_model.json"
+).expanduser()
+
 # ---------------------------------------------------------------------------
 # System prompts
 # ---------------------------------------------------------------------------
@@ -246,39 +251,6 @@ def _is_artifact_term(term: str) -> bool:
         return True
     return False
 
-# Matches entity list lines from doc_leanix_parser domain sections:
-#   - **Club** *(LeanIX ID: `abc123-uuid`)*
-#   - **Club**   (no ID variant)
-# Leading '- ' is optional: chunk boundaries can split a line mid-way, causing
-# the first entity in a continuation chunk to appear without the bullet prefix.
-_ENTITY_LINE_PAT = re.compile(
-    r"^(?:- )?\*\*([^*]+)\*\*(?:\s+\*\(LeanIX ID: `([^`]*)`\)\*)?$"
-)
-
-# Matches relationship lines from doc_leanix_parser.
-# Domain sections write:     - **PARTY** relates to (cardinality) **ACCOUNTS**
-# Relationships collection:    **PARTY** relates to (cardinality) **ACCOUNTS**.
-# Pattern handles both: optional leading '- ' and optional trailing '.'
-_REL_LINE_PAT = re.compile(
-    r"^(?:- )?\*\*([^*]+)\*\*\s+(.+?)\s+\*\*([^*]+)\*\*\.?$"
-)
-
-# Matches subgroup heading lines emitted by to_section_files() after Enhancement 1b:
-#   ## Individual Subgroup
-_SUBGROUP_HEADING_PAT = re.compile(r"^## (.+?) Subgroup$")
-
-# Matches paragraph-format entity group lines in the additional_entities collection:
-#   **Party Types (28 entities):** Club, Player, Individual, …
-_ENTITY_GROUP_PAT = re.compile(
-    r"^\*\*([^(]+?)\s*\(\d+\s+entities\):\*\*\s+(.+)"
-)
-_CATEGORY_DOMAIN: dict[str, str] = {
-    "Party Types": "PARTY",
-    "Channel Types": "CHANNEL",
-    "Account Types": "ACCOUNTS",
-    "Asset Types": "ASSETS",
-    "Other Entities": "ADDITIONAL",
-}
 
 
 def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
@@ -336,106 +308,61 @@ def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Entity extraction from conceptual model docstores
+# CSV loaders for conceptual model entities and relationships
 # ---------------------------------------------------------------------------
 
 
-def extract_entities_from_conceptual_model(
-    rag_config: RagConfig,
-    model_collections: list[str],
-) -> list[dict]:
-    """Extract all entities from conceptual model docstores.
-
-    Scans fa_leanix_dat_enterprise_conceptual_model_* docstores.
-    This queries the already-built index — NOT direct XML parsing.
-    """
-    from llama_index.core import StorageContext
-
-    entities: list[dict] = []
-    seen: set[str] = set()
-
-    print(f"  Scanning {len(model_collections)} conceptual model collections…")
-
-    for coll_name in model_collections:
-        docstore_path = get_docstore_path(rag_config.chroma, coll_name)
-        if not docstore_path.exists():
-            continue
-
-        storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
-        # Sort by start_char_idx so subgroup headings are encountered before their entities
-        # even when chunks are split mid-line at chunk boundaries.
-        nodes = sorted(
-            storage.docstore.docs.values(),
-            key=lambda n: getattr(n, "start_char_idx", 0) or 0,
+def _load_model_json(json_path: Path) -> dict:
+    """Load and parse the model JSON produced by LeanIXPreprocessor."""
+    if not json_path.exists():
+        print(
+            f"ERROR: Model JSON not found at {json_path}.\n"
+            "Run ingestion first: uv run python -m elt_llm_ingest.runner ingest "
+            "ingest_fa_leanix_dat_enterprise_conceptual_model",
+            file=sys.stderr,
         )
+        sys.exit(1)
+    with open(json_path, encoding="utf-8") as f:
+        return json.load(f)
 
-        domain = coll_name.replace(
-            "fa_leanix_dat_enterprise_conceptual_model_", ""
-        ).upper()
 
-        current_subgroup = ""  # persists across chunks within the same collection
-        for node in nodes:
-            text = getattr(node, "text", "") or ""
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
+def load_entities_from_json(json_path: Path) -> list[dict]:
+    """Load conceptual model entities from the pre-parsed model JSON.
 
-                # Subgroup heading: ## Individual Subgroup
-                m = _SUBGROUP_HEADING_PAT.match(line)
-                if m:
-                    current_subgroup = m.group(1).strip()
-                    continue
-
-                # Non-subgroup ## heading (e.g. ## PARTY Domain Relationships) — reset
-                if line.startswith("## ") and not _SUBGROUP_HEADING_PAT.match(line):
-                    current_subgroup = ""
-                    continue
-
-                # Bullet-list format: - **Entity Name** *(LeanIX ID: `uuid`)*
-                m = _ENTITY_LINE_PAT.match(line)
-                if m:
-                    name = m.group(1).strip()
-                    fsid = (m.group(2) or "").strip()
-                    if not name or len(name) > 100:
-                        continue
-                    key = name.lower()
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    entities.append({
-                        "entity_name": name,
-                        "domain": domain,
-                        "fact_sheet_id": fsid,
-                        "hierarchy_level": "",
-                        "subgroup": current_subgroup,
-                    })
-                    continue
-
-                # Paragraph format from additional_entities collection:
-                # **Party Types (28 entities):** Club, Player, …
-                m = _ENTITY_GROUP_PAT.match(line)
-                if not m:
-                    continue
-                category = m.group(1).strip()
-                entity_domain = _CATEGORY_DOMAIN.get(category, "PARTY")
-                for ename in m.group(2).strip().rstrip(".").split(","):
-                    ename = ename.strip().rstrip(".")
-                    if not ename or len(ename) > 100:
-                        continue
-                    key = ename.lower()
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    entities.append({
-                        "entity_name": ename,
-                        "domain": entity_domain,
-                        "fact_sheet_id": "",
-                        "hierarchy_level": "",
-                    })
-
-    print(f"  {len(entities)} unique entities extracted from conceptual model")
+    The JSON is produced by LeanIXPreprocessor (output_format='csv') and written
+    next to the source XML.  Each entity has: domain, subtype, entity_name,
+    fact_sheet_id, fact_sheet_type.
+    """
+    doc = _load_model_json(json_path)
+    entities = [
+        {
+            "entity_name": e["entity_name"],
+            "domain": e["domain"].upper(),
+            "fact_sheet_id": e.get("fact_sheet_id", ""),
+            "subgroup": e.get("subtype", ""),
+            "hierarchy_level": "",
+        }
+        for e in doc.get("entities", [])
+    ]
+    print(f"  {len(entities)} entities loaded from {json_path.name}")
     return entities
+
+
+def load_relationships_from_json(json_path: Path) -> dict[str, list[dict]]:
+    """Load domain-level relationships from the pre-parsed model JSON."""
+    doc = _load_model_json(json_path)
+    relationships: dict[str, list[dict]] = {}
+    for row in doc.get("relationships", []):
+        source = row["source_entity"]
+        relationships.setdefault(source.lower(), []).append({
+            "target_entity": row["target_entity"],
+            "relationship_type": row.get("relationship_type", "relates to"),
+            "cardinality": row.get("cardinality", ""),
+            "direction": "unidirectional",
+        })
+    rel_count = sum(len(v) for v in relationships.values())
+    print(f"  {rel_count} relationships loaded from {json_path.name}")
+    return relationships
 
 
 # ---------------------------------------------------------------------------
@@ -602,56 +529,6 @@ def extract_governance_rules_via_rag(
 # ---------------------------------------------------------------------------
 
 
-def extract_relationships_from_conceptual_model(
-    rag_config: RagConfig,
-    model_collections: list[str],
-) -> dict[str, list[dict]]:
-    """Extract relationships from conceptual model docstores.
-
-    Scans fa_leanix_dat_enterprise_conceptual_model_relationships collection.
-    This queries the already-built index — NOT direct XML parsing.
-    """
-    from llama_index.core import StorageContext
-
-    relationships: dict[str, list[dict]] = {}
-
-    # Focus on relationships collection
-    rel_collections = [c for c in model_collections if 'relationship' in c.lower()]
-    if not rel_collections:
-        rel_collections = model_collections  # Fall back to all collections
-
-    print(f"  Scanning {len(rel_collections)} collections for relationships…")
-
-    for coll_name in rel_collections:
-        docstore_path = get_docstore_path(rag_config.chroma, coll_name)
-        if not docstore_path.exists():
-            continue
-
-        storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
-        nodes = list(storage.docstore.docs.values())
-
-        for node in nodes:
-            text = getattr(node, "text", "") or ""
-            for line in text.splitlines():
-                line = line.strip()
-                m = _REL_LINE_PAT.match(line)
-                if not m:
-                    continue
-                source = m.group(1).strip()
-                cardinality_desc = m.group(2).strip()
-                target = m.group(3).strip()
-                card_m = re.search(r'\(([^)]+)\)', cardinality_desc)
-                cardinality = card_m.group(1) if card_m else ""
-                relationships.setdefault(source.lower(), []).append({
-                    "target_entity": target,
-                    "relationship_type": "relates to",
-                    "cardinality": cardinality,
-                    "direction": "unidirectional",
-                })
-
-    rel_count = sum(len(v) for v in relationships.values())
-    print(f"  {rel_count} relationships extracted from conceptual model")
-    return relationships
 
 
 def extract_entity_relationships_from_handbook(
@@ -978,6 +855,7 @@ def generate_consolidated_catalog(
     handbook_collections: list[str],
     output_dir: Path,
     skip_relationships: bool,
+    model_json: Path,
     domain_filter: str | None = None,
     skip_handbook: bool = False,
     entity_filter: str | None = None,
@@ -986,15 +864,8 @@ def generate_consolidated_catalog(
 
     if domain_filter:
         domain_filter = domain_filter.upper()
-        suffix = f"_{domain_filter.lower()}"
-        model_collections = [c for c in model_collections if c.endswith(suffix)]
-        if not model_collections:
-            print(f"\nERROR: No collection found for domain '{domain_filter}'.", file=sys.stderr)
-            print(f"  Expected a collection ending with '{suffix}'.", file=sys.stderr)
-            sys.exit(1)
         catalog_json_path = output_dir / f"fa_consolidated_catalog_{domain_filter.lower()}.json"
         relationships_json_path = output_dir / f"fa_consolidated_relationships_{domain_filter.lower()}.json"
-        print(f"\n  Domain filter: {domain_filter} ({len(model_collections)} collection(s))")
     else:
         catalog_json_path = output_dir / "fa_consolidated_catalog.json"
         relationships_json_path = output_dir / "fa_consolidated_relationships.json"
@@ -1006,9 +877,9 @@ def generate_consolidated_catalog(
     print(f"    - Inventory ({len(inventory_collections)})")
     print(f"    - Handbook ({len(handbook_collections)})")
 
-    # Step 1: Extract entities from conceptual model docstores
-    print("\n=== Step 1: Extract Conceptual Model Entities ===")
-    conceptual_entities = extract_entities_from_conceptual_model(rag_config, model_collections)
+    # Step 1: Load entities from pre-parsed model JSON
+    print("\n=== Step 1: Load Conceptual Model Entities ===")
+    conceptual_entities = load_entities_from_json(model_json)
     if domain_filter:
         conceptual_entities = [
             e for e in conceptual_entities
@@ -1125,14 +996,14 @@ def generate_consolidated_catalog(
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 
-    # Step 6: Extract relationships from conceptual model
-    print("\n=== Step 6: Extract Relationships ===")
+    # Step 6: Load relationships from pre-parsed model JSON
+    print("\n=== Step 6: Load Relationships ===")
     relationships: dict[str, list[dict]] = {}
 
     if skip_relationships:
         print("  Skipping relationship extraction (--skip-relationships)")
     else:
-        relationships = extract_relationships_from_conceptual_model(rag_config, model_collections)
+        relationships = load_relationships_from_json(model_json)
 
     # Step 6b: Entity-to-entity relationships from Handbook
     print("\n=== Step 6b: Extract Entity-to-Entity Relationships from Handbook ===")
@@ -1245,6 +1116,10 @@ def main() -> None:
         help=f"Output directory (default: {_DEFAULT_OUTPUT_DIR})",
     )
     parser.add_argument(
+        "--model-json", type=Path, default=_DEFAULT_MODEL_JSON,
+        help=f"Path to LeanIX model JSON (default: {_DEFAULT_MODEL_JSON})",
+    )
+    parser.add_argument(
         "--skip-relationships", action="store_true",
         help="Skip relationship extraction (saves a few seconds — relationships are domain-level only)",
     )
@@ -1324,6 +1199,7 @@ def main() -> None:
         handbook_collections=handbook_collections,
         output_dir=output_dir,
         skip_relationships=args.skip_relationships,
+        model_json=args.model_json.expanduser(),
         domain_filter=args.domain,
         skip_handbook=args.skip_handbook,
         entity_filter=args.entity,

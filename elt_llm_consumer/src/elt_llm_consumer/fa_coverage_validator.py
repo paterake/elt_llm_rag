@@ -59,8 +59,9 @@ _DEFAULT_RAG_CONFIG = Path(
     "~/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/rag_config.yaml"
 ).expanduser()
 
-_DEFAULT_XML = Path(
-    "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model.xml"
+_DEFAULT_MODEL_JSON = Path(
+    "~/Documents/__data/resources/thefa/"
+    "DAT_V00.01_FA Enterprise Conceptual Data Model_model.json"
 ).expanduser()
 
 _DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
@@ -81,32 +82,34 @@ _DEFAULT_TOP_K = 5  # chunks retrieved per entity
 # ---------------------------------------------------------------------------
 
 
-def load_conceptual_model_entities(xml_path: Path) -> list[dict]:
-    """Parse LeanIX draw.io XML → list of entity dicts."""
-    try:
-        from elt_llm_ingest.doc_leanix_parser import LeanIXExtractor
-    except ImportError:
+def load_conceptual_model_entities(json_path: Path) -> list[dict]:
+    """Load conceptual model entities from pre-parsed model JSON.
+
+    The JSON is produced by LeanIXPreprocessor (output_format='csv') and written
+    next to the source XML.  Only entities with a fact_sheet_id are returned
+    (required for inventory cross-reference).
+    """
+    if not json_path.exists():
         print(
-            "ERROR: elt_llm_ingest not available. Run: uv sync --all-packages",
+            f"ERROR: Model JSON not found: {json_path}\n"
+            "Run ingestion first to regenerate the JSON.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    print(f"  Parsing XML: {xml_path}")
-    extractor = LeanIXExtractor(str(xml_path))
-    extractor.parse_xml()
-    extractor.extract_all()
+    print(f"  Loading model JSON: {json_path}")
+    with open(json_path, encoding="utf-8") as f:
+        doc = json.load(f)
 
-    entities: list[dict] = []
-    for asset in extractor.assets.values():
-        if not asset.label or not asset.fact_sheet_id:
-            continue
-        entities.append({
-            "fact_sheet_id": asset.fact_sheet_id,
-            "entity_name": asset.label,
-            "domain": asset.parent_group or "UNKNOWN",
-        })
-
+    entities = [
+        {
+            "fact_sheet_id": e["fact_sheet_id"],
+            "entity_name": e["entity_name"],
+            "domain": e["domain"].upper(),
+        }
+        for e in doc.get("entities", [])
+        if e.get("fact_sheet_id")
+    ]
     print(f"  {len(entities)} entities loaded from conceptual model")
     return entities
 
@@ -359,8 +362,8 @@ def main() -> None:
         help=f"Path to rag_config.yaml (default: {_DEFAULT_RAG_CONFIG})",
     )
     parser.add_argument(
-        "--xml", type=Path, default=_DEFAULT_XML,
-        help=f"Path to LeanIX draw.io XML (default: {_DEFAULT_XML})",
+        "--model-json", type=Path, default=_DEFAULT_MODEL_JSON,
+        help=f"Path to LeanIX model JSON (default: {_DEFAULT_MODEL_JSON})",
     )
     parser.add_argument(
         "--output-dir", type=Path, default=_DEFAULT_OUTPUT_DIR,
@@ -381,13 +384,8 @@ def main() -> None:
     args = parser.parse_args()
     resume = os.environ.get("RESUME", "0") == "1"
 
-    xml_path = args.xml.expanduser()
+    model_json = args.model_json.expanduser()
     output_dir = args.output_dir.expanduser()
-
-    if not xml_path.exists():
-        print(f"ERROR: XML not found: {xml_path}", file=sys.stderr)
-        sys.exit(1)
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("Loading RAG config…")
@@ -397,7 +395,7 @@ def main() -> None:
         print("  Mode: RESUME (skipping already-written rows)")
 
     print("\nLoading sources…")
-    entities = load_conceptual_model_entities(xml_path)
+    entities = load_conceptual_model_entities(model_json)
 
     print(f"\nLoading FA Handbook index (retrieval only — no LLM)…")
     handbook_index = load_index("fa_handbook", rag_config)
