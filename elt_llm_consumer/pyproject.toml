@@ -13,6 +13,8 @@ dependencies = [
 ]
 
 [project.scripts]
+elt-llm-consumer-ai-glossary = "elt_llm_consumer.fa_ai_glossary:main"
+elt-llm-consumer-glossary-claude = "elt_llm_consumer.fa_glossary_generator_claude:main"
 elt-llm-consumer-consolidated-catalog = "elt_llm_consumer.fa_consolidated_catalog:main"
 elt-llm-consumer-coverage-validator = "elt_llm_consumer.fa_coverage_validator:main"
 elt-llm-consumer-handbook-model = "elt_llm_consumer.fa_handbook_model_builder:main"
