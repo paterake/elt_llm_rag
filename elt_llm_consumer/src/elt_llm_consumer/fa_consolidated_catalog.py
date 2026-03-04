@@ -1194,6 +1194,21 @@ def generate_consolidated_catalog(
     for status, count in sorted(status_counts.items()):
         print(f"  {status}: {count}")
 
+    # Quality metrics — count only real data, not error placeholders or hedged fallbacks.
+    def _has_real_definition(e: dict) -> bool:
+        v = e.get("formal_definition", "")
+        return bool(v) and not v.startswith("[Error:")
+
+    def _has_real_governance(e: dict) -> bool:
+        v = e.get("governance_rules", "")
+        return bool(v) and not v.startswith("Not documented in FA Handbook")
+
+    print("\n=== Quality Metrics ===")
+    with_definitions = sum(1 for e in consolidated_entities if _has_real_definition(e))
+    with_governance = sum(1 for e in consolidated_entities if _has_real_governance(e))
+    print(f"  Entities with formal definitions: {with_definitions}/{len(consolidated_entities)}")
+    print(f"  Entities with governance rules: {with_governance}/{len(consolidated_entities)}")
+
 
 # ---------------------------------------------------------------------------
 # Entry point
