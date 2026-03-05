@@ -111,10 +111,16 @@ _DEFAULT_INVENTORY_JSON = _resolve_json_from_ingest_config(_INGEST_CONFIG_INVENT
 _HANDBOOK_CONTEXT_PROMPT = """\
 Provide a terms of reference entry for the FA entity '{entity_name}' in the {domain} domain.
 
+The FA Handbook may refer to this entity directly by name or through specialisations, subtypes, or \
+qualified variants (e.g. '{entity_name}' may appear as 'Contract {entity_name}', 'Registered {entity_name}', \
+'Associate {entity_name}', or other qualified forms). Include definitions and rules for any such \
+specialisations where they illuminate the meaning of '{entity_name}'.
+
 Structure your response with these three sections:
 
 FORMAL_DEFINITION:
-[What is this entity? Provide a formal definition. Quote exact FA Handbook definition if one exists.]
+[What is this entity? Provide a formal definition. Quote exact FA Handbook definition if one exists, \
+including any specialised forms or subtypes defined in the handbook.]
 
 DOMAIN_CONTEXT:
 [What role does it play within the {domain} domain? What related concepts should be considered?]
@@ -127,6 +133,10 @@ If no handbook rules apply, state 'Not documented in FA Handbook — outside gov
 
 _GOVERNANCE_EXTRACTION_PROMPT = """\
 Describe the FA Handbook rules, regulations, and governance requirements that apply to '{entity_name}'.
+
+The FA Handbook may refer to this entity directly or through specialisations and qualified variants \
+(e.g. '{entity_name}' may appear as 'Contract {entity_name}', 'Registered {entity_name}', or other \
+qualified forms). Include governance rules for any such specialisations where they apply.
 
 Cover where relevant:
 - Registration or affiliation requirements
