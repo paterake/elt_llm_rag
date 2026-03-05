@@ -45,7 +45,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 # Faster run (skip relationship extraction)
 # Runtime: ~2-3 hr (num_queries=3) or ~30-45 min (num_queries=1)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships --domain PARTY
 
 # With specific model override
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen2.5:14b

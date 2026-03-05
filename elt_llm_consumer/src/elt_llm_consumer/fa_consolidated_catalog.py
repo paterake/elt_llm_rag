@@ -16,9 +16,9 @@ Architecture:
      - Consolidates responses → JSON for stakeholder review
 
 Strategy:
+  - Use model JSON (_model.json) for structured entity/relationship enumeration
   - Use RAG for synthesis/enrichment (Handbook context, term mapping)
-  - Use docstore scan for structured metadata (entities, relationships)
-  - Balance scalability with quality
+  - Use docstore scan only for Handbook defined-term extraction (Step 3)
 
 Prerequisites (via ingestion only):
   1. LeanIX Conceptual Model → fa_leanix_dat_enterprise_conceptual_model_* collections
@@ -53,14 +53,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
-from elt_llm_query.query import query_collections, resolve_collection_prefixes
+from elt_llm_query.query import query_collections
 
 # ---------------------------------------------------------------------------
 # Default paths
@@ -72,60 +71,42 @@ _DEFAULT_RAG_CONFIG = Path(
 
 _DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
-_INGEST_CONFIG = Path(
+_INGEST_CONFIG_MODEL = Path(
     "~/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/"
     "ingest_fa_leanix_dat_enterprise_conceptual_model.yaml"
 ).expanduser()
 
+_INGEST_CONFIG_INVENTORY = Path(
+    "~/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/"
+    "ingest_fa_leanix_global_inventory.yaml"
+).expanduser()
 
-def _resolve_default_model_json() -> Path:
-    """Derive _model.json path from the ingest config file_paths[0].
 
-    Reads the ingest YAML to get the source XML path, then derives the JSON
-    path by convention: <xml_dir>/<xml_stem>_model.json.
-    Falls back to a sensible error if the config is missing.
+def _resolve_json_from_ingest_config(config_path: Path, suffix: str) -> Path:
+    """Derive a JSON sidecar path from an ingest config's file_paths[0].
+
+    Appends ``suffix`` to the stem of the source file, e.g.:
+      source.xml  + "_model.json"      → source_model.json
+      source.xlsx + "_inventory.json"  → source_inventory.json
     """
     import yaml
-    if not _INGEST_CONFIG.exists():
+    if not config_path.exists():
         raise FileNotFoundError(
-            f"Ingest config not found: {_INGEST_CONFIG}\n"
-            "Pass --model-json explicitly or fix the config path."
+            f"Ingest config not found: {config_path}\n"
+            "Pass the JSON path explicitly via the CLI flag."
         )
-    with open(_INGEST_CONFIG) as f:
+    with open(config_path) as f:
         data = yaml.safe_load(f)
-    xml_path = Path(data["file_paths"][0]).expanduser()
-    return xml_path.parent / f"{xml_path.stem}_model.json"
+    src = Path(data["file_paths"][0]).expanduser()
+    return src.parent / f"{src.stem}{suffix}"
 
 
-_DEFAULT_MODEL_JSON = _resolve_default_model_json()
+_DEFAULT_MODEL_JSON = _resolve_json_from_ingest_config(_INGEST_CONFIG_MODEL, "_model.json")
+_DEFAULT_INVENTORY_JSON = _resolve_json_from_ingest_config(_INGEST_CONFIG_INVENTORY, "_inventory.json")
 
 # ---------------------------------------------------------------------------
 # System prompts
 # ---------------------------------------------------------------------------
-
-_HANDBOOK_TERM_MAPPING_PROMPT = """\
-The FA Handbook defines the term '{term}' as:
-"{definition}"
-
-Which entity in the FA Enterprise Conceptual Data Model (LeanIX) does this correspond to?
-
-Provide:
-- mapped_entity: Exact entity name from the model, or "Not mapped" if no match
-- domain: Domain the entity belongs to (e.g., PARTY, AGREEMENT, PRODUCT)
-- fact_sheet_id: LeanIX fact sheet ID if shown in retrieved content
-- mapping_confidence: high / medium / low
-- mapping_rationale: One sentence explaining the mapping decision
-
-Return as JSON:
-{{
-  "mapped_entity": "...",
-  "domain": "...",
-  "fact_sheet_id": "...",
-  "mapping_confidence": "...",
-  "mapping_rationale": "..."
-}}
-
-If the term is operational/procedural and not represented as a distinct entity, use "Not mapped"."""
 
 _HANDBOOK_CONTEXT_PROMPT = """\
 Provide a terms of reference entry for the FA entity '{entity_name}' in the {domain} domain.
@@ -351,18 +332,19 @@ def _load_model_json(json_path: Path) -> dict:
 def load_entities_from_json(json_path: Path) -> list[dict]:
     """Load conceptual model entities from the pre-parsed model JSON.
 
-    The JSON is produced by LeanIXPreprocessor (output_format='csv') and written
-    next to the source XML.  Each entity has: domain, subtype, entity_name,
-    fact_sheet_id, fact_sheet_type.
+    The JSON is produced by LeanIXPreprocessor (output_format='json_md') and
+    written next to the source XML.  Each entity has: domain, domain_fact_sheet_id,
+    subtype, subtype_fact_sheet_id, entity_name, fact_sheet_id, fact_sheet_type.
     """
     doc = _load_model_json(json_path)
     entities = [
         {
             "entity_name": e["entity_name"],
             "domain": e["domain"].upper(),
-            "fact_sheet_id": e.get("fact_sheet_id", ""),
+            "domain_fact_sheet_id": e.get("domain_fact_sheet_id", ""),
             "subgroup": e.get("subtype", ""),
-            "hierarchy_level": "",
+            "subgroup_fact_sheet_id": e.get("subtype_fact_sheet_id", ""),
+            "fact_sheet_id": e.get("fact_sheet_id", ""),
         }
         for e in doc.get("entities", [])
     ]
@@ -388,73 +370,31 @@ def load_relationships_from_json(json_path: Path) -> dict[str, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# Inventory description extraction via RAG
+# Inventory direct JSON lookup
 # ---------------------------------------------------------------------------
 
 
-def get_inventory_description_for_entity(
-    entity_name: str,
-    inventory_collections: list[str],
-    rag_config: RagConfig,
-) -> dict:
-    """Get inventory description for an entity via RAG query."""
-    if not inventory_collections:
-        return {"description": "Not documented", "level": "", "status": "", "system_name": ""}
+def load_inventory_from_json(json_path: Path) -> dict[str, dict]:
+    """Load LeanIX inventory from _inventory.json, keyed by fact_sheet_id.
 
-    query = f"Find the LeanIX inventory description for '{entity_name}'. Provide description, level, status."
-
-    try:
-        result = query_collections(inventory_collections, query, rag_config)
-        response = result.response.strip()
-
-        # Extract structured fields from response
-        return {
-            "description": response[:500] if response else "Not documented",
-            "level": "",
-            "status": "",
-            "system_name": "",
-        }
-    except Exception as e:
-        return {"description": f"[Error: {e}]", "level": "", "status": "", "system_name": ""}
-
-
-# ---------------------------------------------------------------------------
-# Handbook term mapping via RAG
-# ---------------------------------------------------------------------------
-
-
-def map_handbook_term_to_entity(
-    term: str,
-    definition: str,
-    model_collections: list[str],
-    rag_config: RagConfig,
-) -> dict:
-    """Map a Handbook defined term to a conceptual model entity via RAG."""
-    query = _HANDBOOK_TERM_MAPPING_PROMPT.format(term=term, definition=definition)
-
-    try:
-        result = query_collections(model_collections, query, rag_config)
-        response = result.response.strip()
-
-        # Parse JSON
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-        return {
-            "mapped_entity": "Not mapped",
-            "domain": "",
-            "fact_sheet_id": "",
-            "mapping_confidence": "low",
-            "mapping_rationale": "",
-        }
-    except Exception as e:
-        return {
-            "mapped_entity": "Not mapped",
-            "domain": "",
-            "fact_sheet_id": "",
-            "mapping_confidence": "low",
-            "mapping_rationale": f"[Error: {e}]",
-        }
+    The JSON is produced by LeanIXInventoryPreprocessor during ingestion and
+    written next to the source Excel.  Returns a dict for O(1) lookup:
+        inventory[fact_sheet_id] → {id, type, name, description, level, status}
+    """
+    if not json_path.exists():
+        print(
+            f"WARNING: Inventory JSON not found at {json_path}.\n"
+            "Run ingestion first: uv run python -m elt_llm_ingest.runner "
+            "--cfg ingest_fa_leanix_global_inventory\n"
+            "Inventory descriptions will be empty.",
+            file=sys.stderr,
+        )
+        return {}
+    with open(json_path, encoding="utf-8") as f:
+        data = json.load(f)
+    fact_sheets = data.get("fact_sheets", {})
+    print(f"  {len(fact_sheets)} inventory fact sheets loaded from {json_path.name}")
+    return fact_sheets
 
 
 # ---------------------------------------------------------------------------
@@ -468,32 +408,24 @@ def get_handbook_context_for_entity(
     handbook_collections: list[str],
     rag_config: RagConfig,
     term_definitions: dict[str, str] | None = None,
-    handbook_term: str | None = None,
 ) -> dict:
     """Get FA Handbook context (definition, governance, domain context) for an entity.
 
     Args:
-        entity_name:      Conceptual model entity name (used for the RAG query).
-        domain:           Domain of the entity.
+        entity_name:          Conceptual model entity name (drives the RAG query).
+        domain:               Domain of the entity.
         handbook_collections: Handbook collection names for RAG.
-        rag_config:       RAG configuration.
-        term_definitions: Pre-built dict of {term_lower: definition} from Step 3.
-                          When provided, used for fast direct-lookup of formal_definition
-                          without any extra docstore I/O.
-        handbook_term:    The Step 4 mapped handbook term for this entity (if any).
-                          Used as a fallback for formal_definition lookup when the
-                          entity name itself has no direct handbook definition.
+        rag_config:           RAG configuration.
+        term_definitions:     Pre-built dict of {term_lower: definition} from Step 3.
+                              When the entity name exactly matches a handbook term,
+                              its formal definition overrides the RAG-synthesised text.
     """
-    # RAG query always uses the entity name — the handbook term is only used for
-    # formal_definition lookup, not to drive retrieval.
     query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain)
 
     try:
         result = query_collections(handbook_collections, query, rag_config)
         response = result.response.strip()
 
-        # Parse sections — map prompt section names to output field names.
-        # Note: "GOVERNANCE" → "governance_rules" (not "governance").
         _section_key_map = {
             "FORMAL_DEFINITION": "formal_definition",
             "DOMAIN_CONTEXT": "domain_context",
@@ -504,13 +436,10 @@ def get_handbook_context_for_entity(
             match = re.search(rf"{prompt_key}:\s*(.*?)(?=\n[A-Z]+:|\Z)", response, re.DOTALL)
             sections[output_key] = match.group(1).strip() if match else ""
 
-        # Override formal_definition with a direct handbook definition when available.
-        # Priority: entity name match → mapped handbook term match → keep RAG result.
-        # This is O(1) — no docstore I/O — because term_definitions was built once in Step 3.
+        # If entity name directly matches a handbook-defined term, use the exact
+        # definition (highest confidence) rather than the LLM synthesis.
         if term_definitions:
             direct_def = term_definitions.get(entity_name.lower())
-            if not direct_def and handbook_term:
-                direct_def = term_definitions.get(handbook_term.lower())
             if direct_def:
                 sections["formal_definition"] = direct_def
 
@@ -636,17 +565,21 @@ def infer_domain_for_handbook_entity(
     entity_name: str,
     handbook_definition: str,
     taxonomy_context: str,
-    model_collections: list[str],
+    handbook_collections: list[str],
     rag_config: RagConfig,
 ) -> dict:
-    """Use LLM to infer domain and subgroup for a HANDBOOK_ONLY entity (three-tier)."""
+    """Use LLM to infer domain and subgroup for a HANDBOOK_ONLY entity (three-tier).
+
+    Queries the handbook RAG so the LLM has FA-specific context when inferring
+    which domain/subtype the entity belongs to.
+    """
     query = _DOMAIN_INFERENCE_PROMPT.format(
         taxonomy_context=taxonomy_context,
         entity_name=entity_name,
         handbook_definition=handbook_definition,
     )
     try:
-        result = query_collections(model_collections, query, rag_config)
+        result = query_collections(handbook_collections, query, rag_config)
         response = result.response.strip()
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
@@ -690,7 +623,7 @@ def consolidate_catalog(
     inventory_descriptions: dict[str, dict],
     handbook_context: dict[str, dict],
     relationships: dict[str, list[dict]],
-    model_collections: list[str],
+    handbook_collections: list[str],
     rag_config: RagConfig,
     skip_handbook_only: bool = False,
 ) -> tuple[list[dict], list[dict]]:
@@ -760,8 +693,9 @@ def consolidate_catalog(
             "fact_sheet_id": fsid,
             "entity_name": name,
             "domain": domain,
+            "domain_fact_sheet_id": entity.get("domain_fact_sheet_id", ""),
             "subgroup": entity.get("subgroup", ""),
-            "hierarchy_level": entity.get("hierarchy_level", ""),
+            "subgroup_fact_sheet_id": entity.get("subgroup_fact_sheet_id", ""),
             "source": source,
             "leanix_description": leanix_description,
             "formal_definition": hb_context.get("formal_definition", ""),
@@ -807,7 +741,7 @@ def consolidate_catalog(
             entity_name=term,
             handbook_definition=term_entry.get("definition", ""),
             taxonomy_context=taxonomy_context,
-            model_collections=model_collections,
+            handbook_collections=handbook_collections,
             rag_config=rag_config,
         )
 
@@ -815,8 +749,9 @@ def consolidate_catalog(
             "fact_sheet_id": "",
             "entity_name": term,
             "domain": inferred.get("entity_domain", "HANDBOOK_DISCOVERED"),
+            "domain_fact_sheet_id": "",
             "subgroup": inferred.get("entity_subgroup", ""),
-            "hierarchy_level": "",
+            "subgroup_fact_sheet_id": "",
             "source": "HANDBOOK_ONLY",
             "leanix_description": "Not documented in LeanIX — candidate for conceptual model addition",
             "formal_definition": term_entry.get("definition", ""),
@@ -872,12 +807,11 @@ def consolidate_catalog(
 
 def generate_consolidated_catalog(
     rag_config: RagConfig,
-    model_collections: list[str],
-    inventory_collections: list[str],
     handbook_collections: list[str],
     output_dir: Path,
     skip_relationships: bool,
     model_json: Path,
+    inventory_json: Path,
     domain_filter: str | None = None,
     skip_handbook: bool = False,
     entity_filter: str | None = None,
@@ -894,17 +828,15 @@ def generate_consolidated_catalog(
 
     print("\n=== FA Consolidated Catalog (RAG+LLM) ===")
     print(f"  Model: {rag_config.ollama.llm_model}")
-    print(f"  Collections:")
-    print(f"    - Conceptual Model ({len(model_collections)})")
-    print(f"    - Inventory ({len(inventory_collections)})")
-    print(f"    - Handbook ({len(handbook_collections)})")
+    print(f"  Handbook: {handbook_collections}")
 
     # Step 1: Load entities from pre-parsed model JSON
     print("\n=== Step 1: Load Conceptual Model Entities ===")
-    conceptual_entities = load_entities_from_json(model_json)
+    all_entities = load_entities_from_json(model_json)
+    conceptual_entities = all_entities
     if domain_filter:
         conceptual_entities = [
-            e for e in conceptual_entities
+            e for e in all_entities
             if e.get("domain", "").upper() == domain_filter
         ]
         print(f"  After domain filter ({domain_filter}): {len(conceptual_entities)} entities")
@@ -923,16 +855,21 @@ def generate_consolidated_catalog(
         conceptual_entities = matched
         print(f"  Entity filter: '{entity_filter}' (1 entity)")
 
-    # Step 2: Get inventory descriptions via RAG
-    print("\n=== Step 2: Extract Inventory Descriptions ===")
+    # Step 2: Inventory lookup by fact_sheet_id (direct JSON, no RAG)
+    print("\n=== Step 2: Load Inventory Descriptions ===")
+    inventory_lookup = load_inventory_from_json(inventory_json)
     inventory_descriptions: dict[str, dict] = {}
-    total = len(conceptual_entities)
-    for i, entity in enumerate(conceptual_entities, 1):
+    matched_count = 0
+    for entity in conceptual_entities:
         name = entity.get("entity_name", "")
-        print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
-        inv = get_inventory_description_for_entity(name, inventory_collections, rag_config)
+        fsid = entity.get("fact_sheet_id", "")
+        inv = inventory_lookup.get(fsid, {})
+        if inv:
+            matched_count += 1
+        else:
+            inv = {"description": "Not documented in LeanIX inventory", "level": "", "status": "", "type": ""}
         inventory_descriptions[_normalize(name)] = inv
-    print(f"  {len(inventory_descriptions)} inventory descriptions extracted      ")
+    print(f"  {matched_count}/{len(conceptual_entities)} entities matched in inventory")
 
     # Step 3: Extract Handbook defined terms from docstore
     print("\n=== Step 3: Extract Handbook Defined Terms ===")
@@ -942,63 +879,47 @@ def generate_consolidated_catalog(
     else:
         handbook_terms = extract_handbook_terms_from_docstore(rag_config)
 
-    # Step 4: Map Handbook terms to conceptual model entities via RAG
-    print("\n=== Step 4: Map Handbook Terms to Conceptual Model ===")
+    # Step 4: Match Handbook terms to conceptual model entities by name (no LLM)
+    print("\n=== Step 4: Match Handbook Terms to Conceptual Model ===")
     handbook_mappings: dict[str, dict] = {}
     if skip_handbook:
         print("  Skipping (--skip-handbook)")
-    elif entity_filter:
-        # Skip the 141-LLM-call mapping step for single-entity runs.
-        # formal_definition will still be populated via direct term_definitions lookup in step 5.
-        print(f"  Skipping (--entity: single-entity mode — handbook_term will be empty)")
     else:
-        total = len(handbook_terms)
-        for i, term_entry in enumerate(handbook_terms, 1):
+        # Match against the full entity list (not domain/entity-filtered subset)
+        # so that handbook terms are matched across all domains.
+        entity_name_map = {_normalize(e["entity_name"]): e for e in all_entities}
+        matched_terms = 0
+        for term_entry in handbook_terms:
             term = term_entry["term"]
-            definition = term_entry["definition"]
-            print(f"  [{i:>3}/{total}] {term[:50]:<50}", end="\r", flush=True)
-            mapping = map_handbook_term_to_entity(term, definition, model_collections, rag_config)
-            handbook_mappings[term.lower()] = mapping
-        print(f"  {len(handbook_mappings)} handbook terms mapped                              ")
+            matched_entity = entity_name_map.get(_normalize(term))
+            if matched_entity:
+                handbook_mappings[term.lower()] = {
+                    "mapped_entity": matched_entity["entity_name"],
+                    "domain": matched_entity["domain"],
+                    "fact_sheet_id": matched_entity["fact_sheet_id"],
+                    "mapping_confidence": "high",
+                    "mapping_rationale": "Direct name match",
+                }
+                matched_terms += 1
+            else:
+                handbook_mappings[term.lower()] = {
+                    "mapped_entity": "Not mapped",
+                    "domain": "",
+                    "fact_sheet_id": "",
+                    "mapping_confidence": "low",
+                    "mapping_rationale": "No matching entity name in conceptual model",
+                }
+        print(f"  {matched_terms}/{len(handbook_terms)} handbook terms matched by name")
 
-    # Step 5: Get handbook context for all entities
+    # Step 5: Get handbook context for all entities (RAG+LLM)
     print("\n=== Step 5: Extract Handbook Context ===")
     handbook_context: dict[str, dict] = {}
     if skip_handbook:
         print("  Skipping (--skip-handbook)")
     else:
-        # Build term → definition lookup once (O(1) per entity, no extra docstore I/O).
         term_definitions: dict[str, str] = {
             t["term"].lower(): t["definition"] for t in handbook_terms
         }
-        # In --entity mode step 4 was skipped, so handbook_mappings is empty.
-        # Populate it with direct name-match entries so consolidate_catalog()
-        # correctly sets source="BOTH", handbook_term, mapping_confidence, etc.
-        # for any entity whose name exactly matches a handbook-defined term.
-        if entity_filter:
-            for entity in conceptual_entities:
-                name = entity["entity_name"]
-                if name.lower() in term_definitions:
-                    handbook_mappings[name.lower()] = {
-                        "mapped_entity": name,
-                        "domain": entity.get("domain", ""),
-                        "fact_sheet_id": entity.get("fact_sheet_id", ""),
-                        "mapping_confidence": "high",
-                        "mapping_rationale": "Direct handbook term match by entity name",
-                    }
-                    print(f"  Direct handbook match: '{name}' → source will be BOTH")
-
-        # Build reverse mapping: normalised entity name → original-casing handbook term.
-        entity_to_handbook_term: dict[str, str] = {}
-        for term_lower, mapping in handbook_mappings.items():
-            mapped_entity = _normalize(mapping.get("mapped_entity", ""))
-            if mapped_entity and mapped_entity not in ("not mapped", "none"):
-                original_term = next(
-                    (t["term"] for t in handbook_terms if t["term"].lower() == term_lower),
-                    term_lower,
-                )
-                entity_to_handbook_term[mapped_entity] = original_term
-
         total = len(conceptual_entities)
         for i, entity in enumerate(conceptual_entities, 1):
             name = entity.get("entity_name", "")
@@ -1007,7 +928,6 @@ def generate_consolidated_catalog(
             context = get_handbook_context_for_entity(
                 name, domain, handbook_collections, rag_config,
                 term_definitions=term_definitions,
-                handbook_term=entity_to_handbook_term.get(_normalize(name)),
             )
             # If governance is empty or hedged, run a dedicated governance RAG query.
             gov = context.get("governance_rules", "")
@@ -1053,7 +973,7 @@ def generate_consolidated_catalog(
         inventory_descriptions,
         handbook_context,
         relationships,
-        model_collections=model_collections,
+        handbook_collections=handbook_collections,
         rag_config=rag_config,
         skip_handbook_only=domain_filter is not None,
     )
@@ -1119,10 +1039,10 @@ def main() -> None:
             "Models: qwen2.5:14b (default), mistral-nemo:12b, "
             "llama3.1:8b, granite3.1-dense:8b, michaelborck/refuled\n\n"
             "Output:  JSON for stakeholder review\n\n"
-            "Prerequisites (ingestion only):\n"
-            "  - LeanIX Conceptual Model ingested to fa_leanix_dat_enterprise_conceptual_model_*\n"
-            "  - LeanIX Inventory ingested to fa_leanix_global_inventory_*\n"
-            "  - FA Handbook ingested to fa_handbook"
+            "Prerequisites:\n"
+            "  - LeanIX model JSON  (from ingest_fa_leanix_dat_enterprise_conceptual_model)\n"
+            "  - LeanIX inventory JSON (from ingest_fa_leanix_global_inventory)\n"
+            "  - FA Handbook ingested to fa_handbook (RAG only)"
         ),
     )
     parser.add_argument(
@@ -1140,6 +1060,10 @@ def main() -> None:
     parser.add_argument(
         "--model-json", type=Path, default=_DEFAULT_MODEL_JSON,
         help=f"Path to LeanIX model JSON (default: {_DEFAULT_MODEL_JSON})",
+    )
+    parser.add_argument(
+        "--inventory-json", type=Path, default=_DEFAULT_INVENTORY_JSON,
+        help=f"Path to LeanIX inventory JSON (default: {_DEFAULT_INVENTORY_JSON})",
     )
     parser.add_argument(
         "--skip-relationships", action="store_true",
@@ -1191,37 +1115,15 @@ def main() -> None:
     print(f"  LLM: {rag_config.ollama.llm_model}")
     print(f"  num_queries: {rag_config.query.num_queries}")
 
-    # Resolve collections
-    print("\nResolving collections…")
-    model_collections = resolve_collection_prefixes(
-        ["fa_leanix_dat_enterprise_conceptual_model"], rag_config
-    )
-    inventory_collections = resolve_collection_prefixes(
-        ["fa_leanix_global_inventory"], rag_config
-    )
     handbook_collections = ["fa_handbook"]
-
-    if not model_collections:
-        print(
-            "\nERROR: No conceptual model collections found.\n"
-            "Run: uv run python -m elt_llm_ingest.runner ingest "
-            "ingest_fa_leanix_dat_enterprise_conceptual_model",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    print(f"  Conceptual Model ({len(model_collections)})")
-    print(f"  Inventory ({len(inventory_collections)})")
-    print(f"  Handbook: fa_handbook")
 
     generate_consolidated_catalog(
         rag_config=rag_config,
-        model_collections=model_collections,
-        inventory_collections=inventory_collections,
         handbook_collections=handbook_collections,
         output_dir=output_dir,
         skip_relationships=args.skip_relationships,
         model_json=args.model_json.expanduser(),
+        inventory_json=args.inventory_json.expanduser(),
         domain_filter=args.domain,
         skip_handbook=args.skip_handbook,
         entity_filter=args.entity,

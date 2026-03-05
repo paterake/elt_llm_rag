@@ -319,13 +319,49 @@ class LeanIXInventoryPreprocessor(BasePreprocessor):
                 total += len(type_rows)
                 logger.info("  %s → %s (%d rows)", out_file.name, collection_name, len(type_rows))
 
+            # Write _inventory.json next to source Excel for direct consumer lookup.
+            # Keyed by fact_sheet_id so consumers can do O(1) lookup:
+            #   inventory[entity.fact_sheet_id] → {name, type, description, level, status}
+            import json as _json
+            fact_sheets: Dict[str, dict] = {}
+            for row in rows:
+                fsid = str(row.get("id") or "").strip()
+                if not fsid:
+                    continue
+                fact_sheets[fsid] = {
+                    "id": fsid,
+                    "type": str(row.get("type") or ""),
+                    "name": str(row.get("name") or row.get("displayName") or ""),
+                    "description": str(row.get("description") or "").strip(),
+                    "level": str(row.get("level") or ""),
+                    "status": str(row.get("lxState") or ""),
+                }
+            inventory_json = input_path.parent / f"{input_path.stem}_inventory.json"
+            inventory_json.write_text(
+                _json.dumps(
+                    {
+                        "metadata": {
+                            "org_name": self.org_name,
+                            "source": input_path.name,
+                            "total_fact_sheets": len(fact_sheets),
+                        },
+                        "fact_sheets": fact_sheets,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            logger.info("Inventory JSON written: %s (%d fact sheets)", inventory_json.name, len(fact_sheets))
+
             return PreprocessorResult(
                 original_file=str(input_path),
                 output_files=output_files,
                 success=True,
                 message=(
                     f"Split {total} fact sheets across {len(output_files)} collections "
-                    f"(prefix: {self.collection_prefix})"
+                    f"(prefix: {self.collection_prefix}); "
+                    f"JSON lookup: {inventory_json.name} ({len(fact_sheets)} entries)"
                 ),
                 section_collection_map=section_collection_map,
             )
