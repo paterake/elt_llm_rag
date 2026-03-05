@@ -38,9 +38,11 @@ Ingest heterogeneous documents into a RAG-ready store with:
 - Writes `<stem>_inventory.json` next to source Excel — keyed by `fact_sheet_id` for O(1) lookup
 - Writes per-type Markdown → per-type ChromaDB collections (`fa_leanix_global_inventory_*`)
 
-**`RegulatoryPDFPreprocessor`** — FA Handbook PDF:
-- Extracts defined terms and section structure from regulatory PDFs
-- Output: plain Markdown → `fa_handbook` ChromaDB collection
+**`DoclingPreprocessor`** — FA Handbook PDF:
+- Layout-aware PDF conversion via Docling (neural layout model)
+- Preserves section hierarchy, tables, and reading order as Markdown
+- No page-range configuration needed — document structure detected automatically
+- Output: `_clean.md` → `fa_handbook` ChromaDB collection
 
 **Split-mode**: one source → N collections via `collection_prefix` and section mapping
 

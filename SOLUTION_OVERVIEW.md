@@ -68,7 +68,9 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 │ 1. INGESTION (elt_llm_ingest)                                   │
 │    - FA Handbook PDF → fa_handbook collection                   │
 │    - LeanIX XML → fa_leanix_dat_enterprise_conceptual_model_*   │
+│                → _model.json (JSON sidecar next to source)      │
 │    - LeanIX Excel → fa_leanix_global_inventory_*                │
+│                   → _inventory.json (JSON sidecar next to source)│
 │    Technology: LlamaIndex + ChromaDB (vectorstore + docstore)   │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
@@ -77,22 +79,32 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 │    - Hybrid retrieval: BM25 + Vector                            │
 │    - Embedding reranker: nomic-embed-text                       │
 │    - LLM synthesis: qwen2.5:14b                                 │
+│    (Used only for FA Handbook queries — see Consumer below)     │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │ 3. CONSUMER (elt_llm_consumer)                                  │
 │    fa_consolidated_catalog.py — TARGET OUTPUT                   │
 │                                                                   │
-│    Extracts:                                                     │
-│    - Conceptual model entities (docstore scan)                  │
-│    - Handbook defined terms (docstore markers)                  │
-│    - Inventory descriptions (RAG queries)                       │
-│    - Handbook context per entity (RAG + LLM)                    │
-│    - Relationships (docstore patterns)                          │
+│    LeanIX Data (direct JSON lookup — no RAG, no LLM):           │
+│    - Entities from _model.json                                  │
+│    - Inventory descriptions via fact_sheet_id lookup            │
+│    - Relationships from _model.json                             │
+│                                                                   │
+│    Handbook Data (RAG+LLM required — unstructured PDF):         │
+│    - Defined terms from docstore scan                           │
+│    - Handbook context per entity (formal definition, rules)     │
 │                                                                   │
 │    Output: fa_consolidated_catalog.json                          │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Design Decision**: LeanIX data uses **direct JSON sidecars** (not RAG) because:
+- Data is already structured during ingestion
+- Deterministic joins via `fact_sheet_id`
+- Fast: O(1) lookup vs. ~15s per RAG query
+
+RAG+LLM is used **only for the FA Handbook** (unstructured PDF text).
 
 ### 2.2 Technology Stack
 
@@ -165,15 +177,25 @@ uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 **Primary Consumer: `fa_consolidated_catalog.py`**
 
 **What It Does:**
-1. Scans conceptual model docstores → extracts ~217 entities
-2. RAG queries → inventory descriptions per entity
-3. Scans Handbook docstore → extracts ~152 defined terms
-4. RAG queries → maps Handbook terms to model entities
-5. RAG queries → extracts Handbook context (definitions, governance)
-6. Scans docstores → extracts relationships
-7. Consolidates → classified JSON output
 
-**Command:**
+| Step | Source | Method | Output |
+|------|--------|--------|--------|
+| 1. Load entities | `_model.json` (LeanIX XML sidecar) | Direct JSON read | 177 entities with domain, subtype, fact_sheet_id |
+| 2. Inventory descriptions | `_inventory.json` (LeanIX Excel sidecar) | O(1) dict lookup by fact_sheet_id | Descriptions for each entity |
+| 3. Extract Handbook terms | `fa_handbook` docstore | Docstore scan (definition markers) | ~152 defined terms |
+| 4. Map terms to entities | Handbook terms + model entities | Normalised name matching | BOTH/LEANIX_ONLY/HANDBOOK_ONLY classification |
+| 5. Handbook context | `fa_handbook` collection | RAG+LLM per entity | Formal definition, domain context, governance rules |
+| 6. Relationships | `_model.json` | Direct JSON read | Domain-level relationships |
+| 7. Consolidate | All above | Merge and classify | `fa_consolidated_catalog.json` |
+
+**Key Design Decision**: Steps 1–2 and 6 use **direct JSON lookup** (no RAG, no LLM) because:
+- LeanIX data is already structured in JSON sidecars written during ingestion
+- Deterministic: exact matches, no retrieval ambiguity
+- Fast: O(1) dictionary lookup vs. ~15s per RAG query
+
+Only Step 5 (Handbook context) uses RAG+LLM because the Handbook is unstructured PDF text.
+
+**Commands:**
 ```bash
 # Full consolidation (with relationships)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
@@ -182,7 +204,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
 ```
 
-**Runtime:** ~5-10 minutes
+**Runtime**: ~5-10 minutes (Handbook RAG is the bottleneck)
 
 ---
 
@@ -249,13 +271,15 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-r
 
 | Original Requirement | Implementation | Output Field |
 |---------------------|--------------|--------------|
-| **1. Conceptual model as frame** | Drives entity extraction | `entity_name`, `domain`, `fact_sheet_id` |
-| **2. FA Handbook SME context** | RAG extraction per entity | `formal_definition`, `domain_context`, `governance_rules` |
-| **3. LeanIX Inventory descriptions** | RAG join by entity | `leanix_description` |
-| **4. Glossary terms mapped** | Handbook → Model mapping | `handbook_term`, `mapping_confidence`, `mapping_rationale` |
+| **1. Conceptual model as frame** | Direct JSON read from `_model.json` | `entity_name`, `domain`, `fact_sheet_id` |
+| **2. FA Handbook SME context** | RAG+LLM extraction per entity | `formal_definition`, `domain_context`, `governance_rules` |
+| **3. LeanIX Inventory descriptions** | Direct `fact_sheet_id` lookup in `_inventory.json` | `leanix_description` |
+| **4. Glossary terms mapped** | Handbook → Model name matching | `handbook_term`, `mapping_confidence`, `mapping_rationale` |
 | **5. Export format** | Structured JSON | Complete JSON file |
 | **6. Gap analysis** | Source classification | `source: HANDBOOK_ONLY` |
 | **7. Governance rules** | Handbook ToR extraction | `governance_rules` |
+
+**Note**: Requirements 1 and 3 use **direct JSON lookup** (no RAG, no LLM) for speed and accuracy.
 
 ---
 

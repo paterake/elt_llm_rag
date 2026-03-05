@@ -463,332 +463,6 @@ class LeanIXInventoryPreprocessor(BasePreprocessor):
         return None, None
 
 
-class RegulatoryPDFPreprocessor(BasePreprocessor):
-    """Preprocessor for structured regulatory PDF documents.
-
-    Works well for any numbered-section regulatory PDF (legislation, association
-    handbooks, standards) that follows the common pattern of:
-    - Repeating section headers on every page (e.g. "8 - RULES OF THE ASSOCIATION")
-    - Glossary/definitions sections using ``TERM means DEFINITION;`` or
-      ``TERM  -  DEFINITION`` style
-
-    Improves RAG retrieval quality by:
-
-    1. **Noise stripping** — removes repeating page-level section headers and
-       standard footer lines that appear on every page and inflate BM25 token
-       frequencies.
-
-    2. **Clean full-text output** — emits stripped text as a single Markdown
-       file (``<stem>_clean.md``) with section headings preserved as ``##``
-       markers.  Pair with a ``chunking`` override of 512 tokens so complete
-       rule paragraphs stay together.
-
-    3. **Definitions glossary output** — extracts all term-definition pairs from
-       configurable page ranges and emits them as ``<stem>_definitions.md``.
-       Each term gets its own ``##`` heading, giving BM25 a direct signal when
-       queries mention entity names.
-
-    Both output files are returned in ``PreprocessorResult.output_files`` and
-    ingested into the same collection.
-
-    Requires ``pypdf`` (``uv add pypdf --package elt-llm-ingest``).
-
-    Configuration
-    -------------
-    All parameters are forwarded from the YAML ``preprocessor:`` block via
-    ``extra_params`` — no code changes needed for new documents::
-
-        preprocessor:
-          class: "RegulatoryPDFPreprocessor"
-          definitions_label: "My Document defined term"
-          # Optional: pin known glossary pages for highest-confidence extraction.
-          # Auto-detection runs regardless; explicit pages are tagged "explicit"
-          # or "both" (found by both strategies).
-          def_sections:
-            - [88, 108]   # 0-based page indices, exclusive end
-            - [472, 477]
-          # Optional: lower/raise the auto-detect sensitivity (default 3).
-          def_density_threshold: 3
-    """
-
-    # Matches repeating section headers: "N - TITLE" or "TITLE - SUBTITLE"
-    # (all-caps, numbers, and punctuation only — lowercase signals body text)
-    _HEADER_PATTERN = re.compile(
-        r"^(?:\d+\s*[-–]\s*[A-Z\s'/&,\-]+|"
-        r"[A-Z\s'/&,\-]+\s*[-–]\s*[A-Z\s'/&,\-]+)$",
-        re.MULTILINE,
-    )
-    # Standard regulatory PDF footer / table-header noise
-    _NOISE_LINES = re.compile(
-        r"^(?:RETURN TO CONTENTS PAGE|DEFINITION\s+INTERPRETATION|CONTENTS|SECTION\s+PAGE)\s*$",
-        re.MULTILINE,
-    )
-
-    # Defaults — override via YAML config (def_sections / definitions_label)
-    # Empty list means no definition extraction unless configured.
-    _DEFAULT_DEF_SECTIONS: List[Tuple[int, int]] = []
-    _DEFAULT_DEFINITIONS_LABEL = "defined term"
-
-    def __init__(
-        self,
-        output_format: str = "markdown",
-        collection_prefix: Optional[str] = None,
-        def_sections: Optional[List] = None,
-        definitions_label: Optional[str] = None,
-        def_density_threshold: int = 3,
-    ):
-        """Initialise the preprocessor.
-
-        Args:
-            output_format: Kept for interface compatibility; always produces
-                two Markdown files regardless of this value.
-            collection_prefix: Kept for interface compatibility (unused — both
-                output files go to the same collection).
-            def_sections: Optional list of ``[page_start, page_end]`` 0-indexed
-                page ranges to scan for term definitions.  When supplied these
-                pages are always extracted and tagged ``source: explicit``.
-                Supply via YAML: ``def_sections: [[88, 108], [472, 477]]``.
-            definitions_label: Short label used in the definitions Markdown
-                (e.g. "FA Handbook defined term").  Defaults to "defined term".
-            def_density_threshold: Minimum number of ``means``-pattern matches
-                per page for auto-detection.  Pages meeting this threshold are
-                tagged ``source: detected``.  Set to 0 to disable auto-detect.
-                Default 3.
-        """
-        self.output_format = output_format
-        self.collection_prefix = collection_prefix
-        # YAML delivers lists-of-lists; normalise to list of tuples
-        if def_sections is not None:
-            self.def_sections: List[Tuple[int, int]] = [tuple(s) for s in def_sections]  # type: ignore[misc]
-        else:
-            self.def_sections = list(self._DEFAULT_DEF_SECTIONS)
-        self.definitions_label: str = (
-            definitions_label if definitions_label is not None else self._DEFAULT_DEFINITIONS_LABEL
-        )
-        self.def_density_threshold = def_density_threshold
-
-    # ------------------------------------------------------------------
-    # BasePreprocessor interface
-    # ------------------------------------------------------------------
-
-    def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
-        """Preprocess a regulatory PDF.
-
-        Args:
-            input_file: Path to the PDF.
-            output_path: Base path for output files (stem used as prefix).
-
-        Returns:
-            PreprocessorResult with two output files:
-            - ``<stem>_clean.md``       — noise-stripped full text
-            - ``<stem>_definitions.md`` — structured term-definition glossary
-        """
-        try:
-            import pypdf  # noqa: PLC0415
-        except ImportError as exc:
-            raise ImportError(
-                "pypdf is required by RegulatoryPDFPreprocessor. "
-                "Run: uv add pypdf --package elt-llm-ingest"
-            ) from exc
-
-        input_path = Path(input_file).expanduser().resolve()
-        output_base = Path(output_path).expanduser().resolve()
-        output_base.parent.mkdir(parents=True, exist_ok=True)
-
-        logger.info("%s: reading %s", type(self).__name__, input_path)
-
-        reader = pypdf.PdfReader(str(input_path))
-        total_pages = len(reader.pages)
-        logger.info("  %d pages", total_pages)
-
-        # ── Pass 1: extract and clean full text ───────────────────────────
-        clean_sections: List[str] = []
-        current_section: str = ""
-
-        for page_idx, page in enumerate(reader.pages):
-            raw = page.extract_text() or ""
-            lines = raw.split("\n")
-
-            new_section_header: Optional[str] = None
-            content_lines: List[str] = []
-
-            for line in lines:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-
-                # Drop ALL lines that are section headers.
-                # Headers repeat on every page (e.g. "8 - RULES OF THE ASSOCIATION")
-                # and are high-frequency noise for BM25.  Track section changes so we
-                # can emit a single ## marker per unique header.
-                if self._HEADER_PATTERN.match(stripped):
-                    if stripped != current_section:
-                        new_section_header = stripped
-                    continue
-
-                # Drop noise-only lines
-                if self._NOISE_LINES.match(stripped):
-                    continue
-
-                # Drop lines that are standalone page numbers or "NNN SECTION HEADER"
-                # variants (page number prefix from PDF footer/TOC artifacts)
-                if re.match(r"^\d{1,4}$", stripped):
-                    continue
-                if re.match(r"^\d{1,4}\s+\d+\s*[-–]", stripped):
-                    continue
-
-                content_lines.append(stripped)
-
-            if new_section_header and new_section_header != current_section:
-                # Flush previous section and start a new one
-                if clean_sections:
-                    clean_sections.append("")  # blank line between sections
-                clean_sections.append(f"## {new_section_header}")
-                current_section = new_section_header
-
-            if content_lines:
-                clean_sections.extend(content_lines)
-
-        clean_md = "\n".join(clean_sections)
-
-        clean_path = output_base.parent / f"{output_base.stem}_clean.md"
-        clean_path.write_text(clean_md, encoding="utf-8")
-        logger.info("  Written clean text: %s (%d chars)", clean_path, len(clean_md))
-
-        # ── Pass 2: extract definitions glossary ──────────────────────────
-        # Two independent extraction strategies are run and merged:
-        #   "explicit"  — page ranges from def_sections config (highest confidence)
-        #   "detected"  — pages auto-detected by means-pattern density
-        #   "both"      — term found by both strategies (strongest signal)
-
-        # store: term_lower → (canonical_term, defn)
-        explicit_store: Dict[str, Tuple[str, str]] = {}
-        detected_store: Dict[str, Tuple[str, str]] = {}
-
-        means_pat = re.compile(
-            r"([A-Z][A-Za-z0-9\s/\-'\"]{1,50}?)\s+means\s+(.+?)(?=;|(?=[A-Z][A-Za-z0-9\s/\-'\"]{1,50}?\s+means\s))",
-            re.DOTALL,
-        )
-        new_def_line = re.compile(
-            r"^([A-Z][A-Za-z0-9\s/'\"\-]{1,60}?)\s{2,}-\s+(.+)"
-        )
-
-        def _collect(store: Dict[str, Tuple[str, str]], term: str, defn: str) -> None:
-            term = " ".join(term.split())
-            defn = " ".join(defn.split()).strip(";").strip()
-            if len(defn) < 10 or len(defn) > 1500:
-                return
-            if term.lower() not in store:
-                store[term.lower()] = (term, defn)
-
-        def _extract_page_range(
-            page_indices: List[int],
-            store: Dict[str, Tuple[str, str]],
-        ) -> None:
-            """Run Pattern A (means) and Pattern B (  -  ) over a list of pages."""
-            # Pattern A: joined text
-            joined_parts: List[str] = []
-            for pg_idx in page_indices:
-                text = reader.pages[pg_idx].extract_text() or ""
-                lines = text.split("\n")
-                lines = [l for l in lines if not self._HEADER_PATTERN.match(l.strip())]
-                joined_parts.append(" ".join(lines))
-            joined = " ".join(joined_parts)
-            for m in means_pat.finditer(joined):
-                _collect(store, m.group(1), m.group(2))
-
-            # Pattern B: line-by-line accumulator (handles wrapped definitions)
-            all_lines: List[str] = []
-            for pg_idx in page_indices:
-                raw = reader.pages[pg_idx].extract_text() or ""
-                for ln in raw.split("\n"):
-                    stripped = ln.strip()
-                    if stripped and not self._HEADER_PATTERN.match(stripped):
-                        all_lines.append(stripped)
-            current_term: Optional[str] = None
-            current_defn: List[str] = []
-            for ln in all_lines:
-                m = new_def_line.match(ln)
-                if m:
-                    if current_term:
-                        _collect(store, current_term, " ".join(current_defn))
-                    current_term = m.group(1).strip()
-                    current_defn = [m.group(2).strip()]
-                elif current_term and ln:
-                    current_defn.append(ln)
-            if current_term:
-                _collect(store, current_term, " ".join(current_defn))
-
-        # ── Auto-detect: scan all pages by means-pattern density ──────────
-        if self.def_density_threshold > 0:
-            density_pat = re.compile(
-                r"[A-Z][A-Za-z0-9\s/\-'\"]{1,50}?\s+means\s+"
-            )
-            auto_pages: List[int] = []
-            for pg_idx in range(total_pages):
-                text = reader.pages[pg_idx].extract_text() or ""
-                if len(density_pat.findall(text)) >= self.def_density_threshold:
-                    auto_pages.append(pg_idx)
-            logger.info("  Auto-detected %d definition pages (threshold=%d)",
-                        len(auto_pages), self.def_density_threshold)
-            if auto_pages:
-                _extract_page_range(auto_pages, detected_store)
-
-        # ── Explicit page ranges ───────────────────────────────────────────
-        for page_start, page_end in self.def_sections:
-            page_indices = list(range(
-                min(page_start, total_pages),
-                min(page_end, total_pages),
-            ))
-            _extract_page_range(page_indices, explicit_store)
-
-        # ── Merge with confidence tagging ─────────────────────────────────
-        # definitions: (term, defn, source)
-        merged: List[Tuple[str, str, str]] = []
-        for key, (term, defn) in explicit_store.items():
-            source = "both" if key in detected_store else "explicit"
-            merged.append((term, defn, source))
-        for key, (term, defn) in detected_store.items():
-            if key not in explicit_store:
-                merged.append((term, defn, "detected"))
-
-        logger.info(
-            "  Definitions: %d explicit, %d detected, %d both, %d total unique",
-            sum(1 for _, _, s in merged if s == "explicit"),
-            sum(1 for _, _, s in merged if s == "detected"),
-            sum(1 for _, _, s in merged if s == "both"),
-            len(merged),
-        )
-
-        doc_title = Path(input_path).stem.replace("_", " ").replace("-", " ")
-        def_lines: List[str] = [
-            f"# {doc_title} — Defined Terms\n",
-            f"The following terms are formally defined in {doc_title}.\n",
-            "---\n",
-        ]
-        for term, defn, source in sorted(merged, key=lambda x: x[0].lower()):
-            def_lines.append(f"\n## {term}\n")
-            def_lines.append(
-                f"**{self.definitions_label}** [source: {source}]: {term} means {defn}.\n"
-            )
-
-        def_md = "\n".join(def_lines)
-        def_path = output_base.parent / f"{output_base.stem}_definitions.md"
-        def_path.write_text(def_md, encoding="utf-8")
-        logger.info("  Written definitions glossary: %s (%d terms)", def_path, len(merged))
-
-        output_files = [str(clean_path), str(def_path)]
-        return PreprocessorResult(
-            original_file=str(input_path),
-            output_files=output_files,
-            success=True,
-            message=(
-                f"Processed {total_pages} pages; "
-                f"{len(merged)} definitions extracted"
-            ),
-        )
-
-
 class IdentityPreprocessor(BasePreprocessor):
     """Pass-through preprocessor that returns the original file.
 
@@ -811,6 +485,53 @@ class IdentityPreprocessor(BasePreprocessor):
             output_files=[input_file],
             success=True,
             message="No preprocessing applied"
+        )
+
+
+class DoclingPreprocessor(BasePreprocessor):
+    """Preprocessor for PDF documents using Docling.
+
+    Replaces regex-based extraction with a layout-aware document converter that:
+    - Preserves section hierarchy as Markdown headings
+    - Handles multi-column layouts with correct reading order
+    - Extracts tables as structured Markdown
+    - Requires no page-range configuration
+
+    Requires ``docling`` (``uv add docling --package elt-llm-ingest``).
+    """
+
+    def __init__(
+        self,
+        output_format: str = "markdown",
+        collection_prefix: Optional[str] = None,
+        **kwargs: Any,
+    ):
+        self.output_format = output_format
+        self.collection_prefix = collection_prefix
+
+    def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
+        try:
+            from docling.document_converter import DocumentConverter
+        except ImportError:
+            raise ImportError(
+                "docling is required by DoclingPreprocessor. "
+                "Install it: uv add docling --package elt-llm-ingest"
+            )
+
+        logger.info("  Docling: converting %s", input_file)
+        converter = DocumentConverter()
+        result = converter.convert(str(input_file))
+        md_content = result.document.export_to_markdown()
+
+        clean_path = Path(output_path).parent / f"{Path(output_path).stem}_clean.md"
+        clean_path.write_text(md_content, encoding="utf-8")
+        logger.info("  Written: %s (%d chars)", clean_path, len(md_content))
+
+        return PreprocessorResult(
+            original_file=str(input_file),
+            output_files=[str(clean_path)],
+            success=True,
+            message=f"Docling: converted {Path(input_file).name} ({len(md_content):,} chars)",
         )
 
 

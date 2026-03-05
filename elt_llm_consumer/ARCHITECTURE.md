@@ -531,18 +531,59 @@ Step 7: Consolidate and classify
 
 ## 5. Source Joins
 
-Each consumer has a different relationship to its sources:
+### LeanIX Data: Direct JSON Lookup (No RAG)
+
+The consolidated catalog **does not use RAG** for LeanIX data. Instead, it reads JSON sidecars written during ingestion:
+
+```
+Ingestion Phase (elt_llm_ingest):
+┌──────────────────────────────────────────────────────────────────┐
+│ LeanIX XML (draw.io)                                             │
+│   → LeanIXPreprocessor (output_format='json_md')                │
+│   → Writes: <stem>_model.json (next to source XML)              │
+│      Content: 177 entities with domain, subtype, fact_sheet_id  │
+│                                                                  │
+│ LeanIX Excel (Inventory)                                         │
+│   → LeanIXInventoryPreprocessor (output_format='split')         │
+│   → Writes: <stem>_inventory.json (next to source Excel)        │
+│      Content: 1424 fact sheets keyed by fact_sheet_id           │
+└──────────────────────────────────────────────────────────────────┘
+
+Consumer Phase (elt_llm_consumer/fa_consolidated_catalog.py):
+┌──────────────────────────────────────────────────────────────────┐
+│ Step 1: Load entities from _model.json (direct file read)        │
+│   entities = [                                                   │
+│     {entity_name, domain, subgroup, fact_sheet_id, ...}          │
+│   ]                                                              │
+│                                                                  │
+│ Step 2: Inventory descriptions via fact_sheet_id lookup          │
+│   inventory = load_inventory_from_json("_inventory.json")        │
+│   for entity in entities:                                        │
+│       fsid = entity["fact_sheet_id"]                             │
+│       entity["leanix_description"] = inventory[fsid]["description"] │
+│   # O(1) dictionary lookup — no RAG, no LLM                      │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Why this design?**
+- **Deterministic**: JSON lookup is exact — no retrieval ambiguity
+- **Fast**: O(1) dictionary lookup vs. ~15s per RAG query
+- **Accurate**: `fact_sheet_id` is the canonical join key
+
+### Full Source Matrix
 
 | Source | handbook-model | coverage-validator | consolidated-catalog |
 |--------|---------------|-------------------|---------------------|
 | `_model.json` (LeanIX XML sidecar) | — | Entity enumeration | **Direct lookup** (Step 1) |
 | `_inventory.json` (LeanIX Excel sidecar) | — | — | **Direct fact_sheet_id lookup** (Step 2) |
-| `fa_handbook` collection | RAG | Retrieval scoring | RAG+LLM (Steps 3, 5) |
-| `fa_leanix_dat_*` collections | — | — | Not used |
-| `fa_leanix_global_inventory_*` collections | — | — | Not used |
+| `fa_handbook` collection | RAG+LLM | Retrieval scoring | RAG+LLM (Steps 3, 5) |
+| `fa_leanix_dat_*` collections | — | — | Not used (reserved for query UI) |
+| `fa_leanix_global_inventory_*` collections | — | — | Not used (reserved for query UI) |
 | Consumer 1 JSON output | — | Gap analysis | — |
 
-**Design principle**: the consolidated catalog uses direct JSON sidecars for all LeanIX data (no RAG, no LLM). Only the FA Handbook requires semantic retrieval — it is unstructured text that cannot be directly indexed.
+**Design principle**: Use the right tool per step:
+- **Direct JSON lookup** for structured LeanIX data (entities, inventory) — deterministic, fast
+- **RAG+LLM** only for FA Handbook context — the only source that requires semantic retrieval
 
 ---
 

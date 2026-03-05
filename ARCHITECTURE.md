@@ -173,7 +173,69 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for full phase detail, runbooks, and cu
 
 ---
 
-## 7. References
+## 7. FAQ
+
+### Q: Why not use Ollama Modelfiles instead of YAML profiles?
+
+**A:** Ollama Modelfiles and YAML profiles serve different purposes:
+
+| YAML Profile (`llm_rag_profile/*.yaml`) | Ollama Modelfile |
+|------------------------------------------|------------------|
+| Configures **LlamaIndex** (Python app) | Configures **Ollama server** (model container) |
+| Sets retrieval params (`similarity_top_k`, `use_reranker`) | Sets model params (`temperature`, `top_p`) |
+| Defines system prompts at **query time** | Bakes system prompts **into the model** |
+| Runtime configuration | Build-time configuration |
+
+**When Modelfiles would help:**
+- Multiple teams need the same model with different baked-in behaviors
+- You want to distribute pre-configured models (e.g., "dama-expert" model)
+- Different prompt templates per model (not per query)
+
+**Why YAML profiles are better for this project:**
+- ✅ System prompts can change **per query** without rebuilding models
+- ✅ Retrieval settings are LlamaIndex-specific, not Ollama-specific
+- ✅ One model serves multiple profiles (FA, DAMA, etc.)
+
+### Q: Why does the consumer use direct JSON lookup for LeanIX data instead of RAG?
+
+**A:** The consolidated catalog uses **direct JSON sidecars** for LeanIX data (not RAG) because:
+
+- **Deterministic**: JSON lookup is exact — no retrieval ambiguity
+- **Fast**: O(1) dictionary lookup vs. ~15s per RAG query
+- **Accurate**: `fact_sheet_id` is the canonical join key
+
+**Data flow:**
+```
+Ingestion: LeanIX XML → _model.json (sidecar)
+           LeanIX Excel → _inventory.json (sidecar)
+
+Consumer:  Read _model.json → entities list
+           Read _inventory.json → dict lookup by fact_sheet_id
+```
+
+Only the FA Handbook (unstructured PDF) requires RAG+LLM.
+
+### Q: How do the LeanIX XML and Excel datasets join?
+
+**A:** They join on **`fact_sheet_id`**:
+
+1. **Ingestion** writes JSON sidecars:
+   - `LeanIXPreprocessor` → `_model.json` with entities containing `fact_sheet_id`
+   - `LeanIXInventoryPreprocessor` → `_inventory.json` keyed by `fact_sheet_id`
+
+2. **Consumer** performs O(1) lookup:
+   ```python
+   inventory = load_inventory_from_json("_inventory.json")
+   for entity in entities:
+       fsid = entity["fact_sheet_id"]
+       entity["leanix_description"] = inventory.get(fsid, {}).get("description")
+   ```
+
+No RAG, no LLM — pure dictionary lookup.
+
+---
+
+## 8. References
 
 - [README.md](README.md) — Quick start
 - [SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md) — Stakeholder presentation

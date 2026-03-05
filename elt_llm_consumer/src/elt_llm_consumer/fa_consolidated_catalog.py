@@ -228,39 +228,23 @@ For Tier 2, follow the same Title Case naming conventions as existing entries.
 Return only the JSON object, no other text."""
 
 # ---------------------------------------------------------------------------
-# Definition marker extraction from docstore
+# Definition extraction from docstore (Docling output)
 # ---------------------------------------------------------------------------
 
-_DEF_MARKER = "**FA Handbook defined term**"
-_DEF_LINE_PAT = re.compile(
-    r"\*\*FA Handbook defined term\*\* \[source: (\w+)\]: (.+?) means (.+)",
+# Matches "TERM means DEFINITION" and "**TERM** means DEFINITION" patterns
+# produced by Docling's structure-aware markdown export of regulatory PDFs.
+_DEF_PAT = re.compile(
+    r"\*?\*?([A-Z][A-Za-z0-9\s/'\"\-]{1,60}?)\*?\*?\s+means\s+(.+?)(?:\s*;)?\s*$",
+    re.MULTILINE,
 )
-
-# PDF navigation/header text that leaks into defined-term extraction.
-# These originate from definition table headers and contents-page links
-# in the regulatory PDF, not from actual defined terms.
-_ARTIFACT_TERM_FRAGMENTS = (
-    "CONTENTS PAGE",         # navigation link remnant
-    "DEFINITION INTERPRETATION",  # definition table header
-)
-
-
-def _is_artifact_term(term: str) -> bool:
-    """Return True if the term is a PDF navigation or header artifact, not a real defined term."""
-    if any(frag in term for frag in _ARTIFACT_TERM_FRAGMENTS):
-        return True
-    # Trailing ' -' indicates the term was truncated at a line/chunk boundary
-    if term.endswith(" -"):
-        return True
-    return False
 
 
 
 def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
     """Extract defined terms from fa_handbook docstore.
 
-    Uses definition markers produced by RegulatoryPDFPreprocessor during ingestion.
-    This queries the already-built index — NOT direct file parsing.
+    Scans all docstore nodes for 'TERM means DEFINITION' patterns as produced
+    by Docling's structure-aware markdown export. No artificial markers needed.
     """
     from llama_index.core import StorageContext
 
@@ -283,27 +267,16 @@ def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
 
     for node in nodes:
         text = getattr(node, "text", "") or ""
-        for line in text.splitlines():
-            line = line.strip()
-            if _DEF_MARKER not in line:
+        for m in _DEF_PAT.finditer(text):
+            term = " ".join(m.group(1).split())
+            defn = " ".join(m.group(2).split()).rstrip(";").rstrip(".")
+            if len(defn) < 10 or len(defn) > 1500:
                 continue
-            m = _DEF_LINE_PAT.match(line)
-            if not m:
-                continue
-            source = m.group(1).strip().lower()
-            term = m.group(2).strip()
-            if _is_artifact_term(term):
-                continue
-            defn = m.group(3).strip().rstrip(".")
             key = term.lower()
             if key in seen:
                 continue
             seen.add(key)
-            terms.append({
-                "term": term,
-                "definition": defn,
-                "definition_source": source,
-            })
+            terms.append({"term": term, "definition": defn})
 
     terms.sort(key=lambda x: x["term"].lower())
     print(f"  {len(terms)} unique defined terms extracted from docstore")

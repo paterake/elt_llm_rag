@@ -211,13 +211,13 @@ Trust Architecture Reference?
 | File | Source Format | Reusability |
 |------|---------------|-------------|
 | `doc_leanix_parser.py` | LeanIX draw.io XML | Format-specific — rewrite for new EA tool |
-| `preprocessor.py` (RegulatoryPDFPreprocessor) | FA Handbook PDF structure | Pattern reusable — adapt for other regulatory PDFs |
+| `preprocessor.py` (DoclingPreprocessor) | Any PDF | 100% generic — works for any PDF without config |
 | `file_hash.py` | SHA256 file hashing | 100% generic — no changes |
 
 **Example: FA → Healthcare**
 
 If NHS provides policies as:
-- **PDF** → Reuse `RegulatoryPDFPreprocessor` with minor tweaks
+- **PDF** → Reuse `DoclingPreprocessor` unchanged — no config needed
 - **HTML** → Reuse pattern, change HTML parser
 - **Word docs** → New preprocessor needed (`doc_nhs_parser.py`)
 
