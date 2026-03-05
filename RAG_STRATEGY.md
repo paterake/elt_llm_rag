@@ -32,72 +32,23 @@ Query → Hybrid Retrieval (BM25 + Vector) → Embedding Reranker → Top-K Chun
 | **3. Embedding Reranker** | Cosine similarity re-scoring with optional MMR diversity | ✅ Production |
 | **4. Cross-encoder Reranker** | sentence-transformers CrossEncoder (joint query+doc scoring) | ✅ Production |
 | **5. Lost-in-middle reorder** | Highest-scoring chunks placed at context window ends | ✅ Production |
-| **6. LLM Synthesis** | Ollama (qwen2.5:14b) with system prompt | ✅ Production |
+| **6. LLM Synthesis** | Ollama (configurable model) with system prompt | ✅ Production |
 
 ### Configuration
 
 **File**: `elt_llm_ingest/config/rag_config.yaml`
 
-```yaml
-query:
-  similarity_top_k: 10
-  use_hybrid_search: true
-  use_reranker: true
-  reranker_strategy: "embedding"    # switch to "cross-encoder" for higher quality
-  reranker_retrieve_k: 20
-  reranker_top_k: 8
-  num_queries: 3                    # query variants (1=off, 3=recommended)
-  use_mmr: true                     # diversity filter (0.7 = 70% relevance, 30% diversity)
-  mmr_threshold: 0.7
-  use_lost_in_middle: true          # reorder chunks for LLM attention
-```
-
-### Config Knob Quick Reference
-
-| Key | What it does | Trade-off |
-|-----|-------------|-----------|
-| `num_queries` | LLM generates extra query variants for broader retrieval | Each extra variant = 1 extra LLM call per query. Set to `1` if batch job runs too slow |
-| `use_mmr` | Picks diverse chunks instead of top-N by score alone | Slight quality risk if threshold too low — keep at `0.7` |
-| `mmr_threshold` | Balance between relevance (`1.0`) and diversity (`0.0`) | Lower = more diverse but potentially less relevant |
-| `use_lost_in_middle` | Reorders chunks so best appear at start AND end of context window | No cost — pure reorder |
-| `reranker_strategy` | `"embedding"` = fast local (Ollama); `"cross-encoder"` = slower but higher quality | Cross-encoder adds ~200–800ms per query |
+For current parameter values and tuning rationale, see [RAG_TUNING.md](RAG_TUNING.md).
 
 ### Technology Stack
 
-| Component | Technology | Configuration |
-|-----------|------------|---------------|
-| Vector Store | ChromaDB | Persistent, tenant/database isolation |
-| Embeddings | Ollama | `nomic-embed-text` (768 dimensions) |
-| LLM | Ollama | `qwen2.5:14b` (8K context window) |
-| Hybrid Retrieval | LlamaIndex | BM25 + Vector via QueryFusionRetriever |
-| Reranking | Custom | Embedding cosine similarity |
+See [ARCHITECTURE.md](ARCHITECTURE.md) § Technology Stack.
 
 ### Package Boundaries
 
-```
-┌──────────────────────────────────────────────────┐
-│              elt_llm_core (shared)               │
-│  models · vector_store · config · query_engine   │
-└────────────┬──────────────────────┬──────────────┘
-             │                      │
-             ▼                      ▼
-┌────────────────────┐   ┌──────────────────────────────────────┐
-│   elt_llm_ingest   │   │           elt_llm_query              │
-│  chunk · embed     │   │  1. Dense Vector (ChromaDB)          │
-│  → ChromaDB        │   │  2. BM25 (DocStore)                  │
-│  → DocStore        │   │  3. Hybrid Fusion (RRF)              │
-└────────────────────┘   │  4. Embedding Reranker               │
-                         │  5. LLM Synthesis                    │
-                         └──────────┬───────────────────────────┘
-                                    │  QueryResult
-                    ┌───────────────┴────────────────┐
-                    ▼                                ▼
-       ┌────────────────────────┐     ┌─────────────────────┐
-       │    elt_llm_consumer    │     │    elt_llm_api       │
-       │  catalog · glossary    │     │  HTTP / Gradio UI    │
-       │  coverage · handbook   │     └─────────────────────┘
-       └────────────────────────┘
-```
+See [ARCHITECTURE.md](ARCHITECTURE.md) § Module Structure for the full package breakdown.
+
+`elt_llm_query` is the single query interface consumed by both `elt_llm_consumer` and `elt_llm_api` — it returns a `QueryResult` that includes LLM synthesis output.
 
 ---
 

@@ -46,5 +46,5 @@ uv run python -m elt_llm_query.runner --cfg <profile> -q "Your question"
 ## Notes
 - Local-first: embeddings and LLM via Ollama (e.g., `nomic-embed-text`, `qwen2.5:14b`)
 - Hybrid retrieval requires a persisted docstore created at ingest time
-- Reranker improves ordering most when `reranker_retrieve_k` is larger (e.g., 20–30) and `reranker_top_k` is small (5–8)
+- Reranker improves ordering most when `reranker_retrieve_k` is larger than `reranker_top_k` (e.g., 30 candidates → 15 kept)
 

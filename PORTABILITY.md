@@ -83,43 +83,13 @@ cp -r elt_llm_core/ new_project/
 
 ### 1. RAG Configuration (`elt_llm_ingest/config/rag_config.yaml`)
 
-**Portability**: 90% — Edit paths and collection names
+**Portability**: 90% — Edit paths and collection names only
 
-**What to change**:
-```yaml
-# Before (FA)
-chroma:
-  persist_dir: "../chroma_db"
-ollama:
-  embedding_model: "nomic-embed-text"
-  llm_model: "qwen2.5:14b"
+The RAG strategy parameters (chunk sizes, retrieval depth, reranker settings) are
+domain-agnostic and carry over unchanged to any new domain. See [RAG_TUNING.md](RAG_TUNING.md)
+for current values and rationale.
 
-query:
-  similarity_top_k: 10
-  num_queries: 3
-  use_mmr: true
-  mmr_threshold: 0.7
-  use_lost_in_middle: true
-  reranker_strategy: "embedding"
-```
-
-**After (Healthcare example)**:
-```yaml
-# Change only persist_dir if needed
-chroma:
-  persist_dir: "../chroma_db"  # Same
-
-# Models stay the same (Ollama is universal)
-ollama:
-  embedding_model: "nomic-embed-text"  # Same
-  llm_model: "qwen2.5:14b"  # Same
-
-# Query settings stay the same (RAG strategy is universal)
-query:
-  similarity_top_k: 10  # Same
-  num_queries: 3  # Same
-  ...
-```
+**What to change**: `chroma.persist_dir` and `ollama.llm_model` if deploying on different hardware.
 
 **Effort**: 15 minutes
 

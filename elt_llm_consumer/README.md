@@ -82,16 +82,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model 
 
 **Purpose**: Single consolidated catalog merging all sources — the target output for stakeholder review.
 
-**Architecture** (RAG+LLM only — no direct file parsing):
-```
-Step 1: Scan conceptual model docstores → ~217 entities
-Step 2: RAG query → Inventory descriptions per entity
-Step 3: Scan Handbook docstore → ~152 defined terms
-Step 4: RAG query → Map Handbook terms → Model entities
-Step 5: RAG query → Handbook context per entity (governance, definitions)
-Step 6: Scan docstores → Relationships
-Step 7: Consolidate → JSON output
-```
+Produces a merged catalog from three sources: direct JSON lookup for LeanIX entities and inventory, plus RAG+LLM for FA Handbook governance context. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full 7-step pipeline detail.
 
 **Usage**:
 ```bash
@@ -224,20 +215,16 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 
 **For target output (Consolidated Catalog)**:
 ```bash
-# 1. Ingest sources (if not done)
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
-
-# 2. Generate consolidated catalog
+# After completing prerequisites above, run:
+# 1. Generate consolidated catalog
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
 
-# 3. Review output with Data Architects
+# 2. Review output with Data Architects
 # Open: .tmp/fa_consolidated_catalog.json
 
-# 4. Update review_status fields in JSON
+# 3. Update review_status fields in JSON
 
-# 5. Import to downstream systems
+# 4. Import to downstream systems
 ```
 
 **For conceptual model enhancement**:

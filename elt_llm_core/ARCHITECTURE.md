@@ -28,22 +28,11 @@
 1. Ingestion sets `Settings.embed_model` using `create_embedding_model`, then writes vectors to Chroma and nodes to the docstore.
 2. Query loads indices from Chroma, builds a hybrid retriever when enabled, and uses the core query engine to synthesize grounded answers.
 
-## Configuration Reference (excerpt)
-```yaml
-query:
-  similarity_top_k: 10
-  use_hybrid_search: true
-  use_reranker: true
-  reranker_strategy: "embedding"   # "embedding" | "cross-encoder"
-  reranker_retrieve_k: 20
-  reranker_top_k: 8
-  num_queries: 3          # LLM-generated query variants (1=off)
-  use_mmr: true           # MMR diversity filter
-  mmr_threshold: 0.7      # 0=max diversity, 1=max relevance
-  use_lost_in_middle: true  # Reorder chunks for LLM attention
-```
+## Configuration Reference
 
-See [RAG_STRATEGY.md](../RAG_STRATEGY.md) for config knob trade-offs.
+**File**: `elt_llm_ingest/config/rag_config.yaml`
+
+For current parameter values and tuning rationale, see [RAG_TUNING.md](../RAG_TUNING.md).
 
 ## Guarantees
 - Local-first operation: all inference via Ollama; no external dependencies required for the embedding reranker.

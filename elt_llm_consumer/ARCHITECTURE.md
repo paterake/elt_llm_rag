@@ -177,13 +177,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 ### 3.1 Two-Step Workflow
 
-**Step 1: Ingestion** (elt_llm_ingest)
-```bash
-# Builds ChromaDB vector store + DocStore metadata index
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
-```
+**Step 1: Ingestion** (elt_llm_ingest) — see Prerequisites above.
 
 **Output:** RAG-ready collections in ChromaDB + DocStore
 
@@ -413,11 +407,7 @@ Direction 1 — Model → Handbook  (always runs, ~5 min)
           ↓
     fa_coverage_report.json
 
-  Verdict bands (cosine similarity of top chunk):
-    STRONG    ≥ 0.70  — handbook clearly discusses this entity
-    MODERATE  0.55–0.70 — some governance context available
-    THIN      0.40–0.55 — weak signal; may be named differently
-    ABSENT    < 0.40  — not meaningfully present in handbook
+  Verdict bands (cosine similarity of top chunk): STRONG / MODERATE / THIN / ABSENT — see §7.2 for full interpretation guide.
 
 
 Direction 2 — Handbook → Model  (--gap-analysis, instant)

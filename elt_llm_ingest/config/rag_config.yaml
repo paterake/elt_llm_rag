@@ -12,7 +12,7 @@ ollama:
   embedding_model: "nomic-embed-text"  # keep this, it's good
   llm_model: "qwen3.5:9b"       # ~6.6GB — strong reasoning and instruction following
   embed_batch_size: 1
-  context_window: 8192          # enough for 10-15 retrieved chunks
+  context_window: 16384         # 16K — safe on M3 18GB; allows 15 chunks of 512 tokens to LLM
   request_timeout: 600.0        # 10 minutes for complex multi-collection queries
 
 # Chunking settings
@@ -29,13 +29,13 @@ query:
   use_reranker: true        # Re-score retrieved chunks before LLM synthesis
   reranker_strategy: "embedding"  # "embedding" (Ollama/local) | "cross-encoder" (sentence-transformers)
   reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"  # used only when strategy=cross-encoder
-  reranker_retrieve_k: 20  # Candidates fetched before reranking
-  reranker_top_k: 8        # Chunks kept after reranking and passed to LLM
+  reranker_retrieve_k: 30  # Candidates fetched before reranking
+  reranker_top_k: 15       # Chunks kept after reranking and passed to LLM
 
   # Multi-query retrieval: generate num_queries-1 additional query variants via LLM.
   # Higher values improve recall for compound queries at the cost of extra LLM calls.
   # Recommended: 3 for quality, 1 to disable (batch jobs where runtime is critical).
-  num_queries: 1
+  num_queries: 3
 
   # MMR: select diverse chunks instead of top-N by score alone.
   # Prevents near-duplicate adjacent paragraphs consuming all top-k slots.

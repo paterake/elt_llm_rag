@@ -144,36 +144,7 @@ preprocessor:
 - Subgroup assignment via geometry analysis (parent chain traversal)
 - Domain/subtype entity labels excluded from leaf entity list (container labels only)
 
-**Outputs**:
-| File | Purpose | Consumers |
-|------|---------|-----------|
-| `<stem>_model.json` | Structured JSON: 177 entities with domain, subtype, fact_sheet_id | Direct JSON lookup (no RAG) |
-| `<stem>_entities.md` | Per-entity Markdown (one `##` heading per entity) | ChromaDB: `{prefix}_entities` |
-| `<stem>_relationships.md` | Per-relationship Markdown | ChromaDB: `{prefix}_relationships` |
-
-**JSON Schema** (`_model.json`):
-```json
-{
-  "metadata": {
-    "model_name": "FA Enterprise Conceptual Data Model",
-    "source_file": "...xml",
-    "entity_count": 177,
-    "relationship_count": 89
-  },
-  "entities": [
-    {
-      "domain": "AGREEMENTS",
-      "domain_fact_sheet_id": "uuid-...",
-      "subtype": "Time Bounded Groupings",
-      "subtype_fact_sheet_id": "uuid-...",
-      "entity_name": "Contract",
-      "fact_sheet_id": "uuid-...",
-      "fact_sheet_type": "DataObject"
-    }
-  ],
-  "relationships": [...]
-}
-```
+**Outputs**: `<stem>_model.json` (177 entities for direct JSON lookup), `<stem>_entities.md` and `<stem>_relationships.md` (ingested into ChromaDB for semantic search). See [elt_llm_ingest/ARCHITECTURE.md](elt_llm_ingest/ARCHITECTURE.md) for full preprocessor output details.
 
 **Configuration**:
 ```yaml
@@ -214,14 +185,7 @@ preprocessor:
 | `_inventory.json` | Fact sheets keyed by `fact_sheet_id` | Direct O(1) lookup (no RAG) |
 | `{type}.md` (8 files) | Per-type Markdown | ChromaDB: `fa_leanix_global_inventory_{type}` |
 
-**Join Pattern** (Conceptual Model ↔ Inventory):
-```python
-# Consumer code pattern (fa_consolidated_catalog.py)
-inventory = load_json("_inventory.json")["fact_sheets"]
-for entity in entities:  # from _model.json
-    fsid = entity["fact_sheet_id"]
-    entity["leanix_description"] = inventory.get(fsid, {}).get("description")
-```
+**Join Pattern** (Conceptual Model ↔ Inventory): entities from `_model.json` are joined to `_inventory.json` via `fact_sheet_id` in O(1) dictionary lookup. See §3.4 for the JSON sidecar rationale.
 
 **Configuration**:
 ```yaml
@@ -305,33 +269,15 @@ See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, a
 
 ### 6.1 Primary Consumer: fa_consolidated_catalog.py
 
-**Purpose**: Generate consolidated catalog — entities enriched with inventory descriptions and Handbook context.
+Generates a consolidated catalog: entities loaded directly from `_model.json`, inventory descriptions looked up from `_inventory.json` by `fact_sheet_id`, and FA Handbook governance context retrieved via RAG+LLM. Output: `.tmp/fa_consolidated_catalog.json`.
 
-**Process**:
-1. Load entities from `_model.json` (direct, no RAG)
-2. Inventory descriptions via `fact_sheet_id` lookup in `_inventory.json` (direct, no RAG)
-3. Scan Handbook docstore → defined terms
-4. Name-match terms → model entities (deterministic, no LLM)
-5. RAG+LLM → Handbook context per entity (formal definition, governance)
-6. Load relationships from `_model.json`
-7. Consolidate → JSON output
-
-**Command**:
-```bash
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
-```
-
-**Output**: `.tmp/fa_consolidated_catalog.json`
-
-**Docs**: [elt_llm_consumer/ARCHITECTURE.md](elt_llm_consumer/ARCHITECTURE.md)
+See [elt_llm_consumer/ARCHITECTURE.md](elt_llm_consumer/ARCHITECTURE.md) for the full 7-step pipeline detail.
 
 ### 6.2 Supporting Consumers
 
-| Consumer | Purpose | When to Use |
-|----------|---------|-------------|
-| `fa_handbook_model_builder` | Handbook-only entity/relationship discovery | Gap analysis — what does the handbook describe that isn't in the model? |
-| `fa_coverage_validator` | Coverage scoring (model entities vs handbook) | Model refinement — which entities have strong/thin/absent handbook coverage? |
-| `fa_leanix_model_validate` | Fast JSON diagnostic | Regression check after re-ingesting LeanIX XML |
+Three additional consumers — `fa_handbook_model_builder`, `fa_coverage_validator`, and `fa_leanix_model_validate` — support gap analysis, coverage scoring, and JSON diagnostics respectively.
+
+See [elt_llm_consumer/README.md](elt_llm_consumer/README.md) for the full consumer scripts reference including entry points and runtimes.
 
 ---
 
@@ -368,24 +314,7 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for full phase detail, runbooks, and cu
 
 ### Q: Does PDF processing require HuggingFace or internet access?
 
-**A:** No — the system uses **`pymupdf4llm`** (PyMuPDF) for PDF-to-Markdown conversion, which is 100% local:
-
-```yaml
-# ingest_fa_handbook.yaml
-preprocessor:
-  module: "elt_llm_ingest.preprocessor"
-  class: "PyMuPDFPreprocessor"
-```
-
-**Real-world performance** (FA Handbook 2025-26 PDF):
-```
-PDF → Markdown: 2.2M chars in 64 seconds (~1s/page)
-Chunks: 3,375 nodes
-Embeddings: 94 seconds via Ollama (nomic-embed-text)
-Total: ~3 minutes
-Internet: ❌ No
-HuggingFace: ❌ No
-```
+**A:** No — the system uses **`pymupdf4llm`** (PyMuPDF) for PDF-to-Markdown conversion, which is 100% local. See [elt_llm_ingest/ARCHITECTURE.md](elt_llm_ingest/ARCHITECTURE.md) for full ingestion performance details.
 
 **If you see HuggingFace errors**, they're from:
 - **Cross-encoder reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) — optional, uses `sentence-transformers`
@@ -432,42 +361,11 @@ uv add marker-pdf --package elt-llm-ingest
 # Then test on one chapter and compare output quality
 ```
 
-### Q: Why does the consumer use direct JSON lookup for LeanIX data instead of RAG?
+### Q: Why does the consumer use direct JSON lookup for LeanIX data, and how do the XML and Excel datasets join?
 
-**A:** The consolidated catalog uses **direct JSON sidecars** for LeanIX data (not RAG) because:
+**A:** LeanIX data uses **direct JSON sidecars** (not RAG) for deterministic, O(1) access. See §3.4 for the full rationale and when-to-use guide.
 
-- **Deterministic**: JSON lookup is exact — no retrieval ambiguity
-- **Fast**: O(1) dictionary lookup vs. ~15s per RAG query
-- **Accurate**: `fact_sheet_id` is the canonical join key
-
-**Data flow:**
-```
-Ingestion: LeanIX XML → _model.json (sidecar)
-           LeanIX Excel → _inventory.json (sidecar)
-
-Consumer:  Read _model.json → entities list
-           Read _inventory.json → dict lookup by fact_sheet_id
-```
-
-Only the FA Handbook (unstructured PDF) requires RAG+LLM.
-
-### Q: How do the LeanIX XML and Excel datasets join?
-
-**A:** They join on **`fact_sheet_id`**:
-
-1. **Ingestion** writes JSON sidecars:
-   - `LeanIXPreprocessor` → `_model.json` with entities containing `fact_sheet_id`
-   - `LeanIXInventoryPreprocessor` → `_inventory.json` keyed by `fact_sheet_id`
-
-2. **Consumer** performs O(1) lookup:
-   ```python
-   inventory = load_inventory_from_json("_inventory.json")
-   for entity in entities:
-       fsid = entity["fact_sheet_id"]
-       entity["leanix_description"] = inventory.get(fsid, {}).get("description")
-   ```
-
-No RAG, no LLM — pure dictionary lookup.
+The two sidecars join on **`fact_sheet_id`**: `_model.json` (entities from XML) and `_inventory.json` (fact sheets from Excel, keyed by `fact_sheet_id`). Only the FA Handbook (unstructured PDF) requires RAG+LLM.
 
 ---
 
