@@ -408,7 +408,7 @@ def get_handbook_context_for_entity(
         }
         sections = {}
         for prompt_key, output_key in _section_key_map.items():
-            match = re.search(rf"{prompt_key}:\s*(.*?)(?=\n[A-Z]+:|\Z)", response, re.DOTALL)
+            match = re.search(rf"{prompt_key}:\s*(.*?)(?=\n+[A-Z]+:|\Z)", response, re.DOTALL)
             sections[output_key] = match.group(1).strip() if match else ""
 
         # If entity name directly matches a handbook-defined term, use the exact
