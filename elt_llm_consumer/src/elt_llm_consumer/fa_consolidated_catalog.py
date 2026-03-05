@@ -126,9 +126,9 @@ If no handbook rules apply, state 'Not documented in FA Handbook — outside gov
 """
 
 _GOVERNANCE_EXTRACTION_PROMPT = """\
-Find all FA Handbook rules, regulations, and governance requirements that apply to '{entity_name}'.
+Describe the FA Handbook rules, regulations, and governance requirements that apply to '{entity_name}'.
 
-Search for:
+Cover where relevant:
 - Registration or affiliation requirements
 - Eligibility criteria
 - Compliance obligations
@@ -136,18 +136,9 @@ Search for:
 - Reporting requirements
 - Disciplinary provisions
 
-Cite specific section numbers, rule numbers, and page references where possible.
-
-Return as JSON array:
-[
-  {{
-    "rule_type": "registration | eligibility | compliance | restriction | reporting | disciplinary",
-    "citation": "Section X, Rule Y or page reference",
-    "requirement": "summary of the requirement"
-  }}
-]
-
-If no governance rules are found, return an empty array []."""
+Cite specific section numbers or rule numbers inline where possible (e.g. Rule A3.1, Section C).
+Write as clear, concise prose suitable for a business data catalog.
+If no governance rules apply, state: 'Not documented in FA Handbook — outside governance scope.'"""
 
 _ENTITY_RELATIONSHIP_PROMPT = """\
 You are analysing the FA (The Football Association) Handbook to identify \
@@ -408,7 +399,7 @@ def get_handbook_context_for_entity(
         }
         sections = {}
         for prompt_key, output_key in _section_key_map.items():
-            match = re.search(rf"{prompt_key}:\s*(.*?)(?=\n+[A-Z]+:|\Z)", response, re.DOTALL)
+            match = re.search(rf"{prompt_key}:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
             sections[output_key] = match.group(1).strip() if match else ""
 
         # If entity name directly matches a handbook-defined term, use the exact
@@ -431,23 +422,19 @@ def extract_governance_rules_via_rag(
     entity_name: str,
     handbook_collections: list[str],
     rag_config: RagConfig,
-) -> list[dict]:
-    """Dedicated governance RAG query — returns structured rules as a list.
+) -> str:
+    """Dedicated governance RAG query — returns prose string.
 
     Used as a fallback when the combined context prompt returns empty or
     hedged governance text (e.g. "Not documented in FA Handbook...").
-    Returns [] if nothing found.
+    Returns empty string if nothing found.
     """
     query = _GOVERNANCE_EXTRACTION_PROMPT.format(entity_name=entity_name)
     try:
         result = query_collections(handbook_collections, query, rag_config)
-        response = result.response.strip()
-        json_match = re.search(r"\[.*\]", response, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
+        return result.response.strip()
     except Exception:
-        pass
-    return []
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1010,7 +997,7 @@ def generate_consolidated_catalog(
             if not gov or gov.startswith("Not documented in FA Handbook"):
                 gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
                 if gov_rules:
-                    context["governance_rules"] = json.dumps(gov_rules, indent=2)
+                    context["governance_rules"] = gov_rules
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 
