@@ -39,9 +39,9 @@ Ingest heterogeneous documents into a RAG-ready store with:
 - Writes per-type Markdown → per-type ChromaDB collections (`fa_leanix_global_inventory_*`)
 
 **`DoclingPreprocessor`** — FA Handbook PDF:
-- Layout-aware PDF conversion via Docling (neural layout model)
-- Preserves section hierarchy, tables, and reading order as Markdown
-- No page-range configuration needed — document structure detected automatically
+- PDF → Markdown via pymupdf4llm (PyMuPDF); no model downloads or internet access required
+- Detects headings via font size/weight, preserves tables and reading order
+- No page-range configuration needed
 - Output: `_clean.md` → `fa_handbook` ChromaDB collection
 
 **Split-mode**: one source → N collections via `collection_prefix` and section mapping

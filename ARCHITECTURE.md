@@ -196,6 +196,72 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for full phase detail, runbooks, and cu
 - ✅ Retrieval settings are LlamaIndex-specific, not Ollama-specific
 - ✅ One model serves multiple profiles (FA, DAMA, etc.)
 
+### Q: Does PDF processing require HuggingFace or internet access?
+
+**A:** No — the system uses **`pymupdf4llm`** (PyMuPDF) for PDF-to-Markdown conversion, which is 100% local:
+
+```yaml
+# ingest_fa_handbook.yaml
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "DoclingPreprocessor"  # Uses pymupdf4llm internally
+```
+
+**Real-world performance** (FA Handbook 2025-26 PDF):
+```
+PDF → Markdown: 2.2M chars in 64 seconds (~1s/page)
+Chunks: 3,375 nodes
+Embeddings: 94 seconds via Ollama (nomic-embed-text)
+Total: ~3 minutes
+Internet: ❌ No
+HuggingFace: ❌ No
+```
+
+**If you see HuggingFace errors**, they're from:
+- **Cross-encoder reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) — optional, uses `sentence-transformers`
+- **Not PDF processing**
+
+**Fix:** Pre-download once or disable cross-encoder:
+```bash
+# Option 1: Pre-download (one-time)
+python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+
+# Option 2: Use embedding reranker (Ollama, fully local)
+# In rag_config.yaml:
+query:
+  reranker_strategy: "embedding"  # Instead of "cross-encoder"
+```
+
+### Q: Should I use Marker instead of pymupdf4llm?
+
+**A:** Probably not — `pymupdf4llm` is working well for your FA Handbook PDF.
+
+| Aspect | pymupdf4llm (current) | Marker |
+|--------|----------------------|--------|
+| **Your FA Handbook** | ✅ 2.2M chars, 3 min total | Similar quality |
+| **Internet required** | ❌ No | ⚠️ First run only (model download) |
+| **GPU required** | ❌ No | ✅ Recommended (3.5-5GB VRAM) |
+| **Disk space** | ~50MB | ~2-5GB (Surya + Texify models) |
+| **Speed** | Fast (~1s/page) | Similar with GPU, slower on CPU |
+| **Tables/layout** | Good | Better (but FA Handbook is simple) |
+| **LLM enhancement** | ❌ No | ✅ Optional (works with Ollama) |
+
+**Use Marker if:**
+- You have **scanned PDFs** (OCR needed)
+- **Complex multi-column layouts** or heavy tables
+- You have a **GPU** and want better table extraction
+
+**Stick with pymupdf4llm if:**
+- PDFs are **text-based** (like FA Handbook)
+- You want **simple, fast** conversion
+- You don't want GPU dependencies
+
+**Try Marker** (optional):
+```bash
+uv add marker-pdf --package elt-llm-ingest
+# Then test on one chapter and compare output quality
+```
+
 ### Q: Why does the consumer use direct JSON lookup for LeanIX data instead of RAG?
 
 **A:** The consolidated catalog uses **direct JSON sidecars** for LeanIX data (not RAG) because:

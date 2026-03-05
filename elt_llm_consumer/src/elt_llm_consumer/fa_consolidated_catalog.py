@@ -231,10 +231,12 @@ Return only the JSON object, no other text."""
 # Definition extraction from docstore (Docling output)
 # ---------------------------------------------------------------------------
 
-# Matches "TERM means DEFINITION" and "**TERM** means DEFINITION" patterns
-# produced by Docling's structure-aware markdown export of regulatory PDFs.
+# Matches FA Handbook definition patterns as produced by pymupdf4llm:
+#   **"Term"** means DEFINITION       (bold + quoted — most common)
+#   "Term" means DEFINITION           (quoted only)
+#   Term means DEFINITION             (plain — fallback)
 _DEF_PAT = re.compile(
-    r"\*?\*?([A-Z][A-Za-z0-9\s/'\"\-]{1,60}?)\*?\*?\s+means\s+(.+?)(?:\s*;)?\s*$",
+    r'\*{0,2}"?([A-Z][A-Za-z0-9\s/()\'\-]{1,60}?)"?\*{0,2}\s+means\s+(.+?)(?:\s*;)?\s*$',
     re.MULTILINE,
 )
 
@@ -244,7 +246,7 @@ def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
     """Extract defined terms from fa_handbook docstore.
 
     Scans all docstore nodes for 'TERM means DEFINITION' patterns as produced
-    by Docling's structure-aware markdown export. No artificial markers needed.
+    by pymupdf4llm's markdown export. No artificial markers needed.
     """
     from llama_index.core import StorageContext
 
@@ -774,6 +776,107 @@ def consolidate_catalog(
 
 
 # ---------------------------------------------------------------------------
+# Hierarchical output builder
+# ---------------------------------------------------------------------------
+
+
+def build_hierarchical_output(
+    consolidated_entities: list[dict],
+    inventory_lookup: dict[str, dict],
+    conceptual_entities: list[dict],
+) -> dict:
+    """Restructure flat consolidated entity list into Domain → Subtype → Entity hierarchy.
+
+    Domain and subtype descriptions come from the inventory JSON via their own
+    fact_sheet_id entries (same O(1) lookup used for entities — no extra LLM calls).
+
+    Output shape:
+    {
+      "PARTY": {
+        "fact_sheet_id": "...",
+        "description": "...",        # from inventory
+        "subtypes": {
+          "Organisation": {
+            "fact_sheet_id": "...",
+            "description": "...",    # from inventory
+            "entities": [...]
+          }
+        },
+        "entities": [...],           # entities with no subtype
+        "handbook_only": [...]       # HANDBOOK_ONLY entities inferred to this domain
+      }
+    }
+    """
+    # Build domain/subtype metadata from the conceptual entity list (which carries
+    # domain_fact_sheet_id and subgroup_fact_sheet_id).
+    domain_meta: dict[str, dict] = {}
+    subtype_meta: dict[str, dict] = {}  # key: "DOMAIN::Subtype"
+
+    for e in conceptual_entities:
+        domain = e.get("domain", "UNKNOWN").upper()
+        d_fsid = e.get("domain_fact_sheet_id", "")
+        if domain not in domain_meta:
+            inv = inventory_lookup.get(d_fsid, {})
+            domain_meta[domain] = {
+                "fact_sheet_id": d_fsid,
+                "description": inv.get("description", ""),
+            }
+
+        subgroup = e.get("subgroup", "") or e.get("subtype", "")
+        sg_fsid = e.get("subgroup_fact_sheet_id", "")
+        if subgroup:
+            key = f"{domain}::{subgroup}"
+            if key not in subtype_meta:
+                inv = inventory_lookup.get(sg_fsid, {})
+                subtype_meta[key] = {
+                    "fact_sheet_id": sg_fsid,
+                    "description": inv.get("description", ""),
+                }
+
+    # Group consolidated entities into the hierarchy.
+    output: dict[str, dict] = {}
+
+    for record in consolidated_entities:
+        domain = record.get("domain", "UNKNOWN").upper()
+        subgroup = record.get("subgroup", "") or ""
+        source = record.get("source", "")
+
+        if domain not in output:
+            meta = domain_meta.get(domain, {"fact_sheet_id": "", "description": ""})
+            output[domain] = {
+                "fact_sheet_id": meta["fact_sheet_id"],
+                "description": meta["description"],
+                "subtypes": {},
+                "entities": [],
+                "handbook_only": [],
+            }
+
+        # Strip redundant domain/subgroup keys from entity record (already in hierarchy).
+        entity_record = {
+            k: v for k, v in record.items()
+            if k not in ("domain", "domain_fact_sheet_id", "subgroup", "subgroup_fact_sheet_id")
+        }
+
+        if source == "HANDBOOK_ONLY":
+            output[domain]["handbook_only"].append(entity_record)
+        elif subgroup:
+            subtypes = output[domain]["subtypes"]
+            if subgroup not in subtypes:
+                meta = subtype_meta.get(f"{domain}::{subgroup}", {"fact_sheet_id": "", "description": ""})
+                subtypes[subgroup] = {
+                    "fact_sheet_id": meta["fact_sheet_id"],
+                    "description": meta["description"],
+                    "entities": [],
+                }
+            subtypes[subgroup]["entities"].append(entity_record)
+        else:
+            output[domain]["entities"].append(entity_record)
+
+    # Sort domains and subtypes alphabetically for stable output.
+    return dict(sorted(output.items()))
+
+
+# ---------------------------------------------------------------------------
 # Main generation
 # ---------------------------------------------------------------------------
 
@@ -951,9 +1054,12 @@ def generate_consolidated_catalog(
         skip_handbook_only=domain_filter is not None,
     )
 
-    # Write JSON outputs
+    # Write JSON outputs — hierarchical (Domain → Subtype → Entity)
+    hierarchical = build_hierarchical_output(
+        consolidated_entities, inventory_lookup, conceptual_entities
+    )
     with open(catalog_json_path, "w", encoding="utf-8") as f:
-        json.dump(consolidated_entities, f, indent=2, ensure_ascii=False)
+        json.dump(hierarchical, f, indent=2, ensure_ascii=False)
 
     with open(relationships_json_path, "w", encoding="utf-8") as f:
         json.dump(consolidated_relationships, f, indent=2, ensure_ascii=False)

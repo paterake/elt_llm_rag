@@ -511,19 +511,19 @@ class DoclingPreprocessor(BasePreprocessor):
 
     def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
         try:
-            from docling.document_converter import DocumentConverter
+            import pymupdf4llm
         except ImportError:
             raise ImportError(
-                "docling is required by DoclingPreprocessor. "
-                "Install it: uv add docling --package elt-llm-ingest"
+                "pymupdf4llm is required by DoclingPreprocessor. "
+                "Install it: uv add pymupdf4llm --package elt-llm-ingest"
             )
 
-        logger.info("  Docling: converting %s", input_file)
-        converter = DocumentConverter()
-        result = converter.convert(str(input_file))
-        md_content = result.document.export_to_markdown()
+        input_path = Path(input_file).expanduser().resolve()
+        output_path_obj = Path(output_path).expanduser().resolve()
+        logger.info("  pymupdf4llm: converting %s", input_path)
+        md_content = pymupdf4llm.to_markdown(str(input_path))
 
-        clean_path = Path(output_path).parent / f"{Path(output_path).stem}_clean.md"
+        clean_path = output_path_obj.parent / f"{output_path_obj.stem}_clean.md"
         clean_path.write_text(md_content, encoding="utf-8")
         logger.info("  Written: %s (%d chars)", clean_path, len(md_content))
 
@@ -531,7 +531,7 @@ class DoclingPreprocessor(BasePreprocessor):
             original_file=str(input_file),
             output_files=[str(clean_path)],
             success=True,
-            message=f"Docling: converted {Path(input_file).name} ({len(md_content):,} chars)",
+            message=f"pymupdf4llm: converted {Path(input_file).name} ({len(md_content):,} chars)",
         )
 
 
