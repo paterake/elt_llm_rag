@@ -21,6 +21,76 @@ Ingest heterogeneous documents into a RAG-ready store with:
    - `rebuild: true` deletes the collection and resets file-hash tracking
    - `--no-rebuild` appends only changed files (SHA256 detection)
 
+---
+
+## PDF Ingestion Flow (FA Handbook)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Preprocessing: PyMuPDFPreprocessor                           │
+├─────────────────────────────────────────────────────────────────┤
+│ Input:  FA_Handbook_2025-26.pdf                                 │
+│         ↓ pymupdf4llm.to_markdown()                             │
+│ Output: FA_Handbook_2025-26_clean.md (2.2M chars, 64s)          │
+│         - Headings detected via font size/weight                │
+│         - Tables preserved in reading order                     │
+│         - No page-range config needed                           │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. Document Loading: load_documents()                           │
+├─────────────────────────────────────────────────────────────────┤
+│ Input:  _clean.md                                               │
+│         ↓ LlamaIndex SimpleDirectoryReader                      │
+│ Output: List[Document]                                          │
+│         - doc.text: markdown content                            │
+│         - doc.metadata: {domain, type, source, source_file}     │
+│         - Metadata sanitized: only str/int/float/bool/None      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. Chunking: SentenceSplitter                                   │
+├─────────────────────────────────────────────────────────────────┤
+│ Input:  List[Document]                                          │
+│         ↓ SentenceSplitter(chunk_size=512, chunk_overlap=64)    │
+│ Output: List[Node] (3,375 nodes for FA Handbook)                │
+│         - Each node: text + metadata + node_id                  │
+│         - Sentence-aware boundaries                             │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+              ┌───────────────┴───────────────┐
+              ↓                               ↓
+┌─────────────────────────┐     ┌─────────────────────────┐
+│ 4a. Vector Store        │     │ 4b. BM25 Docstore       │
+├─────────────────────────┤     ├─────────────────────────┤
+│ ChromaDB                │     │ SimpleDocumentStore     │
+│ - Embeddings via Ollama │     │ - Persisted to disk     │
+│   (nomic-embed-text)    │     │   (_docstore/)          │
+│ - Collection:           │     │ - Keyword search (BM25) │
+│   fa_handbook           │     │ - Hybrid retrieval      │
+│ - 3,375 nodes           │     │ - Same nodes as ChromaDB│
+│ - 768 dimensions        │     │                         │
+└─────────────────────────┘     └─────────────────────────┘
+              ↓                               ↓
+              └───────────────┬───────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 5. Retrieval: Hybrid (BM25 + Vector)                            │
+├─────────────────────────────────────────────────────────────────┤
+│ Query → BM25 (docstore) + Vector (ChromaDB)                     │
+│       → Rerank (cross-encoder or embedding)                     │
+│       → Top-k → LLM synthesis                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Performance (FA Handbook 2025-26)**:
+- PDF → Markdown: 64 seconds (2.2M chars)
+- Chunking: ~5 seconds (3,375 nodes)
+- Embedding: 94 seconds (Ollama, nomic-embed-text)
+- **Total**: ~3 minutes
+
+---
+
 ## Change Detection ([file_hash.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/src/elt_llm_ingest/file_hash.py))
 - Stores per-file SHA256 keyed by `collection_name::file_path` in a dedicated `file_hashes` collection
 - Skips unchanged files; supports selective removal on rebuild
