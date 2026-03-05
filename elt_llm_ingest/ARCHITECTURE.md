@@ -26,9 +26,23 @@ Ingest heterogeneous documents into a RAG-ready store with:
 - Skips unchanged files; supports selective removal on rebuild
 
 ## Preprocessors ([preprocessor.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/src/elt_llm_ingest/preprocessor.py))
-- LeanIX Conceptual Model (draw.io XML) → Markdown sections
-- LeanIX Inventory (Excel) enrichment for descriptions and attributes
-- Split-mode: one source → N collections via `collection_prefix` and section mapping
+
+**`LeanIXPreprocessor`** (`output_format: json_md`) — LeanIX Conceptual Model (draw.io XML):
+- Calls `doc_leanix_parser.py` to parse the XML into corrected domain/subtype/entity structure
+- Writes `<stem>_model.json` next to source XML — canonical structured output for consumers
+- Writes flat per-entity and per-relationship Markdown → ChromaDB collections (for semantic search)
+- Fan-out: single XML parse → JSON sidecar + ChromaDB, not two separate parses
+
+**`LeanIXInventoryPreprocessor`** (`output_format: split`) — LeanIX Inventory (Excel):
+- Reads all fact sheets from Excel export
+- Writes `<stem>_inventory.json` next to source Excel — keyed by `fact_sheet_id` for O(1) lookup
+- Writes per-type Markdown → per-type ChromaDB collections (`fa_leanix_global_inventory_*`)
+
+**`RegulatoryPDFPreprocessor`** — FA Handbook PDF:
+- Extracts defined terms and section structure from regulatory PDFs
+- Output: plain Markdown → `fa_handbook` ChromaDB collection
+
+**Split-mode**: one source → N collections via `collection_prefix` and section mapping
 
 ## Configuration
 - Global RAG: [rag_config.yaml](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/rag_config.yaml)

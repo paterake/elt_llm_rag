@@ -115,12 +115,19 @@ See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, a
 
 ### 4.2 Collection Structure
 
-| Collection | Source | Content |
+| Collection | Source | Used for |
 |------------|--------|---------|
-| `fa_handbook` | FA Handbook PDF | Governance rules, definitions |
-| `fa_leanix_dat_enterprise_conceptual_model_*` | LeanIX XML | Conceptual model entities |
-| `fa_leanix_global_inventory_*` | LeanIX Excel | System descriptions |
-| `dama_dmbok` | DAMA-DMBOK PDF | Data management best practices |
+| `fa_handbook` | FA Handbook PDF | RAG+LLM — definitions, governance rules |
+| `fa_leanix_dat_enterprise_conceptual_model_*` | LeanIX XML | Query UI / semantic search only |
+| `fa_leanix_global_inventory_*` | LeanIX Excel | Query UI / semantic search only |
+| `dama_dmbok` | DAMA-DMBOK PDF | RAG+LLM — data management reference |
+
+**JSON sidecars** (written next to source files during ingestion, used by consumers directly):
+
+| File | Source | Content |
+|------|--------|---------|
+| `*_model.json` | LeanIX XML | 177 entities: domain, subtype, fact_sheet_id |
+| `*_inventory.json` | LeanIX Excel | 1424 fact sheets keyed by fact_sheet_id |
 
 ---
 
@@ -128,15 +135,15 @@ See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, a
 
 ### 5.1 Primary Consumer: fa_consolidated_catalog.py
 
-**Purpose**: Generate consolidated glossary/catalog from all sources.
+**Purpose**: Generate consolidated catalog — entities enriched with inventory descriptions and Handbook context.
 
 **Process**:
-1. Scan conceptual model docstores → entities
-2. RAG query → inventory descriptions
+1. Load entities from `_model.json` (direct, no RAG)
+2. Inventory descriptions via `fact_sheet_id` lookup in `_inventory.json` (direct, no RAG)
 3. Scan Handbook docstore → defined terms
-4. RAG query → map terms to entities
-5. RAG query → extract Handbook context
-6. Scan docstores → relationships
+4. Name-match terms → model entities (deterministic, no LLM)
+5. RAG+LLM → Handbook context per entity (formal definition, governance)
+6. Load relationships from `_model.json`
 7. Consolidate → JSON output
 
 **Command**:
@@ -146,14 +153,15 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 **Output**: `.tmp/fa_consolidated_catalog.json`
 
-**Docs**: [elt_llm_consumer/README.md](elt_llm_consumer/README.md)
+**Docs**: [elt_llm_consumer/ARCHITECTURE.md](elt_llm_consumer/ARCHITECTURE.md)
 
 ### 5.2 Supporting Consumers
 
 | Consumer | Purpose | When to Use |
 |----------|---------|-------------|
-| `fa_handbook_model_builder` | Handbook-only entity extraction | No LeanIX available; gap discovery |
-| `fa_coverage_validator` | Coverage scoring against Handbook | Model refinement cycle; gap analysis |
+| `fa_handbook_model_builder` | Handbook-only entity/relationship discovery | Gap analysis — what does the handbook describe that isn't in the model? |
+| `fa_coverage_validator` | Coverage scoring (model entities vs handbook) | Model refinement — which entities have strong/thin/absent handbook coverage? |
+| `fa_leanix_model_validate` | Fast JSON diagnostic | Regression check after re-ingesting LeanIX XML |
 
 ---
 

@@ -15,12 +15,15 @@
 **Two-step workflow:**
 
 ```bash
-# 1. Ingest source datasets (builds ChromaDB + DocStore)
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
+# 1. Ingest source datasets
+#    - LeanIX XML: produces _model.json sidecar + fa_leanix_dat_enterprise_conceptual_model_* collections
+#    - LeanIX Excel: produces _inventory.json sidecar + fa_leanix_global_inventory_* collections
+#    - FA Handbook: produces fa_handbook collection (RAG only)
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
 
-# 2. Run consumer script (queries via elt_llm_query, outputs JSON)
+# 2. Run consumer (direct JSON lookup for LeanIX; RAG+LLM for Handbook only)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 ```
 
@@ -97,47 +100,41 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
            ↓                              ↓                        ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    Ingestion Layer (elt_llm_ingest)                          │
-│  - FA Handbook → chunked + embedded → fa_handbook collection                │
-│  - LeanIX XML → parsed → fa_leanix_dat_enterprise_conceptual_model_*        │
-│  - LeanIX Excel → chunked + embedded → fa_leanix_global_inventory_*         │
+│                                                                             │
+│  FA Handbook  → chunk + embed → fa_handbook (ChromaDB)                      │
+│                                                                             │
+│  LeanIX XML   → parse (doc_leanix_parser.py)                                │
+│                  ├── _model.json      (consumer sidecar — direct lookup)    │
+│                  └── _entities.md     → fa_leanix_dat_*_entities (ChromaDB) │
+│                      _relationships.md → fa_leanix_dat_*_relationships      │
+│                                                                             │
+│  LeanIX Excel → parse (LeanIXInventoryPreprocessor)                         │
+│                  ├── _inventory.json  (consumer sidecar — direct lookup)    │
+│                  └── per-type .md     → fa_leanix_global_inventory_* (ChromaDB)│
 └─────────────────────────────────────────────────────────────────────────────┘
            │
            ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│              RAG Collections (ChromaDB — Semantic Layer)                     │
-│  fa_handbook  │  fa_leanix_dat_enterprise_conceptual_model_*                │
-│  fa_leanix_global_inventory_*  │  fa_data_architecture  │  dama_dmbok       │
-└─────────────────────────────────────────────────────────────────────────────┘
-           │
-           ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   Consumer Layer (elt_llm_consumer)                          │
-│                                                                             │
-│  All consumers query via: elt_llm_query.query_collections()                 │
+│              Consumer Layer (elt_llm_consumer)                               │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  Consumer 1: FA Handbook Model Builder                                 │  │
-│  │  Driver: 14 seed topics (Club, Player, Competition, etc.)              │  │
-│  │  Sources: fa_handbook (RAG only — no LeanIX required)                  │  │
-│  │  Output: fa_handbook_candidate_entities.json,                          │  │
-│  │          fa_handbook_candidate_relationships.json,                      │  │
-│  │          fa_handbook_terms_of_reference.json                            │  │
+│  │  FA Handbook Model Builder                                             │  │
+│  │  Sources: fa_handbook (RAG+LLM only — no LeanIX required)              │  │
+│  │  Output: fa_handbook_candidate_entities.json                           │  │
+│  │          fa_handbook_candidate_relationships.json                       │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  Consumer 2: FA Coverage Validator                                     │  │
-│  │  Driver: LeanIX Conceptual Model                                       │  │
-│  │  Sources: fa_handbook (retrieval ONLY — no LLM, ~5 min)                │  │
-│  │  Output: fa_coverage_report.json, fa_gap_analysis.json                   │  │
+│  │  FA Coverage Validator                                                 │  │
+│  │  Sources: _model.json (entities) + fa_handbook (retrieval scoring)     │  │
+│  │  Output: fa_coverage_report.json, fa_gap_analysis.json                 │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  Consumer 3: FA Consolidated Catalog  (TARGET OUTPUT)                │  │
-│  │  Driver: All sources merged                                            │  │
-│  │  Sources:                                                              │  │
-│  │    - Conceptual model (docstore scan)                                  │  │
-│  │    - Inventory (RAG enrichment)                                        │  │
-│  │    - Handbook (RAG enrichment + docstore markers)                      │  │
+│  │  FA Consolidated Catalog  (PRIMARY OUTPUT)                             │  │
+│  │  _model.json      → Step 1: entity enumeration (direct)               │  │
+│  │  _inventory.json  → Step 2: descriptions (fact_sheet_id lookup)        │  │
+│  │  fa_handbook      → Steps 3–5: definitions + governance (RAG+LLM)      │  │
 │  │  Output: fa_consolidated_catalog.json (stakeholder review)             │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -450,66 +447,61 @@ than reading a synthesised answer and re-interpreting it.
 
 **File**: `fa_consolidated_catalog.py`
 **Entry point**: `elt-llm-consumer-consolidated-catalog`
-**Driver**: All sources merged via RAG+LLM
 **Output**: `fa_consolidated_catalog.json` (stakeholder review)
-**Runtime**: ~3-4 hr with `num_queries=3` (default); ~45-60 min with `num_queries=1` in `rag_config.yaml`
+**Runtime**: ~45-60 min with `num_queries=1` in `rag_config.yaml` (Handbook RAG only)
 
 **Purpose**: Single consolidated catalog merging all sources — the target output
 for stakeholder review and Purview import.
 
-**What it answers (7 requirements)**:
-1.  Entities from the conceptual model
-2.  Handbook-only entities (not in conceptual model)
-3.  LeanIX inventory descriptions
-4.  FA Handbook context (SME definition, glossary, ToR, governance)
-5.  Relationships from conceptual model
-6.  Relationships from inventory
-7.  Relationships from Handbook
+**What it answers**:
+1. Entities from the conceptual model (direct JSON, no RAG)
+2. LeanIX inventory descriptions per entity (direct fact_sheet_id lookup, no RAG)
+3. FA Handbook formal definition, domain context, governance rules (RAG+LLM)
+4. HANDBOOK_ONLY entities: handbook terms not matched to any conceptual model entity
+5. Relationships from conceptual model (direct JSON)
 
 **Architecture**:
 ```
-Step 1: Extract entities from conceptual model docstores
-        (scan fa_leanix_dat_enterprise_conceptual_model_* docstores)
+Step 1: Load entities from _model.json (direct, no RAG)
         ↓
-        ~217 entities with name, domain, hierarchy
+        177 entities with name, domain, subtype, fact_sheet_id
 
-Step 2: Get inventory descriptions via RAG
-        (query fa_leanix_global_inventory_* per entity)
+Step 2: Inventory descriptions via fact_sheet_id lookup in _inventory.json
+        (O(1) dict lookup — no RAG, no LLM)
         ↓
-        Descriptions enriched per entity
+        Descriptions enriched per entity from 1424-entry inventory
 
 Step 3: Extract Handbook defined terms from docstore
         (scan fa_handbook docstore for definition markers)
         ↓
-        ~152 defined terms with definitions
+        ~141 unique defined terms
 
-Step 4: Map Handbook terms → Model entities via RAG
-        (query_collections per term)
+Step 4: Match Handbook terms → conceptual model entities by name
+        (normalised string match — no LLM)
         ↓
-        Mapping with confidence scores
+        BOTH / LEANIX_ONLY classification
 
-Step 5: Get Handbook context per entity via RAG
-        (query_collections for governance/domain context)
+Step 5: Get Handbook context per entity via RAG+LLM
+        (query fa_handbook for governance/domain context)
         ↓
         FORMAL_DEFINITION | DOMAIN_CONTEXT | GOVERNANCE
 
-Step 6: Extract relationships from conceptual model docstores
-        (scan for relationship patterns)
+Step 6: Extract relationships from _model.json
         ↓
         Entity → Entity relationships
 
 Step 7: Consolidate and classify
-        - BOTH: In both model and Handbook
-        - LEANIX_ONLY: Only in model
-        - HANDBOOK_ONLY: Only in Handbook (candidate for addition)
+        - BOTH: name-matched in both model and Handbook
+        - LEANIX_ONLY: only in conceptual model
+        - HANDBOOK_ONLY: handbook term with no matching model entity
         ↓
         fa_consolidated_catalog.json
 ```
 
-**Hybrid strategy**:
-- **Docstore scan** for structured metadata (entities, relationships) — fast
-- **RAG+LLM** for synthesis (Handbook context, term mapping) — high quality
-- **Neither parses source files** — all queries go through the index
+**Design principle — use the right tool per step**:
+- **Direct JSON lookup** for structured LeanIX data (entities, inventory) — deterministic, fast
+- **RAG+LLM** only for FA Handbook context — the only source that requires semantic retrieval
+- **No RAG** against conceptual model or inventory collections (ChromaDB still holds them for query UI use)
 
 **Output structure**:
 ```json
@@ -517,12 +509,14 @@ Step 7: Consolidate and classify
   "fact_sheet_id": "12345",
   "entity_name": "Club",
   "domain": "PARTY",
+  "subgroup": "Organisation",
+  "domain_fact_sheet_id": "...",
+  "subgroup_fact_sheet_id": "...",
   "source": "BOTH",
   "leanix_description": "...",
   "formal_definition": "...",
   "domain_context": "...",
   "governance_rules": "...",
-  "mapping_confidence": "high",
   "review_status": "PENDING",
   "relationships": [...]
 }
@@ -539,15 +533,16 @@ Step 7: Consolidate and classify
 
 Each consumer has a different relationship to its sources:
 
-| Source | Consumer 1 (handbook-model) | Consumer 2 (coverage-validator) | Consumer 3 (consolidated-catalog) |
-|--------|-----------|-----------|-----------|
-| LeanIX XML (conceptual model) | — |  Driver |  Via docstore scan |
-| LeanIX Inventory Excel | — | — |  Via RAG |
-| `fa_handbook` collection |  RAG |  Retrieval only |  RAG + docstore markers |
-| `fa_leanix_dat_*` collections | — | — |  Docstore scan |
-| Consumer 1 JSON output | — |  Gap analysis | — |
+| Source | handbook-model | coverage-validator | consolidated-catalog |
+|--------|---------------|-------------------|---------------------|
+| `_model.json` (LeanIX XML sidecar) | — | Entity enumeration | **Direct lookup** (Step 1) |
+| `_inventory.json` (LeanIX Excel sidecar) | — | — | **Direct fact_sheet_id lookup** (Step 2) |
+| `fa_handbook` collection | RAG | Retrieval scoring | RAG+LLM (Steps 3, 5) |
+| `fa_leanix_dat_*` collections | — | — | Not used |
+| `fa_leanix_global_inventory_*` collections | — | — | Not used |
+| Consumer 1 JSON output | — | Gap analysis | — |
 
-**No direct file parsing**: all consumers query via the index (ChromaDB + DocStore). The consolidated catalog uses docstore scan for fast structured extraction and RAG+LLM for synthesis where quality matters.
+**Design principle**: the consolidated catalog uses direct JSON sidecars for all LeanIX data (no RAG, no LLM). Only the FA Handbook requires semantic retrieval — it is unstructured text that cannot be directly indexed.
 
 ---
 

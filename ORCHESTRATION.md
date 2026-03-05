@@ -92,19 +92,27 @@ Produce a structured catalog linking FA Handbook regulatory terms to LeanIX conc
 ### Runbook: Generate Phase 1 Outputs
 
 ```bash
-# Step 1: Ensure collections are ingested
+# Step 1: Ingest all collections
+#   LeanIX XML  → _model.json sidecar + fa_leanix_dat_* ChromaDB collections
+#   LeanIX Excel → _inventory.json sidecar + fa_leanix_global_inventory_* collections
+#   FA Handbook  → fa_handbook ChromaDB collection
 uv run python -m elt_llm_ingest.runner --cfg load_rag
 
-# Step 2: Generate consolidated catalog (primary output)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen2.5:14b
+# Step 2: (Optional) Validate LeanIX model JSON before running full catalog
+uv run --package elt-llm-consumer elt-llm-consumer-leanix-validate
 
-# Step 3 (optional): Build candidate model from Handbook only
+# Step 3: Generate consolidated catalog (primary output)
+#   - Entities and inventory: direct JSON lookup (fast, deterministic)
+#   - Handbook context: RAG+LLM (qwen2.5:14b)
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
+
+# Step 4 (optional): Discover handbook entities not in conceptual model
 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
 
-# Step 4 (optional): Run gap analysis
+# Step 5 (optional): Coverage scoring — which model entities have handbook coverage?
 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
 
-# Step 5: Review outputs
+# Step 6: Review outputs
 ls -lh .tmp/
 ```
 
@@ -304,16 +312,20 @@ uv run python -m elt_llm_api.app
 ### Consumer Scripts (Phase 1 Deliverables)
 
 ```bash
-# Primary output: consolidated catalog (merge LeanIX + Handbook with source attribution)
+# Validate LeanIX model JSON (fast, no LLM — run after re-ingestion)
+uv run --package elt-llm-consumer elt-llm-consumer-leanix-validate
+
+# Primary output: consolidated catalog (LeanIX direct lookup + Handbook RAG)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
-# Faster run (skip relationship extraction)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
+# Faster run — single domain, skip relationship extraction
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog \
+    --skip-relationships --domain PARTY
 
-# Build candidate model from Handbook only (optional — for gap analysis input)
+# Discover handbook entities not in conceptual model (gap analysis input)
 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
 
-# Validate coverage + gap analysis
+# Coverage scoring: which model entities have strong/thin/absent handbook coverage?
 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
 ```
 
@@ -353,10 +365,9 @@ To change output directory, pass `--output-dir /custom/path` to any consumer scr
 ## Next Steps
 
 ### Immediate (Week 1-2)
-1.  Run stakeholder review session with data modelling team and business SMEs
-2.  Update `review_status` fields in `fa_consolidated_catalog.json`
-3. ⏳ Export final CSV: `--csv-only`
-4. ⏳ Define Purview import process
+1. Run stakeholder review session with data modelling team and business SMEs
+2. Update `review_status` fields in `fa_consolidated_catalog.json`
+3. Define Purview import process
 
 ### Short-Term (Month 1-2)
 1. ⏳ Implement GraphRAG for relationship traversal
