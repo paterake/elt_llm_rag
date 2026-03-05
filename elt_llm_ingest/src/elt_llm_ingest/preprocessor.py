@@ -488,16 +488,16 @@ class IdentityPreprocessor(BasePreprocessor):
         )
 
 
-class DoclingPreprocessor(BasePreprocessor):
-    """Preprocessor for PDF documents using Docling.
+class PyMuPDFPreprocessor(BasePreprocessor):
+    """Preprocessor for PDF documents using pymupdf4llm.
 
-    Replaces regex-based extraction with a layout-aware document converter that:
-    - Preserves section hierarchy as Markdown headings
-    - Handles multi-column layouts with correct reading order
-    - Extracts tables as structured Markdown
+    Converts PDF to Markdown using PyMuPDF's font-based heuristics:
+    - Detects headings via font size/weight
+    - Preserves tables and reading order
     - Requires no page-range configuration
+    - No model downloads or internet access required
 
-    Requires ``docling`` (``uv add docling --package elt-llm-ingest``).
+    Requires ``pymupdf4llm`` (``uv add pymupdf4llm --package elt-llm-ingest``).
     """
 
     def __init__(
@@ -514,7 +514,7 @@ class DoclingPreprocessor(BasePreprocessor):
             import pymupdf4llm
         except ImportError:
             raise ImportError(
-                "pymupdf4llm is required by DoclingPreprocessor. "
+                "pymupdf4llm is required by PyMuPDFPreprocessor. "
                 "Install it: uv add pymupdf4llm --package elt-llm-ingest"
             )
 

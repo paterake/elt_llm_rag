@@ -15,10 +15,13 @@
 
 - [1. System Architecture](#1-system-architecture)
 - [2. Module Structure](#2-module-structure)
-- [3. Technology Stack](#3-technology-stack)
-- [4. RAG Pipeline](#4-rag-pipeline)
-- [5. Consumer Layer](#5-consumer-layer)
-- [6. Delivery Roadmap](#6-delivery-roadmap)
+- [3. Ingestion Techniques](#3-ingestion-techniques)
+- [4. Technology Stack](#4-technology-stack)
+- [5. RAG Pipeline](#5-rag-pipeline)
+- [6. Consumer Layer](#6-consumer-layer)
+- [7. Delivery Roadmap](#7-delivery-roadmap)
+- [8. FAQ](#8-faq)
+- [9. References](#9-references)
 
 ---
 
@@ -88,7 +91,174 @@ elt_llm_rag/
 
 ---
 
-## 3. Technology Stack
+## 3. Ingestion Techniques
+
+### 3.1 PDF Processing (FA Handbook)
+
+**Tool**: `pymupdf4llm` (PyMuPDF) — **not LLM-based**
+
+**Process**:
+1. PDF → Markdown conversion using layout-aware extraction
+2. Preserves section hierarchy as headings
+3. Handles multi-column layouts with correct reading order
+4. Extracts tables as structured Markdown
+
+**Performance**:
+- ~1 second per page
+- FA Handbook 2025-26: 2.2M chars in 64 seconds
+- No internet access required, no model downloads
+
+**Configuration**:
+```yaml
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "PyMuPDFPreprocessor"
+```
+
+**Why not LLM-based extraction?**
+- PDFs are text-based (not scanned) — no OCR needed
+- pymupdf4llm is faster, simpler, and fully local
+- LLM enhancement (e.g., Marker) only beneficial for scanned PDFs or complex tables
+
+---
+
+### 3.2 LeanIX draw.io Conceptual Model (XML)
+
+**Tool**: Custom XML parser (`LeanIXExtractor` in `doc_leanix_parser.py`)
+
+**Process**:
+1. Parse draw.io XML to extract `object` elements with `type="factSheet"`
+2. Detect domain groups (both Type 1 bare `mxCell` and Type 2 object-wrapped groups)
+3. Extract entities with hierarchy:
+   - **Domain**: Top-level group (e.g., "AGREEMENTS", "PARTY")
+   - **Subtype**: Visual subgroup within domain (e.g., "Static Data / Time Bounded Groupings")
+   - **Entity**: Leaf fact sheet node
+4. Extract relationships with cardinality from ER notation arrows
+5. Handle nested groups (e.g., subgroups within subgroups)
+
+**Hierarchy Detection Algorithm**:
+- Group containers detected via `style="group"` in `mxCell` elements
+- Two types supported:
+  - Type 1: Bare `<mxCell style="group" vertex="1" parent="1"/>`
+  - Type 2: Object-wrapped `<object><mxCell style="group".../></object>` (e.g., PARTY)
+- Subgroup assignment via geometry analysis (parent chain traversal)
+- Domain/subtype entity labels excluded from leaf entity list (container labels only)
+
+**Outputs**:
+| File | Purpose | Consumers |
+|------|---------|-----------|
+| `<stem>_model.json` | Structured JSON: 177 entities with domain, subtype, fact_sheet_id | Direct JSON lookup (no RAG) |
+| `<stem>_entities.md` | Per-entity Markdown (one `##` heading per entity) | ChromaDB: `{prefix}_entities` |
+| `<stem>_relationships.md` | Per-relationship Markdown | ChromaDB: `{prefix}_relationships` |
+
+**JSON Schema** (`_model.json`):
+```json
+{
+  "metadata": {
+    "model_name": "FA Enterprise Conceptual Data Model",
+    "source_file": "...xml",
+    "entity_count": 177,
+    "relationship_count": 89
+  },
+  "entities": [
+    {
+      "domain": "AGREEMENTS",
+      "domain_fact_sheet_id": "uuid-...",
+      "subtype": "Time Bounded Groupings",
+      "subtype_fact_sheet_id": "uuid-...",
+      "entity_name": "Contract",
+      "fact_sheet_id": "uuid-...",
+      "fact_sheet_type": "DataObject"
+    }
+  ],
+  "relationships": [...]
+}
+```
+
+**Configuration**:
+```yaml
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "LeanIXPreprocessor"
+  output_format: "json_md"  # Recommended: JSON sidecar + Markdown for RAG
+  collection_prefix: "fa_leanix_dat_enterprise_conceptual_model"
+```
+
+---
+
+### 3.3 LeanIX Excel Asset Inventory
+
+**Tool**: `openpyxl` for Excel parsing
+
+**Process**:
+1. Read all fact sheets from first non-ReadMe sheet (timestamp-named export)
+2. Group by `type` field (DataObject, Interface, Application, etc.)
+3. Generate per-type Markdown files (split mode)
+4. Write `_inventory.json` sidecar keyed by `fact_sheet_id`
+
+**Fact Sheet Types Supported**:
+| Type | Collection Suffix | Count (example) |
+|------|-------------------|-----------------|
+| DataObject | `dataobject` | 229 |
+| Interface | `interface` | 271 |
+| Application | `application` | 215 |
+| BusinessCapability | `capability` | 272 |
+| Organization | `organization` | 115 |
+| ITComponent | `itcomponent` | 180 |
+| Provider | `provider` | 74 |
+| Objective | `objective` | 59 |
+
+**Outputs**:
+| File | Purpose | Consumers |
+|------|---------|-----------|
+| `_inventory.json` | Fact sheets keyed by `fact_sheet_id` | Direct O(1) lookup (no RAG) |
+| `{type}.md` (8 files) | Per-type Markdown | ChromaDB: `fa_leanix_global_inventory_{type}` |
+
+**Join Pattern** (Conceptual Model ↔ Inventory):
+```python
+# Consumer code pattern (fa_consolidated_catalog.py)
+inventory = load_json("_inventory.json")["fact_sheets"]
+for entity in entities:  # from _model.json
+    fsid = entity["fact_sheet_id"]
+    entity["leanix_description"] = inventory.get(fsid, {}).get("description")
+```
+
+**Configuration**:
+```yaml
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "LeanIXInventoryPreprocessor"
+  output_format: "split"
+  collection_prefix: "fa_leanix_global_inventory"
+```
+
+---
+
+### 3.4 JSON Sidecar Pattern
+
+**Motivation**: Structured data (LeanIX model, inventory) should not use RAG for lookups.
+
+**Pattern**:
+1. Ingestion writes structured JSON next to source file
+2. Consumers read JSON directly (deterministic, O(1) lookup)
+3. Markdown variants ingested into ChromaDB for semantic search only
+
+**Benefits**:
+- ✅ Deterministic: Exact `fact_sheet_id` matching
+- ✅ Fast: O(1) dictionary lookup vs. ~15s per RAG query
+- ✅ Accurate: Canonical join key preserved
+
+**When to use RAG vs. JSON sidecar**:
+| Data Type | Approach | Reason |
+|-----------|----------|--------|
+| LeanIX Model (entities, relationships) | JSON sidecar | Structured, canonical IDs |
+| LeanIX Inventory (fact sheets) | JSON sidecar | Structured, join by `fact_sheet_id` |
+| FA Handbook (PDF) | RAG + LLM | Unstructured text, definitions, governance rules |
+| DAMA-DMBOK (PDF) | RAG + LLM | Unstructured reference material |
+
+---
+
+## 4. Technology Stack
 
 | Component | Technology | Configuration |
 |-----------|------------|---------------|
@@ -101,9 +271,9 @@ elt_llm_rag/
 
 ---
 
-## 4. RAG Pipeline
+## 5. RAG Pipeline
 
-### 4.1 Retrieval Flow
+### 5.1 Retrieval Flow
 
 ```
 Query → Multi-query expansion → Hybrid Retrieval (BM25 + Vector)
@@ -113,7 +283,7 @@ Query → Multi-query expansion → Hybrid Retrieval (BM25 + Vector)
 
 See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, and performance characteristics.
 
-### 4.2 Collection Structure
+### 5.2 Collection Structure
 
 | Collection | Source | Used for |
 |------------|--------|---------|
@@ -131,9 +301,9 @@ See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, a
 
 ---
 
-## 5. Consumer Layer
+## 6. Consumer Layer
 
-### 5.1 Primary Consumer: fa_consolidated_catalog.py
+### 6.1 Primary Consumer: fa_consolidated_catalog.py
 
 **Purpose**: Generate consolidated catalog — entities enriched with inventory descriptions and Handbook context.
 
@@ -155,7 +325,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 **Docs**: [elt_llm_consumer/ARCHITECTURE.md](elt_llm_consumer/ARCHITECTURE.md)
 
-### 5.2 Supporting Consumers
+### 6.2 Supporting Consumers
 
 | Consumer | Purpose | When to Use |
 |----------|---------|-------------|
@@ -165,7 +335,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 ---
 
-## 6. Delivery Roadmap
+## 7. Delivery Roadmap
 
 Phase 1 (Data Asset Catalog) is complete. Phases 2–5 (Purview, Erwin LDM, Intranet, MS Fabric/Copilot) are planned.
 
@@ -173,7 +343,7 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for full phase detail, runbooks, and cu
 
 ---
 
-## 7. FAQ
+## 8. FAQ
 
 ### Q: Why not use Ollama Modelfiles instead of YAML profiles?
 
@@ -204,7 +374,7 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for full phase detail, runbooks, and cu
 # ingest_fa_handbook.yaml
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
-  class: "DoclingPreprocessor"  # Uses pymupdf4llm internally
+  class: "PyMuPDFPreprocessor"
 ```
 
 **Real-world performance** (FA Handbook 2025-26 PDF):
@@ -301,7 +471,7 @@ No RAG, no LLM — pure dictionary lookup.
 
 ---
 
-## 8. References
+## 9. References
 
 - [README.md](README.md) — Quick start
 - [SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md) — Stakeholder presentation

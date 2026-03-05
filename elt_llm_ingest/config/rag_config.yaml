@@ -10,10 +10,10 @@ chroma:
 ollama:
   base_url: "http://localhost:11434"
   embedding_model: "nomic-embed-text"  # keep this, it's good
-  llm_model: "qwen2.5:14b"      # ~9GB — strong document synthesis and instruction following
+  llm_model: "qwen3.5:9b"       # ~6.6GB — strong reasoning and instruction following
   embed_batch_size: 1
   context_window: 8192          # enough for 10-15 retrieved chunks
-  request_timeout: 300.0        # 5 minutes for complex multi-collection queries
+  request_timeout: 600.0        # 10 minutes for complex multi-collection queries
 
 # Chunking settings
 chunking:

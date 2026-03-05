@@ -229,7 +229,7 @@ For Tier 2, follow the same Title Case naming conventions as existing entries.
 Return only the JSON object, no other text."""
 
 # ---------------------------------------------------------------------------
-# Definition extraction from docstore (Docling output)
+# Definition extraction from docstore (pymupdf4llm output)
 # ---------------------------------------------------------------------------
 
 # Matches FA Handbook definition patterns as produced by pymupdf4llm:
@@ -1089,8 +1089,9 @@ def generate_consolidated_catalog(
         return bool(v) and not v.startswith("[Error:")
 
     def _has_real_governance(e: dict) -> bool:
-        v = e.get("governance_rules", "")
-        return bool(v) and not v.startswith("Not documented in FA Handbook")
+        v = e.get("governance_rules", "").strip().lstrip("*").strip()
+        _negative = ("not documented", "no specific", "no documented", "no governance", "outside governance scope")
+        return bool(v) and not any(v.lower().startswith(n) for n in _negative)
 
     print("\n=== Quality Metrics ===")
     with_definitions = sum(1 for e in consolidated_entities if _has_real_definition(e))

@@ -38,7 +38,7 @@ Ingest heterogeneous documents into a RAG-ready store with:
 - Writes `<stem>_inventory.json` next to source Excel — keyed by `fact_sheet_id` for O(1) lookup
 - Writes per-type Markdown → per-type ChromaDB collections (`fa_leanix_global_inventory_*`)
 
-**`DoclingPreprocessor`** — FA Handbook PDF:
+**`PyMuPDFPreprocessor`** — FA Handbook PDF:
 - PDF → Markdown via pymupdf4llm (PyMuPDF); no model downloads or internet access required
 - Detects headings via font size/weight, preserves tables and reading order
 - No page-range configuration needed

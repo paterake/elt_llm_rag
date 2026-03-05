@@ -15,17 +15,17 @@ metadata:
 # Whether to rebuild the collection on each run
 rebuild: true
 
-# Chunking: Docling's structure-aware markdown preserves section boundaries,
+# Chunking: pymupdf4llm's structure-aware markdown preserves section boundaries,
 # so 512-token chunks keep full rule paragraphs together.
 chunking:
   strategy: "sentence"
   chunk_size: 512
   chunk_overlap: 64
 
-# Preprocessor: Docling converts the PDF with layout-aware extraction,
-# preserving section hierarchy, tables, and correct reading order.
-# No page-range configuration needed — Docling handles document structure automatically.
+# Preprocessor: pymupdf4llm converts PDF → Markdown using PyMuPDF font-based heuristics.
+# Preserves section hierarchy, tables, and reading order.
+# No page-range configuration needed. No model downloads or internet access required.
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
-  class: "DoclingPreprocessor"
+  class: "PyMuPDFPreprocessor"
   output_format: "markdown"
