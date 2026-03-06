@@ -13,7 +13,7 @@
     - Chunking: `strategy`, `chunk_size`, `chunk_overlap`, `sentence_split_threshold`
 - Models ([models.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/src/elt_llm_core/models.py))
   - Embeddings: `OllamaEmbedding` (e.g., `nomic-embed-text`)
-  - LLM: `Ollama` (e.g., `qwen2.5:14b`)
+  - LLM: `Ollama` (e.g., `qwen3.5:9b`)
   - Utilities: connectivity and model-availability checks
 - Vector Store ([vector_store.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_core/src/elt_llm_core/vector_store.py))
   - Persistent Chroma client (tenant/database/collection)

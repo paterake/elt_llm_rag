@@ -1,3 +1,5 @@
+> **Historical record** — This file captures the state prior to the JSON pipeline refactor (pre-2026-03-04). Functions, regex patterns, and entity counts referenced here reflect the old architecture. Many items listed as open have since been completed. Do not use this as a guide to the current codebase.
+
 # Enhancement Backlog
 
 Enhancements identified after the initial FA consolidated catalog run.

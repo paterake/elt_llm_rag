@@ -3,7 +3,7 @@
 **Module**: `elt_llm_consumer`
 **Role**: Structured output layer over the RAG+LLM pipeline
 
-**See also**: 
+**See also**:
 - [RAG_STRATEGY.md](../RAG_STRATEGY.md) — Hybrid retrieval and reranking strategy
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — Full system architecture
 - `elt_llm_query/query.py` — Query interface used by all consumers
@@ -12,376 +12,147 @@
 
 ## Quick Start
 
-**Two-step workflow:**
-
 ```bash
-# 1. Ingest source datasets
-#    - LeanIX XML: produces _model.json sidecar + fa_leanix_dat_enterprise_conceptual_model_* collections
-#    - LeanIX Excel: produces _inventory.json sidecar + fa_leanix_global_inventory_* collections
-#    - FA Handbook: produces fa_handbook collection (RAG only)
+# Step 1 — Ingest source datasets (run once, or when sources change)
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
 
-# 2. Run consumer (direct JSON lookup for LeanIX; RAG+LLM for Handbook only)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
+# Step 2 — Run the primary consumer
+uv run python -m elt_llm_consumer.fa_consolidated_catalog
 ```
 
-**Output:** `fa_consolidated_catalog.json` (stakeholder review)
+**Output:** `.tmp/fa_consolidated_catalog.json` — stakeholder review JSON
 
 ---
 
 ## Table of Contents
 
-- [0. Strategic Value Proposition](#0-strategic-value-proposition)
-  - [0.1 Answering the Challenge](#01-answering-the-challenge)
-  - [0.2 Summary Architecture Diagram](#02-summary-architecture-diagram)
-- [1. The ELT Analogy](#1-the-elt-analogy)
-- [2. Where the Consumer Layer Sits](#2-where-the-consumer-layer-sits)
-- [3. RAG+LLM Architecture](#3-ragllm-architecture)
-  - [3.1 Two-Step Workflow](#31-two-step-workflow)
-  - [3.2 Role of RAG Profiles](#32-role-of-rag-profiles)
-  - [3.3 Hybrid Strategy](#33-hybrid-strategy)
-- [4. Consumers](#4-consumers)
+- [1. What This Module Does](#1-what-this-module-does)
+- [2. System Architecture](#2-system-architecture)
+- [3. Retrieval vs Generation](#3-retrieval-vs-generation)
+- [4. The Three Consumers](#4-the-three-consumers)
   - [4.1 FA Handbook Model Builder](#41-fa-handbook-model-builder)
   - [4.2 FA Coverage Validator](#42-fa-coverage-validator)
   - [4.3 FA Consolidated Catalog](#43-fa-consolidated-catalog)
-- [5. Source Joins](#5-source-joins)
-- [6. Recommended Workflow](#6-recommended-workflow)
-- [7. Conceptual Model Enhancement Cycle](#7-conceptual-model-enhancement-cycle)
-  - [7.1 The Feedback Loop](#71-the-feedback-loop)
-  - [7.2 Gap Analysis Interpretation Guide](#72-gap-analysis-interpretation-guide)
-  - [7.3 Logical Model Creation](#73-logical-model-creation)
-  - [7.4 Are You Being Naive?](#74-are-you-being-naive)
-  - [7.5 Success Metrics](#75-success-metrics)
+- [5. Interpreting the Output](#5-interpreting-the-output)
+- [6. Conceptual Model Enhancement Cycle](#6-conceptual-model-enhancement-cycle)
 
 ---
 
-## 0. Strategic Value Proposition
+## 1. What This Module Does
 
-### 0.1 Answering the Challenge
+The consumer layer answers one question:
 
-**Challenge**: Can we effectively map the conceptual model to the FA Handbook, use the handbook for SME/business context, use LeanIX inventory for descriptions, and then create a logical model using knowledge of the FA Handbook?
+> **Can we map the FA conceptual model to the Handbook, enrich it with governance context and inventory descriptions, and produce a catalog ready for stakeholder review?**
 
-**Answer**: **Yes** — and this is exactly what the consumer layer implements. The architecture deliberately separates three distinct sources, each playing a specific role:
+It does this by combining three sources, each with a distinct role:
 
-| Source | Role | Implementation |
-|--------|------|----------------|
-| **Conceptual Model** (LeanIX XML) | **The Frame** — canonical entity list with domains, hierarchy, relationships | Drives `fa_consolidated_catalog` (primary) and `fa_coverage_validator` |
-| **LeanIX Inventory** (Excel) | **Descriptions** — precise fact_sheet_id lookup for system definitions | Joined in-memory (not via RAG) for accuracy |
-| **FA Handbook** (PDF RAG) | **SME/Business Context** — governance rules, obligations, regulatory context | Queried per entity for governance content |
+| Source | Role | How it's accessed |
+|--------|------|-------------------|
+| **LeanIX XML** (`_model.json`) | The Frame — canonical entity list, domains, relationships | Direct JSON read (no RAG) |
+| **LeanIX Inventory** (`_inventory.json`) | Descriptions — precise `fact_sheet_id` lookup | Direct dict lookup (no RAG) |
+| **FA Handbook** (`fa_handbook`) | Business context — governance rules, obligations, definitions | RAG + LLM synthesis |
 
-**Are you being naive?** No — but there are important nuances:
-
-| What You Proposed | What the System Does | Caveat |
-|-------------------|----------------------|--------|
-| Map conceptual model to handbook |  Coverage validator scores every entity against handbook content | Some entities may be named differently in handbook (fuzzy matching helps) |
-| Handbook provides SME context |  LLM synthesises governance rules per entity | Handbook may not cover technical/implementation entities (e.g., specific data objects) |
-| LeanIX inventory for descriptions |  Direct join by fact_sheet_id | Inventory quality varies — some descriptions are sparse or outdated |
-| Create logical model from handbook |  Handbook model builder extracts candidate entities | Handbook entities are **business concepts**, not necessarily **data structures** — human review required |
-
-**The key insight**: The coverage validator doesn't just show gaps — it provides an **evidence-based feedback loop** for improving the conceptual model.
+**The key design principle**: only use RAG+LLM where semantic understanding is genuinely needed. Structured data (LeanIX) is read directly — it's faster, deterministic, and exact. The Handbook is the only source that requires retrieval.
 
 ---
 
-### 0.2 Summary Architecture Diagram
+## 2. System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Knowledge Sources                                  │
-│  ┌──────────────────────┐  ┌─────────────────────┐  ┌────────────────────┐  │
-│  │  FA Handbook (PDF)   │  │  LeanIX XML (draw.io)│  │  LeanIX Inventory  │  │
-│  │  - Governance rules  │  │  - Conceptual model  │  │  - Fact sheets     │  │
-│  │  - Business context  │  │  - Entities + domains│  │  - Descriptions    │  │
-│  │  - Obligations       │  │  - Relationships     │  │  - System metadata │  │
-│  └──────────────────────┘  └─────────────────────┘  └────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-           │                              │                        │
-           ↓                              ↓                        ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Ingestion Layer (elt_llm_ingest)                          │
-│                                                                             │
-│  FA Handbook  → chunk + embed → fa_handbook (ChromaDB)                      │
-│                                                                             │
-│  LeanIX XML   → parse (doc_leanix_parser.py)                                │
-│                  ├── _model.json      (consumer sidecar — direct lookup)    │
-│                  └── _entities.md     → fa_leanix_dat_*_entities (ChromaDB) │
-│                      _relationships.md → fa_leanix_dat_*_relationships      │
-│                                                                             │
-│  LeanIX Excel → parse (LeanIXInventoryPreprocessor)                         │
-│                  ├── _inventory.json  (consumer sidecar — direct lookup)    │
-│                  └── per-type .md     → fa_leanix_global_inventory_* (ChromaDB)│
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              Knowledge Sources                                │
+│  ┌─────────────────────┐   ┌──────────────────────┐   ┌───────────────────┐  │
+│  │  FA Handbook (PDF)  │   │  LeanIX XML (draw.io) │   │  LeanIX Inventory │  │
+│  │  Governance rules   │   │  Conceptual model     │   │  Fact sheets      │  │
+│  │  Business context   │   │  Entities + domains   │   │  Descriptions     │  │
+│  └─────────────────────┘   └──────────────────────┘   └───────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────────┘
+           │                            │                         │
+           ▼                            ▼                         ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         Ingestion  (elt_llm_ingest)                           │
+│                                                                              │
+│  FA Handbook  → chunk + embed → fa_handbook (ChromaDB + docstore)            │
+│                                                                              │
+│  LeanIX XML   → LeanIXPreprocessor                                           │
+│                  ├── _model.json        ← consumer reads directly            │
+│                  └── _entities.md       → ChromaDB (query UI only)           │
+│                      _relationships.md  → ChromaDB (query UI only)           │
+│                                                                              │
+│  LeanIX Excel → LeanIXInventoryPreprocessor                                  │
+│                  ├── _inventory.json    ← consumer reads directly            │
+│                  └── per-type .md       → ChromaDB (query UI only)           │
+└──────────────────────────────────────────────────────────────────────────────┘
            │
-           ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│              Consumer Layer (elt_llm_consumer)                               │
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  FA Handbook Model Builder                                             │  │
-│  │  Sources: fa_handbook (RAG+LLM only — no LeanIX required)              │  │
-│  │  Output: fa_handbook_candidate_entities.json                           │  │
-│  │          fa_handbook_candidate_relationships.json                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  FA Coverage Validator                                                 │  │
-│  │  Sources: _model.json (entities) + fa_handbook (retrieval scoring)     │  │
-│  │  Output: fa_coverage_report.json, fa_gap_analysis.json                 │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  FA Consolidated Catalog  (PRIMARY OUTPUT)                             │  │
-│  │  _model.json      → Step 1: entity enumeration (direct)               │  │
-│  │  _inventory.json  → Step 2: descriptions (fact_sheet_id lookup)        │  │
-│  │  fa_handbook      → Steps 3–5: definitions + governance (RAG+LLM)      │  │
-│  │  Output: fa_consolidated_catalog.json (stakeholder review)             │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
+           ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                      Query Layer  (elt_llm_query)                             │
+│       BM25 (docstore) + Dense Vector (ChromaDB) → Reranker → LLM            │
+└──────────────────────────────────────────────────────────────────────────────┘
            │
-           ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Conceptual Model Enhancement Cycle                        │
-│                                                                             │
-│  fa_gap_analysis.json reveals:                                                │
-│  - MATCHED       → Model aligned with handbook                              │
-│  - MODEL_ONLY    → Question: Should this be in handbook? Out of scope?      │
-│  - HANDBOOK_ONLY → Gap: Consider adding to conceptual model                 │
-│                                                                             │
-│  fa_coverage_report.json reveals:                                             │
-│  - STRONG (≥0.70) → Well-covered entity                                     │
-│  - MODERATE       → Some governance context                                 │
-│  - THIN           → Weak signal — may need renaming or handbook update       │
-│  - ABSENT (<0.40) → Not in handbook — technical entity or misalignment       │
-│                                                                             │
-│  Human review → Update LeanIX conceptual model → Re-run validation          │
-└─────────────────────────────────────────────────────────────────────────────┘
-           │
-           ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Logical Model Creation                               │
-│                                                                             │
-│  Input: Enhanced conceptual model (LeanIX) + Handbook ToR + Gap analysis    │
-│  Process:                                                                    │
-│    1. Use handbook ToR for business definitions and attributes              │
-│    2. Use conceptual model for entity structure and relationships           │
-│    3. Human SME review to resolve ambiguities                               │
-│    4. Derive logical model with attributes, keys, cardinalities             │
-│  Output: Logical data model (e.g., ERD, UML class diagram)                  │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 3. RAG+LLM Architecture
-
-### 3.1 Two-Step Workflow
-
-**Step 1: Ingestion** (elt_llm_ingest) — see Prerequisites above.
-
-**Output:** RAG-ready collections in ChromaDB + DocStore
-
-**Step 2: Consumer** (elt_llm_consumer)
-```bash
-# Queries collections via elt_llm_query, outputs JSON
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
-```
-
-**Output:** `fa_consolidated_catalog.json` (stakeholder review)
-
----
-
-### 3.2 Role of RAG Profiles
-
-**Profiles** (`elt_llm_query/llm_rag_profile/`) define:
-- Which collections to query
-- LLM model settings
-- System prompts
-- Retrieval config (top_k, reranker, etc.)
-
-**Consumers can either:**
-
-1. **Use a profile** (recommended for consistency):
-   ```python
-   from elt_llm_core.config import RagConfig
-   from elt_llm_query.query import query_collections
-
-   rag_config = RagConfig.from_profile("fa_data_management")
-   result = query_collections(rag_config.query.collections, query, rag_config)
-   ```
-
-2. **Resolve collections directly** (what `fa_consolidated_catalog` does):
-   ```python
-   from elt_llm_query.query import resolve_collection_prefixes
-
-   collections = resolve_collection_prefixes(
-       ["fa_leanix_dat_enterprise_conceptual_model"], rag_config
-   )
-   result = query_collections(collections, query, rag_config)
-   ```
-
----
-
-### 3.3 Hybrid Strategy
-
-**What uses RAG+LLM synthesis:**
-- Handbook context enrichment (governance rules, definitions)
-- Handbook term → Model entity mapping
-- Inventory description lookup
-
-**What uses docstore scan (structured metadata):**
-- Conceptual model entity extraction
-- Relationship extraction
-
-**Why hybrid:**
-- RAG+LLM is slow for bulk extraction (~15s per entity)
-- Docstore scan is fast (seconds for all entities)
-- Both query the **index** — neither parses source files directly
-
-This balances **scalability** (fast extraction) with **quality** (LLM synthesis where it adds value).
-
----
-
-## 1. The ELT Analogy
-
-`elt_llm_consumer` maps directly to the visualisation / reporting layer in a
-conventional ELT pipeline:
-
-```
-ELT Pipeline                     ELT LLM RAG
-
-Raw Sources                       FA Handbook PDF, LeanIX XML, DAMA PDF
-      ↓                                     ↓
-Extract / Transform / Load        Chunk + Embed → ChromaDB (elt_llm_ingest)
-      ↓                                     ↓
-Data Warehouse / Semantic Layer   RAG Collections — queryable knowledge store
-      ↓                                     ↓
-BI Reports / Scheduled Exports    Consumers — batch jobs that drive the
-                                  query layer and write structured outputs
-```
-
-The RAG collections are the **semantic layer** (queryable, enriched, indexed).
-The consumers are the **BI reports** — purpose-built jobs that ask specific
-questions at scale and write the answers to JSON files for stakeholder use.
-
-A query profile (`llm_rag_profile/`) is analogous to a saved SQL query — it
-configures which collections and persona to use. A consumer is the **driver**
-that iterates 200+ entities, constructs per-entity prompts, and manages
-checkpointing and file output. A profile alone cannot do this.
-
----
-
-## 2. Where the Consumer Layer Sits
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Knowledge Sources                             │
-│  FA Handbook PDF  │  LeanIX XML (draw.io)  │  LeanIX Inventory Excel │
-└──────────────────────────────────────────────────────────────────────┘
-                                 ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│                    Ingestion  (elt_llm_ingest)                        │
-│  Chunk → Embed (nomic-embed-text) → ChromaDB collections             │
-└──────────────────────────────────────────────────────────────────────┘
-                                 ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│            RAG Collections  (ChromaDB — semantic layer)               │
-│  fa_handbook  │  fa_leanix_dat_enterprise_conceptual_model_*         │
-│  fa_leanix_global_inventory_*  │  dama_dmbok  │  fa_data_architecture │
-└──────────────────────────────────────────────────────────────────────┘
-                                 ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│                     Query Layer  (elt_llm_query)                      │
-│  BM25 + Vector hybrid search → Embedding reranker → LLM synthesis   │
-└──────────────────────────────────────────────────────────────────────┘
-                                 ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│                  Consumer Layer  (elt_llm_consumer)                   │
-│                                                                       │
-│  ┌─────────────────────────────────────────────────────────────┐      │
-│  │  Consumer 1: fa_handbook_model_builder                      │      │
-│  │  Handbook → candidate entities + relationships + ToR        │      │
-│  └─────────────────────────────────────────────────────────────┘      │
-│  ┌─────────────────────────────────────────────────────────────┐      │
-│  │  Consumer 2: fa_coverage_validator                          │      │
-│  │  Model vs Handbook — retrieval scoring only, no LLM         │      │
-│  └─────────────────────────────────────────────────────────────┘      │
-│  ┌─────────────────────────────────────────────────────────────┐      │
-│  │  Consumer 3: fa_consolidated_catalog  (TARGET OUTPUT)       │      │
-│  │  All sources merged → stakeholder review JSON               │      │
-│  └─────────────────────────────────────────────────────────────┘      │
-└──────────────────────────────────────────────────────────────────────┘
-                                 ↓
-                     Structured JSON outputs
-                  (Consolidated Catalog, ToR, Gap Report)
+           ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    Consumer Layer  (elt_llm_consumer)                         │
+│                                                                              │
+│  fa_handbook_model_builder   → fa_handbook_candidate_entities.json           │
+│                                 fa_handbook_candidate_relationships.json      │
+│                                                                              │
+│  fa_coverage_validator       → fa_coverage_report.json                       │
+│                                 fa_gap_analysis.json                          │
+│                                                                              │
+│  fa_consolidated_catalog     → fa_consolidated_catalog.json  ← PRIMARY      │
+│  (PRIMARY OUTPUT)               fa_consolidated_relationships.json            │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 3. Retrieval vs Generation
 
-The RAG pipeline has two separable stages. Consumers use either or both,
-depending on what they need to produce:
+The RAG pipeline has two separable stages. Each consumer uses one or both:
 
-```
-Stage 1: Retrieval (embedding search only)
-─────────────────────────────────────────
-  Query string → nomic-embed-text → cosine similarity against ChromaDB
-  Output: top-K chunks with similarity scores
-  Cost: ~1-2 s per entity
-  No LLM involved.
+| Stage | What it does | Cost | Output |
+|-------|-------------|------|--------|
+| **Retrieval** | Query → embedding → cosine similarity search → top-K chunks with scores | ~1–2s per entity | Chunks + similarity scores |
+| **Generation** | Retrieved chunks + prompt → Ollama LLM → synthesised text | ~60–90s per entity | Human-readable answer |
 
-Stage 2: Generation (LLM synthesis)
-────────────────────────────────────
-  Retrieved chunks + prompt → qwen2.5:14b → synthesised text
-  Output: human-readable answer grounded in retrieved content
-  Cost: ~10-20 s per entity
-  Requires Ollama + loaded model.
-```
+| Consumer | Retrieval | Generation | Why |
+|----------|-----------|------------|-----|
+| Handbook Model Builder | ✓ | ✓ | Needs entity extraction + ToR prose |
+| Coverage Validator | ✓ | ✗ | The cosine score *is* the answer — no prose needed |
+| Consolidated Catalog | ✓ | ✓ | Needs governance context synthesised per entity |
 
-| Consumer | Uses Retrieval | Uses Generation | Rationale |
-|----------|---------------|-----------------|-----------|
-| Handbook Model Builder |  |  | Needs entity extraction + ToR prose |
-| **Coverage Validator** |  | **✗** | Only needs a signal — *does content exist?* The similarity score is the answer |
-| Consolidated Catalog |  |  | Needs Handbook context + term mapping synthesis |
-
-**Why the coverage validator skips generation**: the question being asked is
-"does the FA Handbook contain meaningful content about this entity?" The
-retrieval similarity score answers this directly. Synthesising a paragraph via
-the LLM would add 10-20 s per entity and produce output that then has to be
-re-interpreted as a coverage signal — slower and less precise than reading the
-raw score.
+**Why the Coverage Validator skips generation**: the question is "does the handbook contain content about this entity?" The top retrieval similarity score answers that directly. Running the LLM would add ~60s per entity and produce prose that then has to be re-interpreted as a signal — slower and less precise.
 
 ---
 
-## 4. Consumers
+## 4. The Three Consumers
 
 ### 4.1 FA Handbook Model Builder
 
 **File**: `fa_handbook_model_builder.py`
 **Entry point**: `elt-llm-consumer-handbook-model`
-**Driver**: 14 seed topics (no LeanIX required)
+**Sources**: `fa_handbook` only — no LeanIX required
+
+Three passes, all RAG+LLM:
 
 ```
-Seed topics: Club, Player, Registration, ...
-        ↓
-  Pass 1 — Entity discovery
-    Per topic: query fa_handbook → extract defined terms + roles
-    Output: fa_handbook_candidate_entities.json
-        ↓
-  Pass 2 — Relationship inference
-    For co-appearing entity pairs: query fa_handbook → infer relationships
-    Output: fa_handbook_candidate_relationships.json
-        ↓
-  Pass 3 — ToR consolidation
-    Per unique entity: query fa_handbook → synthesise terms of reference
-    Output: fa_handbook_terms_of_reference.json
+Pass 1 — Entity discovery
+  14 seed topics (Club, Player, Registration, ...) → query fa_handbook
+  Output: fa_handbook_candidate_entities.json
+
+Pass 2 — Relationship inference
+  Co-appearing entity pairs → query fa_handbook
+  Output: fa_handbook_candidate_relationships.json
+
+Pass 3 — Terms of Reference
+  Per unique entity → query fa_handbook → synthesise ToR prose
+  Output: fa_handbook_terms_of_reference.json
 ```
 
-**Purpose**: bootstrapping — build a candidate conceptual model from the
-governance text alone, before or independent of LeanIX. Also produces the
-`fa_handbook_candidate_entities.json` input consumed by the Coverage Validator
-Direction 2 gap analysis.
+**Purpose**: bootstrap a candidate model from governance text alone. The `fa_handbook_candidate_entities.json` output is also consumed by the Coverage Validator gap analysis.
 
 ---
 
@@ -389,47 +160,26 @@ Direction 2 gap analysis.
 
 **File**: `fa_coverage_validator.py`
 **Entry point**: `elt-llm-consumer-coverage-validator`
-**Driver**: LeanIX conceptual model XML
+**Sources**: `_model.json` + `fa_handbook`
 
-Two-direction validation — no LLM, pure retrieval scoring:
+Runs in two directions — retrieval only, no LLM:
 
 ```
-Direction 1 — Model → Handbook  (always runs, ~5 min)
-──────────────────────────────────────────────────────
-  LeanIX Conceptual Model XML
-          ↓  (LeanIXExtractor)
-    ~217 entities
-          ↓
-    For each entity:
-      Query: "{entity_name} FA {domain} rules obligations governance handbook"
-      Retrieve from fa_handbook (vector search only, no LLM)
-      Top cosine similarity score = coverage signal
-          ↓
-    fa_coverage_report.json
+Direction 1 — Model → Handbook  (always runs)
+  For each model entity:
+    query: "{entity_name} FA {domain} rules obligations governance"
+    retrieve from fa_handbook (vector search only)
+    top cosine similarity score → STRONG / MODERATE / THIN / ABSENT
+  Output: fa_coverage_report.json
 
-  Verdict bands (cosine similarity of top chunk): STRONG / MODERATE / THIN / ABSENT — see §7.2 for full interpretation guide.
-
-
-Direction 2 — Handbook → Model  (--gap-analysis, instant)
-──────────────────────────────────────────────────────────
-  fa_handbook_candidate_entities.json   ← Consumer 2 output
-  LeanIX Conceptual Model entity list  ← Consumer 3 driver
-          ↓
-    Normalised name comparison
-          ↓
-    fa_gap_analysis.json
-
-  Status per entity:
-    MATCHED       — present in both model and handbook
-    MODEL_ONLY    — in model, not discussed in handbook
-    HANDBOOK_ONLY — handbook discusses it; missing from model
+Direction 2 — Handbook → Model  (--gap-analysis flag)
+  fa_handbook_candidate_entities.json ← from Handbook Model Builder
+  model entity names ← from _model.json
+    normalised name comparison
+  Output: fa_gap_analysis.json (MATCHED / MODEL_ONLY / HANDBOOK_ONLY)
 ```
 
-**Why no LLM**: the coverage question ("does the handbook contain content about
-this entity?") is answered by the retrieval similarity score itself. The LLM's
-job is synthesis — reading retrieved chunks and writing prose. For a binary
-signal of presence/absence, the cosine score is more precise and ~10× faster
-than reading a synthesised answer and re-interpreting it.
+See [§5](#5-interpreting-the-output) for verdict band definitions.
 
 ---
 
@@ -437,144 +187,122 @@ than reading a synthesised answer and re-interpreting it.
 
 **File**: `fa_consolidated_catalog.py`
 **Entry point**: `elt-llm-consumer-consolidated-catalog`
-**Output**: `fa_consolidated_catalog.json` (stakeholder review)
-**Runtime**: ~45-60 min for a full domain run (Handbook RAG only)
-
-**Purpose**: Single consolidated catalog merging all sources — the target output
-for stakeholder review and Purview import.
-
-**What it answers**:
-1. Entities from the conceptual model (direct JSON, no RAG)
-2. LeanIX inventory descriptions per entity (direct fact_sheet_id lookup, no RAG)
-3. FA Handbook formal definition, domain context, governance rules (RAG+LLM)
-4. HANDBOOK_ONLY entities: handbook terms not matched to any conceptual model entity
-5. Relationships from conceptual model (direct JSON)
-
----
+**Runtime**: ~45–60 min for a full domain run
+**Output**: `fa_consolidated_catalog.json` — PRIMARY stakeholder review artifact
 
 **Step-by-step pipeline — what each step produces and what the next step uses:**
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Step 1: Load Conceptual Model Entities                               │
-│ Source: _model.json (written by LeanIXPreprocessor during ingest)   │
-│ How:    Direct JSON file read — no RAG, no LLM                      │
-│ Output: conceptual_entities — list of ~175 entities, each with:     │
-│           entity_name, domain, subtype, fact_sheet_id               │
-└──────────────────────────────┬──────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 1: Load Conceptual Model Entities                                  │
+│ Source: _model.json  (written by LeanIXPreprocessor during ingest)     │
+│ How:    Direct JSON file read — no RAG, no LLM                         │
+│ Produces: conceptual_entities                                           │
+│           list of ~175 entities: entity_name, domain, subtype,         │
+│           fact_sheet_id                                                 │
+└──────────────────────────────┬─────────────────────────────────────────┘
                                │ conceptual_entities
                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Step 2: Load Inventory Descriptions                                  │
-│ Source: _inventory.json (written by LeanIXInventoryPreprocessor)    │
-│ How:    For each entity, look up fact_sheet_id in the inventory      │
-│         dict — O(1) Python dict lookup, no RAG, no LLM              │
-│ Output: inventory_descriptions — dict keyed by normalised           │
-│           entity_name → { description, level, status, type }        │
-└──────────────────────────────┬──────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 2: Load Inventory Descriptions                                     │
+│ Source: _inventory.json  (written by LeanIXInventoryPreprocessor)      │
+│ How:    For each entity, look up its fact_sheet_id in the inventory     │
+│         dict — O(1) Python dict lookup, no RAG, no LLM                 │
+│ Produces: inventory_descriptions                                        │
+│           dict: normalised entity_name →                               │
+│           { description, level, status, type }                         │
+└──────────────────────────────┬─────────────────────────────────────────┘
                                │ inventory_descriptions
                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Step 3: Extract Handbook Defined Terms                               │
-│ Source: fa_handbook docstore (key-value node store, not search)     │
-│ How:    Iterate every stored chunk and run two regex patterns:       │
-│           • Inline:  "TERM means DEFINITION" (plain text)           │
-│           • Table:   "|TERM|means DEFINITION|" (Definitions table)  │
-│         <br> tags are stripped from term and definition text.       │
-│         No RAG query, no LLM — pure text scanning.                  │
-│ Output: handbook_terms — list of ~149 dicts:                        │
-│           { term: "Club", definition: "means any club which..." }   │
-└──────────────────────────────┬──────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 3: Extract Handbook Defined Terms                                  │
+│ Source: fa_handbook docstore (used as a key-value store, not search)   │
+│ How:    Iterate every stored chunk and scan with two regex patterns:    │
+│           • Inline:  "TERM means DEFINITION" (plain text sentences)    │
+│           • Table:   "|TERM|means DEFINITION|" (Definitions tables)    │
+│         <br> tags stripped from both term and definition text.         │
+│         No RAG query, no LLM — pure text scanning.                     │
+│ Produces: handbook_terms                                                │
+│           list of ~149 dicts: { term, definition }                     │
+└──────────────────────────────┬─────────────────────────────────────────┘
                                │ handbook_terms
                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Step 4: Match Handbook Terms to Conceptual Model (name match only)  │
-│ Source: handbook_terms (from Step 3) +                              │
-│         all_entities entity names (from Step 1, all domains)        │
-│ How:    Build a dict of normalised entity names from the model.      │
-│         For each of the 149 handbook terms, check if its normalised │
-│         name exists as a key in that dict — Python dict lookup.     │
-│         No RAG, no LLM. Fast pre-filter only.                       │
-│ Output: handbook_mappings — dict keyed by term.lower():             │
-│           matched:   { mapped_entity, domain, fact_sheet_id,        │
-│                        mapping_confidence: "high",                  │
-│                        mapping_rationale: "Direct name match" }     │
-│           unmatched: { mapped_entity: "Not mapped",                 │
-│                        mapping_confidence: "low" }                  │
-│ Note:   Most terms are unmatched here (2/149 typical) because the   │
-│         model uses short names ("Team") while the handbook uses      │
-│         qualified names ("Football Team"). Step 5 bridges this gap. │
-└──────────────────────────────┬──────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 4: Match Handbook Terms to Model Entities (name match only)       │
+│ Source: handbook_terms (Step 3) + all model entity names (Step 1)      │
+│ How:    Build a dict of normalised model entity names. For each of the │
+│         149 handbook terms, check if its normalised name is a key in   │
+│         that dict. Python dict lookup — no RAG, no LLM.               │
+│ Produces: handbook_mappings                                             │
+│           dict: term.lower() →                                         │
+│             matched:   { mapped_entity, domain, fact_sheet_id,         │
+│                          mapping_confidence: "high" }                  │
+│             unmatched: { mapped_entity: "Not mapped",                  │
+│                          mapping_confidence: "low" }                   │
+│ Note:   Typically 2–5% match rate. The model uses short names          │
+│         ("Team") while the handbook uses qualified names               │
+│         ("Football Team"). Step 5 bridges this gap via RAG.            │
+└──────────────────────────────┬─────────────────────────────────────────┘
                                │ handbook_mappings
                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Step 5: Extract Handbook Context per Entity (RAG + LLM)             │
-│ Source: fa_handbook ChromaDB collection + docstore (hybrid search)  │
-│         handbook_terms (from Step 3) — pre-loaded as term_definitions│
-│           dict so the LLM prompt can include the formal definition  │
-│           if one exists for this entity                             │
-│ How:    For each entity in conceptual_entities:                     │
-│           1. Build a query: "{entity_name} {domain} rules..."       │
-│           2. Hybrid retrieval: BM25 (docstore) + dense vector       │
-│              (ChromaDB) → fusion → embedding reranker               │
-│           3. Retrieved chunks + prompt → Ollama LLM → synthesised   │
-│              text for formal_definition, domain_context, governance │
-│           4. If governance is empty, run a second dedicated RAG     │
-│              query specifically for governance rules                │
-│         ~60-90s per entity on a local model.                        │
-│ Output: handbook_context — dict keyed by normalised entity_name:    │
-│           { formal_definition, domain_context, governance_rules }   │
-└──────────────────────────────┬──────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 5: Extract Handbook Context per Entity  (RAG + LLM)               │
+│ Source: fa_handbook ChromaDB + docstore (hybrid search)                │
+│         handbook_terms (Step 3) — passed as term_definitions so the   │
+│         LLM prompt can include a formal definition if one exists       │
+│ How:    For each entity in conceptual_entities:                        │
+│           1. Build query: "{entity_name} {domain} rules governance..." │
+│           2. Hybrid retrieval: BM25 (docstore) + dense vector          │
+│              (ChromaDB) → fusion → embedding reranker                  │
+│           3. Retrieved chunks + prompt → Ollama → synthesised text     │
+│              for: formal_definition, domain_context, governance_rules  │
+│           4. If governance is empty, run a second dedicated RAG query  │
+│         ~60–90s per entity on a local model.                           │
+│ Produces: handbook_context                                              │
+│           dict: normalised entity_name →                               │
+│           { formal_definition, domain_context, governance_rules }      │
+└──────────────────────────────┬─────────────────────────────────────────┘
                                │ handbook_context
                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Step 6: Load Relationships                                           │
-│ Source: _model.json (same file as Step 1)                           │
-│ How:    Direct JSON read — no RAG, no LLM                           │
-│ Output: relationships — dict of entity → entity relationships       │
-│                                                                     │
-│ Step 6b: Extract Entity-to-Entity Relationships from Handbook       │
-│ Source: relationships (Step 6) + fa_handbook (RAG+LLM)             │
-│ How:    For each relationship pair, query handbook for context       │
-│ Output: entity_relationships list                                   │
-└──────────────────────────────┬──────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 6: Load Relationships                                              │
+│ Source: _model.json (same file as Step 1)                              │
+│ How:    Direct JSON read — no RAG, no LLM                              │
+│ Produces: relationships  dict: entity → entity relationships           │
+│                                                                        │
+│ Step 6b: Extract Handbook Relationship Context  (RAG + LLM)            │
+│ Source: relationships (Step 6) + fa_handbook                           │
+│ How:    For each relationship pair, query handbook for context         │
+│ Produces: entity_relationships list                                    │
+└──────────────────────────────┬─────────────────────────────────────────┘
                                │ relationships + entity_relationships
                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Step 7: Consolidate                                                  │
-│ Inputs: ALL outputs from Steps 1–6:                                 │
-│           conceptual_entities   → entity list and structure         │
-│           handbook_terms        → to identify HANDBOOK_ONLY entries │
-│           handbook_mappings     → confidence + rationale per term   │
-│           inventory_descriptions→ leanix_description per entity     │
-│           handbook_context      → formal_definition, governance etc │
-│           relationships         → relationship data                 │
-│ How:    Merge all inputs per entity. Classify each as:              │
-│           BOTH          — name-matched in model AND handbook Step 4  │
-│           LEANIX_ONLY   — in model, no handbook name match          │
-│           HANDBOOK_ONLY — handbook term with no model entity match  │
-│ Output: fa_consolidated_catalog.json (hierarchical: domain →        │
-│           subtype → entity, with all enrichment fields)             │
-│         fa_consolidated_relationships.json                          │
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 7: Consolidate                                                     │
+│ Inputs: ALL variables from Steps 1–6:                                  │
+│           conceptual_entities    → entity list and structure           │
+│           handbook_terms         → to identify HANDBOOK_ONLY entries   │
+│           handbook_mappings      → confidence + rationale per term     │
+│           inventory_descriptions → leanix_description per entity       │
+│           handbook_context       → definitions + governance per entity │
+│           relationships          → entity-to-entity relationships      │
+│ How:    Merge all inputs per entity. Classify each as:                 │
+│           BOTH          — entity name matched in model AND handbook    │
+│           LEANIX_ONLY   — in model only, no handbook name match        │
+│           HANDBOOK_ONLY — handbook term with no matching model entity  │
+│ Output: fa_consolidated_catalog.json                                   │
+│           hierarchical: domain → subtype → entity                     │
+│         fa_consolidated_relationships.json                             │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Design principle — use the right tool per step**:
-- **Direct JSON lookup** for structured LeanIX data (Steps 1, 2, 6) — deterministic, instant
-- **Regex scan** for handbook glossary extraction (Step 3) — fast, no model needed
-- **Python dict lookup** for name matching (Step 4) — fast pre-filter, saves LLM calls
-- **RAG+LLM** only where semantic understanding is needed (Step 5) — slow but necessary
-- **No RAG** against conceptual model or inventory collections (ChromaDB holds them for query UI only)
-
-**Output structure**:
+**Output structure per entity:**
 ```json
 {
   "fact_sheet_id": "12345",
   "entity_name": "Club",
   "domain": "PARTY",
   "subgroup": "Organisation",
-  "domain_fact_sheet_id": "...",
-  "subgroup_fact_sheet_id": "...",
   "source": "BOTH",
   "leanix_description": "...",
   "formal_definition": "...",
@@ -585,285 +313,65 @@ for stakeholder review and Purview import.
 }
 ```
 
-**Review workflow**:
-1. Run consumer → generates JSON with all entities
-2. Data Architects review → update `review_status` fields
-3. Import to Purview or downstream systems
+---
+
+## 5. Interpreting the Output
+
+### Coverage Verdict Bands  (`fa_coverage_report.json`)
+
+| Verdict | Score | Interpretation | Action |
+|---------|-------|----------------|--------|
+| **STRONG** | ≥ 0.70 | Handbook clearly discusses this entity | No action needed |
+| **MODERATE** | 0.55–0.70 | Some governance context exists | Review — may need more handbook coverage |
+| **THIN** | 0.40–0.55 | Weak signal — handbook may use different terminology | Check `top_chunk_preview` — is the entity named differently? |
+| **ABSENT** | < 0.40 | Not meaningfully present in handbook | Is this a technical/data entity rather than a business concept? |
+
+### Gap Analysis Status  (`fa_gap_analysis.json`)
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| **MATCHED** | Entity exists in both model and handbook | None |
+| **MODEL_ONLY** | In model, not discussed in handbook | Review: technical entity? out of FA scope? |
+| **HANDBOOK_ONLY** | Handbook discusses it; not in model | Consider adding to conceptual model |
+
+### Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| Model-Handbook Alignment | > 80% MATCHED |
+| Coverage Quality | > 70% STRONG or MODERATE |
+| Entities with formal definitions | > 90% |
+| Entities with governance rules | > 70% |
 
 ---
 
-## 5. Source Joins
+## 6. Conceptual Model Enhancement Cycle
 
-### LeanIX Data: Direct JSON Lookup (No RAG)
-
-The consolidated catalog **does not use RAG** for LeanIX data. Instead, it reads JSON sidecars written during ingestion:
+The consumers form a natural improvement loop:
 
 ```
-Ingestion Phase (elt_llm_ingest):
-┌──────────────────────────────────────────────────────────────────┐
-│ LeanIX XML (draw.io)                                             │
-│   → LeanIXPreprocessor (output_format='json_md')                │
-│   → Writes: <stem>_model.json (next to source XML)              │
-│      Content: 177 entities with domain, subtype, fact_sheet_id  │
-│                                                                  │
-│ LeanIX Excel (Inventory)                                         │
-│   → LeanIXInventoryPreprocessor (output_format='split')         │
-│   → Writes: <stem>_inventory.json (next to source Excel)        │
-│      Content: 1424 fact sheets keyed by fact_sheet_id           │
-└──────────────────────────────────────────────────────────────────┘
+1. Run Handbook Model Builder
+   → fa_handbook_candidate_entities.json (what the handbook thinks exists)
 
-Consumer Phase (elt_llm_consumer/fa_consolidated_catalog.py):
-┌──────────────────────────────────────────────────────────────────┐
-│ Step 1: Load entities from _model.json (direct file read)        │
-│   entities = [                                                   │
-│     {entity_name, domain, subgroup, fact_sheet_id, ...}          │
-│   ]                                                              │
-│                                                                  │
-│ Step 2: Inventory descriptions via fact_sheet_id lookup          │
-│   inventory = load_inventory_from_json("_inventory.json")        │
-│   for entity in entities:                                        │
-│       fsid = entity["fact_sheet_id"]                             │
-│       entity["leanix_description"] = inventory[fsid]["description"] │
-│   # O(1) dictionary lookup — no RAG, no LLM                      │
-└──────────────────────────────────────────────────────────────────┘
+2. Run Coverage Validator (--gap-analysis)
+   → fa_coverage_report.json  (which model entities have handbook coverage?)
+   → fa_gap_analysis.json     (MATCHED / MODEL_ONLY / HANDBOOK_ONLY)
+
+3. Human SME Review
+   HANDBOOK_ONLY → add to LeanIX conceptual model
+   MODEL_ONLY    → question: technical detail? remove or keep?
+   THIN/ABSENT   → rename entity to match handbook terminology?
+
+4. Update LeanIX model, re-run ingestion, repeat from step 2.
+
+5. When model is stable, run Consolidated Catalog for final output.
+   → fa_consolidated_catalog.json  ← stakeholder review + Purview import
 ```
 
-**Why this design?**
-- **Deterministic**: JSON lookup is exact — no retrieval ambiguity
-- **Fast**: O(1) dictionary lookup vs. ~15s per RAG query
-- **Accurate**: `fact_sheet_id` is the canonical join key
+**Logical model derivation** (after model is stable):
+1. Use handbook ToR for business definitions and attributes
+2. Use conceptual model for entity structure and relationships
+3. SME workshop to resolve ambiguities (naming, cardinalities, keys)
+4. Output: ERD or UML class diagram with attributes, keys, constraints
 
-### Full Source Matrix
-
-| Source | handbook-model | coverage-validator | consolidated-catalog |
-|--------|---------------|-------------------|---------------------|
-| `_model.json` (LeanIX XML sidecar) | — | Entity enumeration | **Direct lookup** (Step 1) |
-| `_inventory.json` (LeanIX Excel sidecar) | — | — | **Direct fact_sheet_id lookup** (Step 2) |
-| `fa_handbook` collection | RAG+LLM | Retrieval scoring | RAG+LLM (Steps 3, 5) |
-| `fa_leanix_dat_*` collections | — | — | Not used (reserved for query UI) |
-| `fa_leanix_global_inventory_*` collections | — | — | Not used (reserved for query UI) |
-| Consumer 1 JSON output | — | Gap analysis | — |
-
-**Design principle**: Use the right tool per step:
-- **Direct JSON lookup** for structured LeanIX data (entities, inventory) — deterministic, fast
-- **RAG+LLM** only for FA Handbook context — the only source that requires semantic retrieval
-
----
-
-## 6. Recommended Workflow
-
-The consumers form a natural progression from discovery to validation to
-production output:
-
-```
-Step 1 — Discover what the handbook models
-─────────────────────────────────────────
-  elt-llm-consumer-handbook-model
-  Output: fa_handbook_candidate_entities.json
-          fa_handbook_candidate_relationships.json
-          fa_handbook_terms_of_reference.json
-
-Step 2 — Validate the conceptual model against the handbook
-───────────────────────────────────────────────────────────
-  elt-llm-consumer-coverage-validator --gap-analysis
-  Output: fa_coverage_report.json      ← which model entities have handbook coverage
-          fa_gap_analysis.json         ← MATCHED / MODEL_ONLY / HANDBOOK_ONLY
-
-  Review results:
-  - ABSENT entities → likely misnamed in model or out of FA scope
-  - HANDBOOK_ONLY   → missing entities; consider adding to conceptual model
-  - THIN entities   → may need handbook terminology review
-
-Step 3 — Generate the consolidated catalog (primary output)
-────────────────────────────────────────────────────────────
-  elt-llm-consumer-consolidated-catalog
-  Output: fa_consolidated_catalog.json    ← Stakeholder review
-          fa_consolidated_relationships.json
-
-  All sources merged: LeanIX entities (docstore), inventory descriptions
-  (RAG), and Handbook context (RAG + term mapping + governance).
-```
-
----
-
-## 7. Conceptual Model Enhancement Cycle
-
-### 7.1 The Feedback Loop
-
-The coverage validator is not just a reporting tool — it is the **engine for continuous improvement** of the conceptual model:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Iterative Model Refinement Cycle                          │
-│                                                                             │
-│         ┌─────────────────────────────────────────────────────────┐         │
-│         │  Step 1: Baseline                                       │         │
-│         │  - Current LeanIX conceptual model (XML)                │         │
-│         │  - FA Handbook (governance source of truth)             │         │
-│         └──────────────────────┬──────────────────────────────────┘         │
-│                                ↓                                            │
-│         ┌─────────────────────────────────────────────────────────┐         │
-│         │  Step 2: Consumer 2 — Handbook Model Builder            │         │
-│         │  Extract candidate entities from handbook alone         │         │
-│         │  Output: fa_handbook_candidate_entities.json             │         │
-│         └──────────────────────┬──────────────────────────────────┘         │
-│                                ↓                                            │
-│         ┌─────────────────────────────────────────────────────────┐         │
-│         │  Step 3: Consumer 4 — Coverage Validator                │         │
-│         │  --gap-analysis                                         │         │
-│         │  Output: fa_gap_analysis.json, fa_coverage_report.json    │         │
-│         └──────────────────────┬──────────────────────────────────┘         │
-│                                ↓                                            │
-│         ┌─────────────────────────────────────────────────────────┐         │
-│         │  Step 4: Human SME Review                               │         │
-│         │  ┌───────────────────────────────────────────────────┐  │         │
-│         │  │  fa_gap_analysis.json:                             │  │         │
-│         │  │  - MATCHED       ✓ Model aligned                  │  │         │
-│         │  │  - MODEL_ONLY    ? Should this be in handbook?    │  │         │
-│         │  │                  (technical entity? out of scope?)│  │         │
-│         │  │  - HANDBOOK_ONLY → ACTION: Consider adding to     │  │         │
-│         │  │                    conceptual model               │  │         │
-│         │  └───────────────────────────────────────────────────┘  │         │
-│         │  ┌───────────────────────────────────────────────────┐  │         │
-│         │  │  fa_coverage_report.json:                          │  │         │
-│         │  │  - STRONG (≥0.70)  ✓ Well-covered                 │  │         │
-│         │  │  - MODERATE        ~ Some context                 │  │         │
-│         │  │  - THIN            ⚠ Weak signal — rename?        │  │         │
-│         │  │  - ABSENT (<0.40)  ✗ Not in handbook — technical? │  │         │
-│         │  └───────────────────────────────────────────────────┘  │         │
-│         └──────────────────────┬──────────────────────────────────┘         │
-│                                ↓                                            │
-│         ┌─────────────────────────────────────────────────────────┐         │
-│         │  Step 5: Model Updates in LeanIX                        │         │
-│         │  - Add HANDBOOK_ONLY entities to conceptual model       │         │
-│         │  - Review MODEL_ONLY entities: keep or remove?          │         │
-│         │  - Rename/restructure THIN entities for clarity         │         │
-│         │  - Document ABSENT entities as technical (non-business) │         │
-│         └──────────────────────┬──────────────────────────────────┘         │
-│                                ↓                                            │
-│         ┌─────────────────────────────────────────────────────────┐         │
-│         │  Step 6: Regenerate Integrated Catalog                  │         │
-│         │  elt-llm-consumer-integrated-catalog                    │         │
-│         │  Output: Updated fa_terms_of_reference.json              │         │
-│         └──────────────────────┬──────────────────────────────────┘         │
-│                                ↓                                            │
-│         ┌─────────────────────────────────────────────────────────┐         │
-│         │  Step 7: Logical Model Derivation                       │         │
-│         │  - Use enhanced conceptual model + handbook ToR         │         │
-│         │  - Add attributes, keys, cardinalities                  │         │
-│         │  - Output: ERD, UML class diagram                       │         │
-│         └─────────────────────────────────────────────────────────┘         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-### 7.2 Gap Analysis Interpretation Guide
-
-| Status | Count | Interpretation | Action |
-|--------|-------|----------------|--------|
-| **MATCHED** | — | Entity exists in both model and handbook |  No action needed |
-| **MODEL_ONLY** | — | Entity in model but not discussed in handbook |  **Review**: Is this a technical implementation detail? Should it have business governance? Consider marking as "technical entity" or removing if not needed |
-| **HANDBOOK_ONLY** | — | Handbook discusses it, but not in model | ➕ **Add to model**: This is a gap — the conceptual model is missing a business entity |
-
-**Coverage Verdict Interpretation**:
-
-| Verdict | Score Range | Interpretation | Action |
-|---------|-------------|----------------|--------|
-| **STRONG** | ≥ 0.70 | Handbook clearly discusses this entity |  Well-aligned |
-| **MODERATE** | 0.55–0.70 | Some governance context exists | ~ Review — may need more handbook coverage or entity refinement |
-| **THIN** | 0.40–0.55 | Weak signal — handbook may use different terminology |  **Investigate**: Check `top_chunk_preview` in report — is entity named differently? |
-| **ABSENT** | < 0.40 | Not meaningfully present in handbook | ❓ **Question**: Is this a technical/data object (not business)? Or is handbook outdated? |
-
----
-
-### 7.3 Logical Model Creation
-
-Once the conceptual model has been enhanced through the feedback loop, the logical model can be derived:
-
-**Input Artefacts**:
-1. **Enhanced LeanIX conceptual model** (XML, post-gap-analysis updates)
-2. **FA Handbook Terms of Reference** (from Consumer 2 or 3)
-3. **Gap analysis reports** (understanding of what was added/removed)
-4. **LeanIX inventory descriptions** (for system context)
-
-**Derivation Process**:
-
-```
-Step 1: Entity Enrichment
-─────────────────────────
-  For each entity in enhanced conceptual model:
-    - Extract business definition from handbook ToR
-    - Identify attributes mentioned in handbook (e.g., "Club has name, address, affiliation date")
-    - Note cardinalities from relationships (e.g., "Club has many Players")
-
-Step 2: Attribute Specification
-───────────────────────────────
-  For each entity:
-    - List all attributes (from handbook + inventory + SME knowledge)
-    - Define data types (string, date, identifier, etc.)
-    - Identify primary keys (natural or surrogate)
-    - Mark mandatory vs optional attributes
-
-Step 3: Relationship Refinement
-───────────────────────────────
-  For each relationship:
-    - Specify cardinality (1:1, 1:N, M:N)
-    - Identify relationship attributes (if any)
-    - Note referential integrity rules
-
-Step 4: SME Review Workshop
-────────────────────────────
-  - Walk through logical model with Data Working Group
-  - Validate attributes against business understanding
-  - Resolve ambiguities (e.g., is "Club ID" the same as "Affiliation Number"?)
-
-Step 5: Notation & Output
-─────────────────────────
-  - Export to ERD tool (e.g., draw.io, ER/Studio, PowerDesigner)
-  - Or generate UML class diagram
-  - Document in LeanIX as logical model layer
-```
-
-**Output Artefacts**:
-- Logical ERD (entity-relationship diagram with attributes and cardinalities)
-- UML class diagram (if using object-oriented notation)
-- Attribute dictionary (name, type, constraints, definition source)
-- Relationship matrix (source, target, cardinality, definition)
-
----
-
-### 7.4 Are You Being Naive?
-
-**Short answer**: No — but success depends on **human SME review** at key points.
-
-**What works well**:
--  Automated extraction of candidate entities from handbook
--  Automated coverage scoring (retrieval is fast and objective)
--  Gap identification (clear signal on what's missing/misaligned)
--  Three-source join (model + inventory + handbook)
-
-**Where human judgment is essential**:
--  **Entity naming mismatches**: Handbook says "Affiliated Organisation", model says "Club" — same thing?
--  **Technical vs business entities**: Model has "API_Payload_Log" — should this be in a business conceptual model?
--  **Attribute derivation**: Handbook mentions "Club must have a secretary" — is this an attribute, a relationship, or a role?
--  **Cardinality interpretation**: Handbook says "Players register with Clubs" — is this 1:N, M:N, or time-dependent?
-
-**The system's role**: Automate the **discovery, scoring, and synthesis** — surface evidence for human experts to make informed decisions.
-
-**The risk**: Treating LLM output as authoritative without SME validation. The handbook model builder output is **candidate** entities — not a replacement for data modelling discipline.
-
----
-
-### 7.5 Success Metrics
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| **Model-Handbook Alignment** | >80% MATCHED | `fa_gap_analysis.json`: MATCHED / total |
-| **Coverage Quality** | >70% STRONG/MODERATE | `fa_coverage_report.json`: (STRONG + MODERATE) / total |
-| **Gap Resolution Rate** | Track over iterations | Count of HANDBOOK_ONLY entities added to model per cycle |
-| **Terms of Reference Completeness** | 100% of model entities | `fa_terms_of_reference.json`: rows with non-empty definitions |
-
----
-
-**Bottom line**: The architecture provides the **evidence base** for conceptual model improvement. The gap analysis doesn't just show problems — it tells you **exactly what to fix** and **where the handbook content is** to guide the fix.
+**Important caveat**: LLM output is *candidate* content — not a replacement for data modelling discipline. The system automates discovery and synthesis; human SMEs make the final calls.

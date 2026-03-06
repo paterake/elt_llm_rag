@@ -11,7 +11,7 @@
 **Challenge**: Generate a comprehensive business glossary from the FA Handbook, reverse-engineered and mapped to the LeanIX conceptual data model as the frame.
 
 **Solution**: A RAG+LLM platform that:
-1. Extracts ~152 defined terms from the FA Handbook
+1. Extracts ~149 defined terms from the FA Handbook
 2. Maps each term to LeanIX conceptual model entities
 3. Enriches with governance rules, definitions, and relationships
 4. Produces review-ready JSON output for stakeholder validation
@@ -78,7 +78,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 │ 2. RAG STRATEGY (elt_llm_query)                                 │
 │    - Hybrid retrieval: BM25 + Vector                            │
 │    - Embedding reranker: nomic-embed-text                       │
-│    - LLM synthesis: qwen2.5:14b                                 │
+│    - LLM synthesis: qwen3.5:9b                                 │
 │    (Used only for FA Handbook queries — see Consumer below)     │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
@@ -113,7 +113,7 @@ RAG+LLM is used **only for the FA Handbook** (unstructured PDF text).
 | **Vector Store** | ChromaDB | Persistent, tenant/database isolation |
 | **DocStore** | LlamaIndex | Metadata index for structured extraction |
 | **Embeddings** | Ollama | `nomic-embed-text` (768 dimensions) |
-| **LLM** | Ollama | `qwen2.5:14b` (8K context) |
+| **LLM** | Ollama | `qwen3.5:9b` (8K context) |
 | **Retrieval** | Hybrid | BM25 + Vector via QueryFusionRetriever |
 | **Reranking** | Embedding or Cross-encoder | Cosine similarity or CrossEncoder (top-20 → top-8) |
 | **Orchestration** | LlamaIndex | Query engine with synthesis |
@@ -137,7 +137,7 @@ RAG+LLM is used **only for the FA Handbook** (unstructured PDF text).
 ```
 Query → Hybrid Retrieval (BM25 + Vector) → Top-20 candidates
       → Embedding Reranker (cosine similarity) → Top-8 chunks
-      → LLM Synthesis (qwen2.5:14b) → Structured JSON output
+      → LLM Synthesis (qwen3.5:9b) → Structured JSON output
 ```
 
 ---
@@ -150,7 +150,7 @@ Query → Hybrid Retrieval (BM25 + Vector) → Top-20 candidates
 
 | Collection | Source | Content | Vectors |
 |------------|--------|---------|---------|
-| `fa_handbook` | FA Handbook PDF | Governance rules, definitions, obligations | ~3,227 |
+| `fa_handbook` | FA Handbook PDF | Governance rules, definitions, obligations | 3,375 |
 | `fa_leanix_dat_enterprise_conceptual_model_*` | LeanIX XML (draw.io) | Conceptual model entities + relationships | ~28 |
 | `fa_leanix_global_inventory_*` | LeanIX Excel | System/application descriptions | ~331 |
 
@@ -180,9 +180,9 @@ uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 
 | Step | Source | Method | Output |
 |------|--------|--------|--------|
-| 1. Load entities | `_model.json` (LeanIX XML sidecar) | Direct JSON read | 177 entities with domain, subtype, fact_sheet_id |
+| 1. Load entities | `_model.json` (LeanIX XML sidecar) | Direct JSON read | 175 entities with domain, subtype, fact_sheet_id |
 | 2. Inventory descriptions | `_inventory.json` (LeanIX Excel sidecar) | O(1) dict lookup by fact_sheet_id | Descriptions for each entity |
-| 3. Extract Handbook terms | `fa_handbook` docstore | Docstore scan (definition markers) | ~152 defined terms |
+| 3. Extract Handbook terms | `fa_handbook` docstore | Docstore scan (definition markers) | ~149 defined terms |
 | 4. Map terms to entities | Handbook terms + model entities | Normalised name matching | BOTH/LEANIX_ONLY/HANDBOOK_ONLY classification |
 | 5. Handbook context | `fa_handbook` collection | RAG+LLM per entity | Formal definition, domain context, governance rules |
 | 6. Relationships | `_model.json` | Direct JSON read | Domain-level relationships |
@@ -423,7 +423,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
 
 # Model override
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen2.5:14b
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen3.5:9b
 ```
 
 ### 10.2 Output Files

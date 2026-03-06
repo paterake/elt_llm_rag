@@ -24,7 +24,7 @@ Unlike interactive query (one question → one answer), consumer scripts batch-p
 # 1. Start Ollama
 ollama serve
 ollama pull nomic-embed-text
-ollama pull qwen2.5:14b
+ollama pull qwen3.5:9b
 
 # 2. Ingest collections (if not already done)
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
@@ -48,7 +48,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships --domain PARTY
 
 # With specific model override
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen2.5:14b
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen3.5:9b
 ```
 
 **Output**:
@@ -93,7 +93,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
 
 # Model override
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen2.5:14b
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen3.5:9b
 ```
 
 **Output**:
@@ -148,9 +148,9 @@ RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
 
 **Output**:
 ```
-.fa_handbook_candidate_entities.json       ← Terms, definitions, categories
-.fa_handbook_candidate_relationships.json  ← Inferred relationships
-.fa_handbook_terms_of_reference.json       ← Consolidated ToR per term
+.tmp/fa_handbook_candidate_entities.json       ← Terms, definitions, categories
+.tmp/fa_handbook_candidate_relationships.json  ← Inferred relationships
+.tmp/fa_handbook_terms_of_reference.json       ← Consolidated ToR per term
 ```
 
 **Default seed topics** (14): Club, Player, Official, Referee, Competition, County FA, Registration, Transfer, Affiliation, Discipline, Safeguarding, Governance, Eligibility, Licence
@@ -196,7 +196,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 | `THIN` | 0.40-0.55 | Weak signal; may be named differently |
 | `ABSENT` | < 0.40 | Not meaningfully present in handbook |
 
-**Runtime**: ~217 entities × 1-2s = 3-7 min (no LLM, retrieval only)
+**Runtime**: ~175 entities × 1-2s = 3-5 min (no LLM, retrieval only)
 
 ---
 
@@ -204,7 +204,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 
 | Model | Speed | Quality | Use Case |
 |-------|-------|---------|----------|
-| `qwen2.5:14b` | ~10s/entity | Best | Default — strongest structured output |
+| `qwen3.5:9b` | ~10s/entity | Best | Default — strongest structured output |
 | `mistral-nemo:12b` | ~8s/entity | Good | Solid alternative |
 | `llama3.1:8b` | ~5s/entity | Medium | Fast iteration / dev use |
 | `granite3.1-dense:8b` | ~5s/entity | Medium | IBM enterprise tuning |

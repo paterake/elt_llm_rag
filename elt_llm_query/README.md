@@ -11,7 +11,7 @@ Query interface for RAG collections. See [ARCHITECTURE.md](../ARCHITECTURE.md) f
 ```bash
 ollama serve
 ollama pull nomic-embed-text
-ollama pull qwen2.5:14b
+ollama pull qwen3.5:9b
 ```
 
 Collections must be ingested first — see [elt_llm_ingest/README.md](../elt_llm_ingest/README.md).

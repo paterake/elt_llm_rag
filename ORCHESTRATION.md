@@ -17,12 +17,12 @@ The platform successfully delivers:
 
 | Requirement | Implementation | Status |
 |-------------|----------------|--------|
-| Conceptual model as the frame | LeanIX XML (217 entities across 11 domain collections) |  |
+| Conceptual model as the frame | LeanIX XML (175 entities) |  |
 | FA Handbook providing SME/business context | RAG collection with ~9,673 chunks |  |
 | LeanIX Inventory providing entity descriptions | Excel-driven join via `fact_sheet_id` (100% match rate) |  |
 | Glossary terms linked to LeanIX Data Objects | `fa_consolidated_catalog.json` — BOTH/LEANIX_ONLY/HANDBOOK_ONLY classification |  |
 
-**Key Achievement**: 100% match rate — all 217 conceptual model entities linked to inventory descriptions with FA Handbook governance context.
+**Key Achievement**: 100% match rate — all 175 conceptual model entities linked to inventory descriptions with FA Handbook governance context.
 
 ---
 
@@ -103,11 +103,11 @@ uv run --package elt-llm-consumer elt-llm-consumer-leanix-validate
 
 # Step 3: Generate consolidated catalog (primary output)
 #   - Entities and inventory: direct JSON lookup (fast, deterministic)
-#   - Handbook context: RAG+LLM (qwen2.5:14b)
+#   - Handbook context: RAG+LLM (qwen3.5:9b)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 
 # Step 4 (optional): Discover handbook entities not in conceptual model
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen3.5:9b
 
 # Step 5 (optional): Coverage scoring — which model entities have handbook coverage?
 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
@@ -323,7 +323,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog \
     --skip-relationships --domain PARTY
 
 # Discover handbook entities not in conceptual model (gap analysis input)
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen2.5:14b
+uv run --package elt-llm-consumer elt-llm-consumer-handbook-model --model qwen3.5:9b
 
 # Coverage scoring: which model entities have strong/thin/absent handbook coverage?
 uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
@@ -333,7 +333,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 
 | Model | Speed | Quality | Use Case |
 |-------|-------|---------|----------|
-| `qwen2.5:14b` | ~10s/entity | Best | Production runs |
+| `qwen3.5:9b` | ~10s/entity | Best | Production runs |
 | `mistral-nemo:12b` | ~8s/entity | Good | Alternative |
 | `llama3.1:8b` | ~5s/entity | Medium | Development / iteration |
 
@@ -346,7 +346,7 @@ uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-anal
 | Issue | Resolution |
 |-------|------------|
 | **Ollama not running** | `ollama serve` (in separate terminal) |
-| **Model not found** | `ollama pull nomic-embed-text` and `ollama pull qwen2.5:14b` |
+| **Model not found** | `ollama pull nomic-embed-text` and `ollama pull qwen3.5:9b` |
 | **Collections missing** | Run `uv run python -m elt_llm_ingest.runner --cfg load_rag` |
 | **Consumer script fails** | Check `.tmp/` directory at project root exists and is writable |
 | **Out of memory** | Reduce batch size or use smaller model (`llama3.1:8b`) |

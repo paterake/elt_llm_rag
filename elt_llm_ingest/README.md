@@ -1,6 +1,6 @@
 # elt-llm-ingest
 
-Document ingestion pipeline. See [ARCHITECTURE.md](../ARCHITECTURE.md) for design documentation.
+Document ingestion pipeline. See [ARCHITECTURE.md](ARCHITECTURE.md) for design documentation.
 
 **All commands run from the repository root.**
 
@@ -11,7 +11,7 @@ Document ingestion pipeline. See [ARCHITECTURE.md](../ARCHITECTURE.md) for desig
 ```bash
 ollama serve
 ollama pull nomic-embed-text
-ollama pull qwen2.5:14b
+ollama pull qwen3.5:9b
 ```
 
 ---

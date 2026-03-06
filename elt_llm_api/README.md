@@ -1,6 +1,6 @@
 # elt-llm-api
 
-Gradio GUI and programmatic API for the RAG system. See [ARCHITECTURE.md § 2.5](../ARCHITECTURE.md#25-api--gui-layer-elt_llm_api) for design documentation.
+Gradio GUI and programmatic API for the RAG system. See [ARCHITECTURE.md](ARCHITECTURE.md) for design documentation.
 
 **All commands run from the repository root.**
 

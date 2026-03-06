@@ -10,7 +10,7 @@ RAG platform for FA architecture knowledge, data governance, and automated docum
 # Prerequisites
 ollama serve
 ollama pull nomic-embed-text
-ollama pull qwen2.5:14b
+ollama pull qwen3.5:9b
 
 # Install
 uv sync --all-packages
@@ -189,7 +189,7 @@ uv run python -m elt_llm_ingest.runner --cfg load_rag
 |-----------|------------|
 | Vector Store | ChromaDB |
 | Embeddings | Ollama (nomic-embed-text) |
-| LLM | Ollama (qwen2.5:14b) |
+| LLM | Ollama (qwen3.5:9b) |
 | Retrieval | LlamaIndex (BM25 + Vector hybrid) |
 | Reranking | Embedding (default) or Cross-encoder |
 | Dependency Management | uv |

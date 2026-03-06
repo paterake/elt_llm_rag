@@ -144,7 +144,7 @@ preprocessor:
 - Subgroup assignment via geometry analysis (parent chain traversal)
 - Domain/subtype entity labels excluded from leaf entity list (container labels only)
 
-**Outputs**: `<stem>_model.json` (177 entities for direct JSON lookup), `<stem>_entities.md` and `<stem>_relationships.md` (ingested into ChromaDB for semantic search). See [elt_llm_ingest/ARCHITECTURE.md](elt_llm_ingest/ARCHITECTURE.md) for full preprocessor output details.
+**Outputs**: `<stem>_model.json` (175 entities for direct JSON lookup), `<stem>_entities.md` and `<stem>_relationships.md` (ingested into ChromaDB for semantic search). See [elt_llm_ingest/ARCHITECTURE.md](elt_llm_ingest/ARCHITECTURE.md) for full preprocessor output details.
 
 **Configuration**:
 ```yaml
@@ -228,7 +228,7 @@ preprocessor:
 |-----------|------------|---------------|
 | Vector Store | ChromaDB | Persistent, tenant/database isolation |
 | Embeddings | Ollama | `nomic-embed-text` (768 dims) |
-| LLM | Ollama | `qwen2.5:14b` (8K context) |
+| LLM | Ollama | `qwen3.5:9b` |
 | Retrieval | LlamaIndex | BM25 + Vector hybrid |
 | Reranking | Embedding or Cross-encoder | Cosine similarity or CrossEncoder (top-20 → top-8) |
 | Dependency Mgmt | uv | Python 3.11-3.13 |
@@ -260,7 +260,7 @@ See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, a
 
 | File | Source | Content |
 |------|--------|---------|
-| `*_model.json` | LeanIX XML | 177 entities: domain, subtype, fact_sheet_id |
+| `*_model.json` | LeanIX XML | 175 entities: domain, subtype, fact_sheet_id |
 | `*_inventory.json` | LeanIX Excel | 1424 fact sheets keyed by fact_sheet_id |
 
 ---

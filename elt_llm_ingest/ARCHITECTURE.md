@@ -109,7 +109,7 @@ Ingest heterogeneous documents into a RAG-ready store with:
 - Writes per-type Markdown → per-type ChromaDB collections (`fa_leanix_global_inventory_*`)
 
 **`PyMuPDFPreprocessor`** — FA Handbook PDF:
-- PDF → Markdown via pymupdf4llm (PyMuPDF); no model downloads or internet access required
+- PDF → Markdown via pymupdf4llm + pymupdf-layout (PyMuPDF); no model downloads or internet access required. pymupdf-layout adds ML-based layout analysis for improved table and header extraction.
 - Detects headings via font size/weight, preserves tables and reading order
 - No page-range configuration needed
 - Output: `_clean.md` → `fa_handbook` ChromaDB collection
