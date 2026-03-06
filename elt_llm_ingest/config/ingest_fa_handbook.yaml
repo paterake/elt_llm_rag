@@ -15,12 +15,10 @@ metadata:
 # Whether to rebuild the collection on each run
 rebuild: true
 
-# Chunking: pymupdf4llm's structure-aware markdown preserves section boundaries,
-# so 512-token chunks keep full rule paragraphs together.
-chunking:
-  strategy: "sentence"
-  chunk_size: 512
-  chunk_overlap: 64
+# Chunking: Uses global rag_config.yaml settings (table_aware strategy).
+# The table_aware splitter preserves FA Handbook definition table rows (Rules §8)
+# as single chunks while using standard 256-token chunks for prose content.
+# No local override needed.
 
 # Preprocessor: pymupdf4llm converts PDF → Markdown using PyMuPDF font-based heuristics.
 # Preserves section hierarchy, tables, and reading order.

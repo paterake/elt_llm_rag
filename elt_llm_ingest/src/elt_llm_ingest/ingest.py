@@ -225,10 +225,16 @@ def build_index(
     # (ChromaDB is the authoritative node store). We run the pipeline explicitly
     # so we have the nodes to save separately for BM25.
     chunking = chunking_override if chunking_override is not None else rag_config.chunking
-    splitter = SentenceSplitter(
+    
+    # Use table-aware splitter for FA Handbook to preserve definition table rows
+    from elt_llm_ingest.chunking import create_splitter
+    splitter = create_splitter(
+        strategy=chunking.strategy,
         chunk_size=chunking.chunk_size,
         chunk_overlap=chunking.chunk_overlap,
+        table_chunk_size=getattr(chunking, "table_chunk_size", 1024),
     )
+    
     nodes = IngestionPipeline(transformations=[splitter]).run(
         documents=documents,
         show_progress=True,

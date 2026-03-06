@@ -830,6 +830,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "openpyxl" },
+    { name = "pymupdf" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -839,6 +840,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "openpyxl", specifier = ">=3.1.5" },
+    { name = "pymupdf", specifier = ">=1.27.1" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", specifier = ">=4.0.0" },
 ]

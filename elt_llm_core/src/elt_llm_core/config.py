@@ -53,16 +53,18 @@ class ChunkingConfig:
     """Document chunking configuration.
 
     Attributes:
-        strategy: Chunking strategy ("sentence" or "semantic").
+        strategy: Chunking strategy ("sentence", "table_aware", or "section_aware").
         chunk_size: Maximum characters per chunk.
         chunk_overlap: Overlap between consecutive chunks.
         sentence_split_threshold: Threshold for semantic splitting.
+        table_chunk_size: Maximum tokens for table row chunks (table_aware strategy only).
     """
 
     strategy: str = "sentence"
     chunk_size: int = 1024
     chunk_overlap: int = 200
     sentence_split_threshold: float = 0.5
+    table_chunk_size: int = 1024
 
 
 @dataclass

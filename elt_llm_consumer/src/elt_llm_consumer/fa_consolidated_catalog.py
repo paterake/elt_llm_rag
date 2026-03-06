@@ -62,6 +62,81 @@ from elt_llm_core.vector_store import get_docstore_path
 from elt_llm_query.query import query_collections
 
 # ---------------------------------------------------------------------------
+# Entity alias map for Step 4 matching (Fix 2)
+# ---------------------------------------------------------------------------
+
+_ENTITY_ALIASES: dict[str, list[str]] = {
+    # County/FA mappings
+    "fa county": ["county association", "county football association"],
+    "county association": ["fa county", "county fa"],
+    # Competition/League mappings
+    "competition league": ["competition", "league"],
+    "competition": ["competition league", "league"],
+    # Governing body mappings
+    "sports governing body": ["national association", "affiliated association", "governing body"],
+    "affiliated association": ["sports governing body", "national association"],
+    # Match official mappings
+    "match official": ["referee", "assistant referee", "fourth official", "var"],
+    "referee": ["match official"],
+    # Coach/Developer mappings
+    "coach developer": ["coach", "instructor", "trainer"],
+    "coach": ["coach developer"],
+    # Learner/Trainee mappings
+    "learner": ["trainee", "candidate", "student"],
+    # Board/Committee mappings
+    "board & committee members": ["board", "committee", "directors", "management committee"],
+    "board": ["board & committee members"],
+    "committee": ["board & committee members"],
+    # Club official mappings
+    "club official": ["officer", "director", "secretary", "club officer"],
+    "officer": ["club official"],
+    # Employee/Worker mappings
+    "employees": ["staff", "worker", "employee"],
+    "casual & contingent labourers": ["casual worker", "contingent worker", "temporary worker"],
+    "managed service workers": ["contractor", "third party worker", "agency worker"],
+    # Supporter/Fan mappings
+    "england supporter": ["supporter", "fan", "member"],
+    "event attendee": ["attendee", "spectator", "guest"],
+    # Customer/Commercial mappings
+    "customer": ["client", "consumer", "purchaser"],
+    "prospect": ["potential customer", "lead", "candidate"],
+    # Organisation mappings
+    "business unit": ["division", "department", "unit"],
+    "household": ["family", "domestic unit"],
+    "supplier": ["vendor", "provider", "contractor"],
+    "school": ["educational institution", "academy"],
+    "local authority": ["council", "municipality"],
+    "government": ["state", "public authority"],
+    # Role mappings
+    "mentor": ["advisor", "guide", "tutor"],
+    "candidates": ["applicant", "nominee"],
+}
+
+# Entities with no handbook coverage - skip RAG calls (Fix 1)
+_NO_HANDBOOK_COVERAGE = frozenset([
+    "Supplier",
+    "Household", 
+    "Business Unit",
+    "Prospect",
+    "Customer",
+    "Event Attendee",
+    "Casual & Contingent Labourers",
+    "Managed Service Workers",
+])
+
+# Core regulatory entities requiring intensive governance queries (Fix 5)
+_GOVERNANCE_INTENSIVE_ENTITIES = frozenset([
+    "Club",
+    "Player",
+    "Match Official",
+    "Club Official",
+    "County Association",
+    "Competition",
+    "Competition League",
+    "FA County",
+])
+
+# ---------------------------------------------------------------------------
 # Default paths
 # ---------------------------------------------------------------------------
 
@@ -601,6 +676,34 @@ def _normalize(name: str) -> str:
     return " ".join(name.lower().split())
 
 
+def _get_alias_variants(term: str) -> list[str]:
+    """Generate normalized term variants including aliases.
+    
+    For a given term, returns:
+    1. The base normalized form
+    2. All known aliases from _ENTITY_ALIASES
+    3. Common abbreviations (association→assoc, football→fa)
+    """
+    base = _normalize(term)
+    variants: set[str] = {base}
+    
+    # Add known aliases
+    for canonical, aliases in _ENTITY_ALIASES.items():
+        if base == canonical:
+            variants.update(aliases)
+        elif base in aliases:
+            variants.add(canonical)
+            variants.update(a for a in aliases if a != base)
+    
+    # Add common abbreviations
+    if "association" in base:
+        variants.add(base.replace("association", "assoc"))
+    if "football" in base:
+        variants.add(base.replace("football", "fa"))
+    
+    return list(variants)
+
+
 def consolidate_catalog(
     conceptual_entities: list[dict],
     handbook_terms: list[dict],
@@ -973,18 +1076,39 @@ def generate_consolidated_catalog(
     else:
         # Match against the full entity list (not domain/entity-filtered subset)
         # so that handbook terms are matched across all domains.
-        entity_name_map = {_normalize(e["entity_name"]): e for e in all_entities}
+        # Build entity lookup with alias variants for expanded matching.
+        entity_name_map: dict[str, dict] = {}
+        for e in all_entities:
+            # Index by normalized name
+            norm_name = _normalize(e["entity_name"])
+            entity_name_map[norm_name] = e
+            # Also index by alias variants
+            for variant in _get_alias_variants(e["entity_name"]):
+                if variant != norm_name:
+                    entity_name_map[variant] = e
+        
         matched_terms = 0
         for term_entry in handbook_terms:
             term = term_entry["term"]
-            matched_entity = entity_name_map.get(_normalize(term))
+            # Try all alias variants for this term
+            matched_entity = None
+            match_type = "no match"
+            for variant in _get_alias_variants(term):
+                if variant in entity_name_map:
+                    matched_entity = entity_name_map[variant]
+                    if variant == _normalize(term):
+                        match_type = "direct"
+                    else:
+                        match_type = "alias"
+                    break
+            
             if matched_entity:
                 handbook_mappings[term.lower()] = {
                     "mapped_entity": matched_entity["entity_name"],
                     "domain": matched_entity["domain"],
                     "fact_sheet_id": matched_entity["fact_sheet_id"],
-                    "mapping_confidence": "high",
-                    "mapping_rationale": "Direct name match",
+                    "mapping_confidence": "high" if match_type == "direct" else "medium",
+                    "mapping_rationale": "Direct name match" if match_type == "direct" else f"Alias match via '{term}' → '{matched_entity['entity_name']}'",
                 }
                 matched_terms += 1
             else:
@@ -1011,6 +1135,16 @@ def generate_consolidated_catalog(
             name = entity.get("entity_name", "")
             domain = entity.get("domain", "UNKNOWN")
             print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
+            
+            # Fix 1: Skip RAG for entities with no handbook coverage
+            if name in _NO_HANDBOOK_COVERAGE:
+                handbook_context[_normalize(name)] = {
+                    "formal_definition": "",
+                    "domain_context": "Not applicable — internal FA business concept outside regulatory scope",
+                    "governance_rules": "Not documented in FA Handbook — outside governance scope",
+                }
+                continue
+            
             context = get_handbook_context_for_entity(
                 name, domain, handbook_collections, rag_config,
                 term_definitions=term_definitions,
@@ -1021,6 +1155,15 @@ def generate_consolidated_catalog(
                 gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
                 if gov_rules:
                     context["governance_rules"] = gov_rules
+            
+            # Fix 5: Always run dedicated governance query for intensive entities
+            if name in _GOVERNANCE_INTENSIVE_ENTITIES:
+                gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
+                if gov_rules and not gov_rules.startswith("Not documented"):
+                    # Merge with existing governance (prefer the more detailed one)
+                    if len(gov_rules) > len(context.get("governance_rules", "")):
+                        context["governance_rules"] = gov_rules
+            
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 

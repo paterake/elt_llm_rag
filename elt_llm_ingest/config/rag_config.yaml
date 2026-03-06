@@ -15,22 +15,35 @@ ollama:
   context_window: 16384         # 16K — safe on M3 18GB; allows 15 chunks of 512 tokens to LLM
   request_timeout: 600.0        # 10 minutes for complex multi-collection queries
 
-# Chunking settings
+# Chunking settings: Table-aware strategy preserves FA Handbook definition tables
+# Rules §8 (pp.86-95) contains a two-column definitions table where each row
+# defines an entity (e.g., "Participant", "Club", "Player"). These rows span
+# multiple lines and would be split across chunks with standard sentence splitting.
+#
+# The table_aware strategy:
+# - Prose content: chunk_size tokens (256)
+# - Table rows: Single chunk per row, up to table_chunk_size tokens (1024)
+#
+# This ensures definitions like "Participant means any Affiliated Association,
+# Competition, Club, Club Official..." remain intact for retrieval.
 chunking:
-  strategy: "sentence"  # or "semantic"
-  chunk_size: 256
-  chunk_overlap: 32
+  strategy: "table_aware"  # Options: sentence, table_aware, section_aware
+  chunk_size: 256          # Prose chunk size
+  chunk_overlap: 32        # Prose overlap
   sentence_split_threshold: 0.5
+  table_chunk_size: 1536   # Max size for table rows (accommodates multi-line definitions)
 
 # Query settings
 query:
-  similarity_top_k: 10
+  similarity_top_k: 8       # Reduced from 10 to accommodate larger chunk_size (768)
+                            # 8 chunks × 768 = 6.1K, leaving ~10K for LLM output
   use_hybrid_search: true  # Combine BM25 keyword + vector search (fixes structured/list content)
   use_reranker: true        # Re-score retrieved chunks before LLM synthesis
   reranker_strategy: "embedding"  # "embedding" (Ollama/local) | "cross-encoder" (sentence-transformers)
   reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"  # used only when strategy=cross-encoder
-  reranker_retrieve_k: 30  # Candidates fetched before reranking
-  reranker_top_k: 15       # Chunks kept after reranking and passed to LLM
+  reranker_retrieve_k: 24   # Reduced from 30 (fetch fewer candidates)
+  reranker_top_k: 10        # Reduced from 15 to fit context window with larger chunks
+                            # 10 chunks × 768 = 7.7K, leaving ~8.6K for LLM output
 
   # Multi-query retrieval: generate num_queries-1 additional query variants via LLM.
   # Higher values improve recall for compound queries at the cost of extra LLM calls.
