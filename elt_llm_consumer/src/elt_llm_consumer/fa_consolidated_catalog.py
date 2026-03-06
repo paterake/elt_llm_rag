@@ -240,14 +240,23 @@ _DEF_PAT = re.compile(
     r'\*{0,2}"?([A-Z][A-Za-z0-9\s/()\'\-]{1,60}?)"?\*{0,2}\s+means\s+(.+?)(?:\s*;)?\s*$',
     re.MULTILINE,
 )
+# Matches markdown table rows from the Definitions/Interpretation table:
+#   |Term Name|means Definition text|
+#   |Multi<br>Line Term|means Definition text|
+_TABLE_DEF_PAT = re.compile(
+    r'^\|([A-Z][A-Za-z0-9\s<>/"\'/()\-]{1,100}?)\|means\s+(.+?)\|?\s*$',
+    re.MULTILINE,
+)
 
 
 
 def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
     """Extract defined terms from fa_handbook docstore.
 
-    Scans all docstore nodes for 'TERM means DEFINITION' patterns as produced
-    by pymupdf4llm's markdown export. No artificial markers needed.
+    Scans all docstore nodes for two patterns:
+    - Plain text: 'TERM means DEFINITION' (inline definitions throughout the handbook)
+    - Table rows: '|TERM|means DEFINITION|' (Definitions/Interpretation tables,
+      including multi-line terms with <br> separators)
     """
     from llama_index.core import StorageContext
 
@@ -270,16 +279,20 @@ def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
 
     for node in nodes:
         text = getattr(node, "text", "") or ""
-        for m in _DEF_PAT.finditer(text):
-            term = " ".join(m.group(1).split())
-            defn = " ".join(m.group(2).split()).rstrip(";").rstrip(".")
-            if len(defn) < 10 or len(defn) > 1500:
-                continue
-            key = term.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            terms.append({"term": term, "definition": defn})
+        for pat in (_DEF_PAT, _TABLE_DEF_PAT):
+            for m in pat.finditer(text):
+                # Normalise term and definition: collapse <br> tags and whitespace
+                raw_term = re.sub(r"<br\s*/?>", " ", m.group(1))
+                term = " ".join(raw_term.split())
+                raw_defn = re.sub(r"<br\s*/?>", " ", m.group(2))
+                defn = " ".join(raw_defn.split()).rstrip(";").rstrip(".")
+                if len(defn) < 10 or len(defn) > 1500:
+                    continue
+                key = term.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                terms.append({"term": term, "definition": defn})
 
     terms.sort(key=lambda x: x["term"].lower())
     print(f"  {len(terms)} unique defined terms extracted from docstore")
