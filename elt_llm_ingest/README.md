@@ -70,6 +70,10 @@ uv run python -m elt_llm_ingest.runner --cfg ingest_dama_dmbok --delete -f
 
 # Delete all fa_leanix_* collections (split-mode config)
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_ea_leanix --delete -f
+
+# Delete all fa_leanix_* collections (split-mode config)
+uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook --delete -f
+
 ```
 
 ---
