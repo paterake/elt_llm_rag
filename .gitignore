@@ -14,6 +14,7 @@ build/
 
 # Generated intermediate files (preprocessor output)
 **/_leanix_sections/
+**/_section_splits/
 
 # OS
 .DS_Store

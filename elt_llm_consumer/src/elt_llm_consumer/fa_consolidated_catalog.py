@@ -155,7 +155,6 @@ _DEFAULT_INVENTORY_JSON = _resolve_json_from_ingest_config(_INGEST_CONFIG_INVENT
 # ---------------------------------------------------------------------------
 
 _HANDBOOK_CONTEXT_PROMPT    = _load_prompt("handbook_context.yaml")
-_GOVERNANCE_EXTRACTION_PROMPT = _load_prompt("governance_extraction.yaml")
 _ENTITY_RELATIONSHIP_PROMPT = _load_prompt("entity_relationship.yaml")
 _DOMAIN_INFERENCE_PROMPT    = _load_prompt("domain_inference.yaml")
 

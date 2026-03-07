@@ -1,11 +1,12 @@
 # Query Config: DAMA-DMBOK + FA Handbook Combined
 
 # Collections to query (searches across both)
+# fa_handbook resolves to fa_handbook_s01…s44 (section-split ingestion)
 collections:
   - name: "dama_dmbok"
-    weight: 1.0
+
+collection_prefixes:
   - name: "fa_handbook"
-    weight: 1.0
 
 # Query settings
 query:

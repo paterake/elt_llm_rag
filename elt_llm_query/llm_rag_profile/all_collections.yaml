@@ -3,10 +3,11 @@
 
 collections:
   - name: "dama_dmbok"
-  - name: "fa_handbook"
   - name: "fa_data_architecture"
 
+# fa_handbook resolves to fa_handbook_s01…s44 (section-split ingestion)
 collection_prefixes:
+  - name: "fa_handbook"
   - name: "fa_leanix"
 
 query:
