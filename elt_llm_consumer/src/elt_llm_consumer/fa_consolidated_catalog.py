@@ -364,7 +364,7 @@ def get_handbook_context_for_entity(
     query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain)
 
     try:
-        result = query_collections(handbook_collections, query, rag_config)
+        result = query_collections(handbook_collections, query, rag_config, iterative=True)
         response = result.response.strip()
 
         _section_key_map = {
@@ -384,12 +384,17 @@ def get_handbook_context_for_entity(
             if direct_def:
                 sections["formal_definition"] = direct_def
 
+        # Preserve per-section raw findings alongside the polished synthesis
+        if result.raw_response:
+            sections["raw_handbook_sections"] = result.raw_response
+
         return sections
     except Exception as e:
         return {
             "formal_definition": f"[Error: {e}]",
             "domain_context": "",
             "governance_rules": "",
+            "raw_handbook_sections": "",
         }
 
 

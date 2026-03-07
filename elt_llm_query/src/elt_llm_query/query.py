@@ -593,115 +593,175 @@ def query_collections(
     collection_names: list[str],
     query: str,
     rag_config: RagConfig,
+    iterative: bool = False,
 ) -> QueryResult:
     """Query multiple collections and combine results.
 
-    Retrieves chunks from all collections via vector search first, then makes
-    a single LLM synthesis call with all combined context. This ensures the LLM
-    sees relevant content from every collection rather than discarding all but
-    the first collection's response.
+    Two modes controlled by ``iterative``:
+
+    ``iterative=False`` (default — pooled):
+        Retrieves chunks from all collections, reranks the combined pool, then
+        makes a single LLM synthesis call. Fast; good for general multi-collection
+        queries where the collections are large and retrieval is needed.
+
+    ``iterative=True`` (per-section + polish):
+        Makes one LLM synthesis call per collection (full-context for small
+        collections ≤ full_context_max_chunks, hybrid retrieval for larger ones),
+        collects the per-section responses, then makes a final "polish" LLM call
+        to merge them into a single coherent answer.  Both the raw per-section
+        findings (``raw_response``) and the polished result (``response``) are
+        returned.  Recommended for section-based handbook queries.
 
     Args:
-        collection_names: List of collection names to query.
-        query: Query string.
+        collection_names: Collection names to query.
+        query: Query string sent to every collection.
         rag_config: RAG configuration.
+        iterative: Use per-collection synthesis + final polish (default False).
 
     Returns:
-        QueryResult with combined response and source nodes.
+        QueryResult whose ``response`` is the (polished) answer,
+        ``raw_response`` holds labeled per-section text (iterative mode only),
+        and ``source_nodes`` contains all retrieved/loaded chunks.
     """
+    from llama_index.core import StorageContext
     from llama_index.core.response_synthesizers import get_response_synthesizer
+    from llama_index.core.schema import NodeWithScore
 
-    logger.info("Querying %d collections: %s", len(collection_names), collection_names)
+    logger.info(
+        "Querying %d collections (%s): %s",
+        len(collection_names),
+        "iterative" if iterative else "pooled",
+        collection_names,
+    )
 
-    # Load all indices
-    indices = load_indices(collection_names, rag_config)
-
-    if not indices:
-        return QueryResult(
-            response="No collections found. Please ingest documents first.",
-            source_nodes=[],
-        )
-
+    full_ctx_threshold = rag_config.query.full_context_max_chunks
     top_k = rag_config.query.similarity_top_k
-    # When reranker is on, fetch more per collection so the reranker has real candidates to score
     per_collection_k = (
         max(rag_config.query.reranker_retrieve_k // max(len(collection_names), 1), 5)
         if rag_config.query.use_reranker
         else max(top_k, 5)
     )
 
-    # Step 1: Retrieve chunks from every collection — hybrid or vector search, no LLM yet.
-    # Full-context mode: if a collection has ≤ full_context_max_chunks nodes, pass ALL of
-    # them directly instead of running retrieval. Small focused sections fit in the LLM
-    # context window and benefit from full visibility.
-    from llama_index.core import StorageContext
-    from llama_index.core.schema import NodeWithScore
-
-    full_ctx_threshold = rag_config.query.full_context_max_chunks
-    all_nodes = []
-    for index, name in zip(indices, collection_names):
+    def _get_nodes(index, name):
+        """Full-context if small; hybrid/vector retrieval otherwise."""
         docstore_path = get_docstore_path(rag_config.chroma, name)
-        used_full_context = False
         if full_ctx_threshold > 0 and docstore_path.exists():
             try:
                 ds = StorageContext.from_defaults(persist_dir=str(docstore_path))
-                all_doc_nodes = list(ds.docstore.docs.values())
-                if 0 < len(all_doc_nodes) <= full_ctx_threshold:
-                    all_nodes.extend(
-                        NodeWithScore(node=n, score=1.0) for n in all_doc_nodes
-                    )
+                doc_nodes = list(ds.docstore.docs.values())
+                if 0 < len(doc_nodes) <= full_ctx_threshold:
                     logger.info(
                         "Collection '%s': full-context mode (%d nodes ≤ threshold %d)",
-                        name, len(all_doc_nodes), full_ctx_threshold,
+                        name, len(doc_nodes), full_ctx_threshold,
                     )
-                    used_full_context = True
+                    return [NodeWithScore(node=n, score=1.0) for n in doc_nodes]
             except Exception as e:
                 logger.debug("Full-context check failed for '%s': %s", name, e)
 
-        if not used_full_context:
-            if rag_config.query.use_hybrid_search:
-                retriever = _build_hybrid_retriever(index, name, rag_config, per_collection_k)
-            else:
-                retriever = index.as_retriever(similarity_top_k=per_collection_k)
-            nodes = retriever.retrieve(query)
-            all_nodes.extend(nodes)
-            logger.info("Collection '%s' retrieved %d nodes (hybrid/vector)", name, len(nodes))
+        if rag_config.query.use_hybrid_search:
+            retriever = _build_hybrid_retriever(index, name, rag_config, per_collection_k)
+        else:
+            retriever = index.as_retriever(similarity_top_k=per_collection_k)
+        nodes = retriever.retrieve(query)
+        logger.info("Collection '%s' retrieved %d nodes (hybrid/vector)", name, len(nodes))
+        return nodes
 
-    if not all_nodes:
-        return QueryResult(response="No relevant content found in any collection.", source_nodes=[])
-
-    # Step 2: Merge candidates from all collections.
-    # When reranker is enabled, do NOT pre-truncate to top_k here — pass all candidates to
-    # the reranker so every collection stays represented in the scoring pool.
-    # The reranker itself trims to reranker_top_k.
-    # When reranker is disabled, truncate to similarity_top_k for the LLM.
-    all_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
-    if not rag_config.query.use_reranker:
-        all_nodes = all_nodes[:top_k]
-
-    # Step 2b: Cross-encoder reranking — replaces flat RRF scores with genuine relevance scores
-    all_nodes = _rerank_nodes(query, all_nodes, rag_config)
-
-    # Step 3: Single LLM synthesis call with all combined context
     llm = create_llm_model(rag_config.ollama)
     system_prompt = rag_config.query.system_prompt
     if system_prompt:
         llm.system_prompt = system_prompt
     Settings.llm = llm
 
-    synthesizer = get_response_synthesizer(llm=llm)
-    response = synthesizer.synthesize(query, nodes=all_nodes)
+    def _synthesize(q, nodes):
+        synthesizer = get_response_synthesizer(llm=llm)
+        return str(synthesizer.synthesize(q, nodes=nodes)).strip()
 
+    # -------------------------------------------------------------------------
+    # Iterative mode: one LLM call per collection → polish into final answer
+    # -------------------------------------------------------------------------
+    if iterative:
+        indices = load_indices(collection_names, rag_config)
+        if not indices:
+            return QueryResult(
+                response="No collections found. Please ingest documents first.",
+                source_nodes=[],
+            )
+
+        all_nodes: list = []
+        section_responses: list[tuple[str, str]] = []
+
+        for index, name in zip(indices, collection_names):
+            nodes = _get_nodes(index, name)
+            if not nodes:
+                continue
+            all_nodes.extend(nodes)
+            resp = _synthesize(query, nodes)
+            if resp and not resp.lower().startswith("not documented"):
+                section_responses.append((name, resp))
+                logger.info("Section '%s': %d chars of content", name, len(resp))
+            else:
+                logger.debug("Section '%s': no useful content", name)
+
+        if not section_responses:
+            return QueryResult(
+                response="Not documented in FA Handbook.",
+                raw_response="",
+                source_nodes=[],
+            )
+
+        raw_response = "\n\n".join(
+            f"[{name}]\n{resp}" for name, resp in section_responses
+        )
+
+        if len(section_responses) == 1:
+            polished = section_responses[0][1]
+        else:
+            polish_prompt = (
+                "You have gathered information from multiple sections of the FA Handbook.\n"
+                "Below are section-by-section findings. Synthesise them into a single, "
+                "consolidated response that answers the original question. Merge complementary "
+                "information and remove duplication.\n\n"
+                f"Original question:\n{query}\n\n"
+                f"--- Section findings ---\n{raw_response}"
+            )
+            polished = _synthesize(polish_prompt, [])
+            logger.info("Polish synthesis complete (%d chars)", len(polished))
+
+        source_nodes = [
+            {"text": n.node.text, "metadata": n.node.metadata, "score": n.score}
+            for n in all_nodes
+        ]
+        return QueryResult(response=polished, raw_response=raw_response, source_nodes=source_nodes)
+
+    # -------------------------------------------------------------------------
+    # Pooled mode (default): retrieve all → rerank → single LLM call
+    # -------------------------------------------------------------------------
+    indices = load_indices(collection_names, rag_config)
+    if not indices:
+        return QueryResult(
+            response="No collections found. Please ingest documents first.",
+            source_nodes=[],
+        )
+
+    all_nodes = []
+    for index, name in zip(indices, collection_names):
+        all_nodes.extend(_get_nodes(index, name))
+
+    if not all_nodes:
+        return QueryResult(response="No relevant content found in any collection.", source_nodes=[])
+
+    all_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
+    if not rag_config.query.use_reranker:
+        all_nodes = all_nodes[:top_k]
+
+    all_nodes = _rerank_nodes(query, all_nodes, rag_config)
+
+    response = _synthesize(query, all_nodes)
     source_nodes = [
-        {
-            "text": n.node.text,
-            "metadata": n.node.metadata,
-            "score": n.score,
-        }
+        {"text": n.node.text, "metadata": n.node.metadata, "score": n.score}
         for n in all_nodes
     ]
-
-    return QueryResult(response=str(response), source_nodes=source_nodes)
+    return QueryResult(response=response, source_nodes=source_nodes)
 
 
 def query_index(

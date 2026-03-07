@@ -121,6 +121,7 @@ class QueryResult:
 
     response: str
     source_nodes: list[dict[str, Any]] = field(default_factory=list)
+    raw_response: str = ""
 
     def format_response(self) -> str:
         """Format the response with sources.
