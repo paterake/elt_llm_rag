@@ -302,7 +302,7 @@ def run_split_ingestion(
         # ── Run preprocessor to produce section files ──────────────────────
         preprocessor = get_preprocessor(ingest_config.preprocessor)
         persist_dir = Path(rag_config.chroma.persist_dir).expanduser()
-        output_base = persist_dir.parent / "_leanix_sections" / source_path.stem
+        output_base = persist_dir.parent / "_section_splits" / source_path.stem
 
         logger.info("Running split preprocessor on: %s → %s", source_path, output_base)
         result = preprocessor.preprocess(str(source_path), str(output_base))

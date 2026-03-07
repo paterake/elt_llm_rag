@@ -61,7 +61,7 @@ import yaml
 
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
-from elt_llm_query.query import query_collections
+from elt_llm_query.query import discover_relevant_sections, query_collections
 
 # ---------------------------------------------------------------------------
 # Prompt loader
@@ -103,6 +103,13 @@ _GOVERNANCE_INTENSIVE_ENTITIES: frozenset[str] = frozenset(_catalog_cfg["governa
 _FORCED_HANDBOOK_ENTITIES: frozenset[str] = frozenset(
     _catalog_cfg.get("forced_handbook_entities", [])
 )
+
+# Section-based retrieval — loaded from handbook_sections block in config
+_sections_cfg: dict = _catalog_cfg.get("handbook_sections", {})
+_SECTION_PREFIX: str = _sections_cfg.get("section_prefix", "fa_handbook")
+_SECTION_THRESHOLD: float = _sections_cfg.get("section_routing_threshold", 0.0)
+_SECTION_TOP_N: int | None = _sections_cfg.get("section_routing_top_n", None)
+_SECTION_BM25_TOP_K: int = _sections_cfg.get("section_bm25_top_k", 3)
 
 # ---------------------------------------------------------------------------
 # Default paths
@@ -178,28 +185,49 @@ _TABLE_DEF_PAT = re.compile(
 
 
 def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
-    """Extract defined terms from fa_handbook docstore.
+    """Extract defined terms from handbook section docstores.
 
-    Scans all docstore nodes for two patterns:
+    Scans all fa_handbook_sNN docstores (or the legacy monolithic fa_handbook
+    docstore as fallback) for two patterns:
     - Plain text: 'TERM means DEFINITION' (inline definitions throughout the handbook)
     - Table rows: '|TERM|means DEFINITION|' (Definitions/Interpretation tables,
       including multi-line terms with <br> separators)
     """
     from llama_index.core import StorageContext
+    from elt_llm_core.vector_store import create_chroma_client, list_collections_by_prefix
+    import re as _re
 
-    docstore_path = get_docstore_path(rag_config.chroma, "fa_handbook")
-    if not docstore_path.exists():
-        print(
-            f"ERROR: Docstore not found at {docstore_path}.\n"
-            "Run ingestion first: uv run python -m elt_llm_ingest.runner ingest ingest_fa_handbook",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # Prefer section collections (fa_handbook_sNN); fall back to monolithic fa_handbook
+    client = create_chroma_client(rag_config.chroma)
+    section_pat = _re.compile(rf'^{_re.escape(_SECTION_PREFIX)}_s\d{{2}}$')
+    all_cols = list_collections_by_prefix(client, _SECTION_PREFIX)
+    section_collections = [c for c in all_cols if section_pat.match(c)]
 
-    print(f"  Loading fa_handbook docstore: {docstore_path}")
-    storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
-    nodes = list(storage.docstore.docs.values())
-    print(f"  {len(nodes)} nodes in fa_handbook docstore")
+    if section_collections:
+        print(f"  Scanning {len(section_collections)} handbook section docstores for defined terms…")
+        all_nodes = []
+        for col in sorted(section_collections):
+            ds_path = get_docstore_path(rag_config.chroma, col)
+            if not ds_path.exists():
+                continue
+            storage = StorageContext.from_defaults(persist_dir=str(ds_path))
+            all_nodes.extend(storage.docstore.docs.values())
+        nodes = all_nodes
+    else:
+        # Legacy fallback: monolithic fa_handbook collection
+        docstore_path = get_docstore_path(rag_config.chroma, "fa_handbook")
+        if not docstore_path.exists():
+            print(
+                f"ERROR: No handbook docstores found (tried '{_SECTION_PREFIX}_sNN' and 'fa_handbook').\n"
+                "Run: uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"  Loading fa_handbook docstore (legacy): {docstore_path}")
+        storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
+        nodes = list(storage.docstore.docs.values())
+
+    print(f"  {len(nodes)} nodes loaded from handbook docstore(s)")
 
     terms: list[dict] = []
     seen: set[str] = set()
@@ -1013,20 +1041,34 @@ def generate_consolidated_catalog(
                 }
                 continue
             
+            # Stage 1: BM25 section discovery (no LLM — fast keyword scan)
+            relevant_sections = discover_relevant_sections(
+                entity_name=name,
+                section_prefix=_SECTION_PREFIX,
+                rag_config=rag_config,
+                threshold=_SECTION_THRESHOLD,
+                bm25_top_k=_SECTION_BM25_TOP_K,
+            )
+            if _SECTION_TOP_N and relevant_sections:
+                relevant_sections = relevant_sections[:_SECTION_TOP_N]
+            # Fall back to all handbook collections when section routing finds nothing
+            target_collections = relevant_sections if relevant_sections else handbook_collections
+
+            # Stage 2: LLM synthesis against targeted sections only
             context = get_handbook_context_for_entity(
-                name, domain, handbook_collections, rag_config,
+                name, domain, target_collections, rag_config,
                 term_definitions=term_definitions,
             )
             gov = context.get("governance_rules", "")
             if name in _GOVERNANCE_INTENSIVE_ENTITIES:
                 # Always run dedicated governance query; skip generic fallback (same call).
-                gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
+                gov_rules = extract_governance_rules_via_rag(name, target_collections, rag_config)
                 if gov_rules and not gov_rules.startswith("Not documented"):
                     if len(gov_rules) > len(gov):
                         context["governance_rules"] = gov_rules
             elif not gov or gov.startswith("Not documented in FA Handbook"):
                 # Non-intensive: only run fallback when initial result is empty/hedged.
-                gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
+                gov_rules = extract_governance_rules_via_rag(name, target_collections, rag_config)
                 if gov_rules:
                     context["governance_rules"] = gov_rules
             
@@ -1214,7 +1256,19 @@ def main() -> None:
     print(f"  LLM: {rag_config.ollama.llm_model}")
     print(f"  num_queries: {rag_config.query.num_queries}")
 
-    handbook_collections = ["fa_handbook"]
+    # Resolve handbook collections dynamically: prefer section collections (fa_handbook_sNN),
+    # fall back to the legacy monolithic collection so existing setups keep working.
+    from elt_llm_core.vector_store import create_chroma_client, list_collections_by_prefix
+    import re as _re
+    _client = create_chroma_client(rag_config.chroma)
+    _section_pat = _re.compile(rf'^{_re.escape(_SECTION_PREFIX)}_s\d{{2}}$')
+    _all = list_collections_by_prefix(_client, _SECTION_PREFIX)
+    handbook_collections = [c for c in _all if _section_pat.match(c)]
+    if handbook_collections:
+        print(f"  Handbook: {len(handbook_collections)} section collections ({_SECTION_PREFIX}_sNN)")
+    else:
+        handbook_collections = ["fa_handbook"]
+        print("  Handbook: monolithic 'fa_handbook' collection (section collections not found)")
 
     generate_consolidated_catalog(
         rag_config=rag_config,

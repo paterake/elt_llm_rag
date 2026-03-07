@@ -535,6 +535,105 @@ class PyMuPDFPreprocessor(BasePreprocessor):
         )
 
 
+class RegulatoryPDFPreprocessor(BasePreprocessor):
+    """Preprocessor for pre-converted regulatory Markdown documents.
+
+    Reads an already-converted Markdown file (e.g. produced by
+    ``PyMuPDFPreprocessor``) and optionally splits it into per-section files
+    based on numbered section headers.
+
+    When ``split_by_sections=True``:
+    - Detects boundaries matching ``#### **N - SECTION TITLE**``
+      (handles both ``-`` and en-dash ``–``)
+    - Writes each section as a separate ``.md`` file under
+      ``{output_base}_sections/``
+    - Populates ``section_collection_map`` so ``run_split_ingestion`` loads
+      each file into its own ChromaDB collection named
+      ``{collection_prefix}_sNN`` (e.g. ``fa_handbook_s08``).
+
+    When ``split_by_sections=False`` (default):
+    - Returns the input file unchanged (identity pass-through).
+    """
+
+    _SECTION_BOUNDARY = re.compile(r'^####\s+\*\*(\d+)\s+[-\u2013]', re.MULTILINE)
+
+    def __init__(
+        self,
+        output_format: str = "markdown",
+        collection_prefix: Optional[str] = None,
+        split_by_sections: bool = False,
+        **kwargs: Any,
+    ):
+        self.output_format = output_format
+        self.collection_prefix = collection_prefix
+        self.split_by_sections = split_by_sections
+
+    def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
+        input_path = Path(input_file).expanduser().resolve()
+
+        if not input_path.exists():
+            return PreprocessorResult(
+                original_file=str(input_path),
+                output_files=[],
+                success=False,
+                message=f"Input file not found: {input_path}",
+            )
+
+        if not self.split_by_sections:
+            return PreprocessorResult(
+                original_file=str(input_path),
+                output_files=[str(input_path)],
+                success=True,
+                message="No splitting applied — returning file unchanged",
+            )
+
+        content = input_path.read_text(encoding="utf-8")
+        matches = list(self._SECTION_BOUNDARY.finditer(content))
+
+        if not matches:
+            logger.warning(
+                "No section boundaries detected in '%s' — ingesting as single file", input_path.name
+            )
+            return PreprocessorResult(
+                original_file=str(input_path),
+                output_files=[str(input_path)],
+                success=True,
+                message="No section headers found; ingesting as single file",
+            )
+
+        output_path_obj = Path(output_path).expanduser().resolve()
+        section_dir = output_path_obj.parent / f"{output_path_obj.stem}_sections"
+        section_dir.mkdir(parents=True, exist_ok=True)
+
+        section_collection_map: Dict[str, str] = {}
+        output_files: List[str] = []
+
+        for i, match in enumerate(matches):
+            section_num = int(match.group(1))
+            start = match.start()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+            section_content = content[start:end]
+
+            collection_name = f"{self.collection_prefix}_s{section_num:02d}"
+            out_file = section_dir / f"s{section_num:02d}.md"
+            out_file.write_text(section_content, encoding="utf-8")
+
+            section_collection_map[str(out_file)] = collection_name
+            output_files.append(str(out_file))
+            logger.info(
+                "  Section %02d → collection '%s' (%d chars)",
+                section_num, collection_name, len(section_content),
+            )
+
+        return PreprocessorResult(
+            original_file=str(input_path),
+            output_files=output_files,
+            success=True,
+            message=f"Split into {len(output_files)} sections",
+            section_collection_map=section_collection_map,
+        )
+
+
 @dataclass
 class PreprocessorConfig:
     """Preprocessor configuration.

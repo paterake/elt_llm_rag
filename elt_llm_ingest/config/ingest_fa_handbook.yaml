@@ -1,29 +1,27 @@
 # Ingestion Config: The Football Association Handbook
+#
+# Split mode: one ChromaDB collection per handbook section (fa_handbook_s01 … fa_handbook_s44).
+# The RegulatoryPDFPreprocessor reads the pre-converted Markdown and splits it on
+# the "#### **N - SECTION TITLE**" headers produced by PyMuPDFPreprocessor.
+#
+# To re-generate the source Markdown from the raw PDF first:
+#   uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook_pdf
 
-collection_name: "fa_handbook"
+collection_prefix: "fa_handbook"
 
-# Documents to ingest
 file_paths:
-  - "~/Documents/__data/resources/thefa/FA_Handbook_2025-26.pdf"
+  - "~/Documents/__data/resources/thefa/FA_Handbook_2025-26_processed_clean.md"
 
-# Metadata to attach to all documents
 metadata:
   domain: "Regulations"
   type: "handbook"
   source: "TheFA Handbook"
 
-# Whether to rebuild the collection on each run
 rebuild: true
 
-# Chunking: Uses global rag_config.yaml settings (table_aware strategy).
-# The table_aware splitter preserves FA Handbook definition table rows (Rules §8)
-# as single chunks while using standard 256-token chunks for prose content.
-# No local override needed.
-
-# Preprocessor: pymupdf4llm converts PDF → Markdown using PyMuPDF font-based heuristics.
-# Preserves section hierarchy, tables, and reading order.
-# No page-range configuration needed. No model downloads or internet access required.
 preprocessor:
   module: "elt_llm_ingest.preprocessor"
-  class: "PyMuPDFPreprocessor"
+  class: "RegulatoryPDFPreprocessor"
   output_format: "markdown"
+  collection_prefix: "fa_handbook"
+  split_by_sections: true

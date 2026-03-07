@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from pathlib import Path
 
 from llama_index.core import VectorStoreIndex, Settings
 
@@ -111,6 +113,89 @@ def resolve_collection_prefixes(
             logger.info("Prefix '%s' resolved to: %s", prefix, matches)
             resolved.extend(matches)
     return resolved
+
+
+def discover_relevant_sections(
+    entity_name: str,
+    section_prefix: str,
+    rag_config: RagConfig,
+    threshold: float = 0.0,
+    bm25_top_k: int = 3,
+) -> list[str]:
+    """Stage-1 BM25 section routing: find handbook sections relevant to entity_name.
+
+    Runs BM25 keyword retrieval (no LLM, no embedding) against every collection
+    matching ``{section_prefix}_sNN``. Returns collection names whose best BM25
+    score exceeds ``threshold``, sorted by score descending.
+
+    This is a fast, no-LLM operation — it only reads docstore JSON files and runs
+    in-memory BM25 scoring. Typical runtime: 1-3 seconds for 44 sections.
+
+    Args:
+        entity_name: Entity name used as the BM25 query (e.g. "Match Official").
+        section_prefix: ChromaDB collection prefix (e.g. "fa_handbook").
+        rag_config: RAG configuration (used to locate docstores).
+        threshold: Minimum BM25 score to include a section (default 0.0 = any hit).
+        bm25_top_k: BM25 candidates per section for scoring (default 3).
+
+    Returns:
+        Collection names sorted by relevance score (best first).
+        Returns empty list if BM25 is unavailable or no sections score above threshold.
+    """
+    try:
+        from llama_index.core import StorageContext
+        from llama_index.retrievers.bm25 import BM25Retriever
+        import logging as _logging
+        _logging.getLogger("bm25s").setLevel(_logging.WARNING)
+    except ImportError:
+        logger.warning(
+            "llama-index-retrievers-bm25 not installed — section routing disabled. "
+            "Run: uv add llama-index-retrievers-bm25 --package elt-llm-query"
+        )
+        return []
+
+    # Resolve all collections for this prefix, then filter to sNN pattern
+    all_collections = resolve_collection_prefixes([section_prefix], rag_config)
+    section_pat = re.compile(rf'^{re.escape(section_prefix)}_s\d{{2}}$')
+    section_collections = [c for c in all_collections if section_pat.match(c)]
+
+    if not section_collections:
+        logger.warning("No section collections found matching '%s_sNN'", section_prefix)
+        return []
+
+    scored: list[tuple[str, float]] = []
+
+    for collection_name in sorted(section_collections):
+        docstore_path = get_docstore_path(rag_config.chroma, collection_name)
+        if not docstore_path.exists():
+            continue
+
+        try:
+            storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
+            nodes = list(storage.docstore.docs.values())
+            if not nodes:
+                continue
+
+            k = min(bm25_top_k, len(nodes))
+            bm25 = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=k)
+            hits = bm25.retrieve(entity_name)
+            if not hits:
+                continue
+
+            max_score = max((n.score for n in hits if n.score is not None), default=0.0)
+            if max_score >= threshold:
+                scored.append((collection_name, max_score))
+
+        except Exception as e:
+            logger.debug("BM25 section scan failed for '%s': %s", collection_name, e)
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    logger.info(
+        "Section routing '%s': %d/%d sections above threshold %.2f → %s",
+        entity_name, len(scored), len(section_collections), threshold,
+        [c for c, _ in scored[:5]],
+    )
+    return [c for c, _ in scored]
 
 
 def _build_hybrid_retriever(

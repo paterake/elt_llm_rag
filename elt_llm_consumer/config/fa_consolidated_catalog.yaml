@@ -5,6 +5,29 @@
 # governance-intensive entities — no Python code changes required.
 
 # ---------------------------------------------------------------------------
+# handbook_sections
+#
+# Section-based retrieval: two-stage dynamic routing for FA Handbook.
+#
+# Stage 1 (discover_relevant_sections): BM25-only scan across all fa_handbook_sNN
+#   collections. Fast — no LLM, no embeddings. Identifies which sections mention
+#   the entity above threshold.
+# Stage 2 (query_collections): LLM synthesis against the top-N sections found
+#   in Stage 1. Much higher precision than querying the monolithic fa_handbook
+#   collection because top-k chunks are drawn from focused, relevant sections.
+#
+# section_prefix:            ChromaDB collection prefix → resolves fa_handbook_s01…s44
+# section_routing_threshold: Minimum BM25 score to include a section (0.0 = any hit)
+# section_routing_top_n:     Max sections to pass to Stage 2 (null = all above threshold)
+# section_bm25_top_k:        BM25 candidates per section during Stage 1 scoring
+# ---------------------------------------------------------------------------
+handbook_sections:
+  section_prefix: "fa_handbook"
+  section_routing_threshold: 0.0
+  section_routing_top_n: 5
+  section_bm25_top_k: 3
+
+# ---------------------------------------------------------------------------
 # entity_aliases
 #
 # Bidirectional name mappings used in Step 4 term matching.
