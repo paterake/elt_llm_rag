@@ -1,0 +1,62 @@
+# Prompt: domain_inference
+#
+# Purpose: Classify a HANDBOOK_ONLY entity into the FA data architecture
+#          taxonomy (domain + subgroup). Used in Step 7 for terms found in
+#          the handbook that have no matching conceptual model entity.
+#
+# Variables:
+#   {taxonomy_context}    — JSON string of known domain → subgroup → entity hierarchy
+#   {entity_name}         — The handbook term to classify
+#   {handbook_definition} — The "X means Y" definition extracted from the handbook
+#
+# Output: JSON object with classification result.
+#
+# JSON fields:
+#   entity_domain        — domain name (existing, proposed, or "unknown")
+#   entity_subgroup      — subgroup name (existing, proposed, "" if none, or "unknown")
+#   inference_tier       — "existing" | "new_proposed" | "unknown"
+#   inference_confidence — "high" | "medium" | "low"
+#   inference_reasoning  — one or two sentence explanation
+#   alternative_domain   — next most likely domain if confidence != "high", else ""
+
+prompt: |
+  You are classifying a business entity into the FA (The Football Association)
+  data architecture taxonomy.
+
+  The current known domains and subgroups are:
+  {taxonomy_context}
+
+  Entity name: {entity_name}
+  FA Handbook definition: {handbook_definition}
+
+  Follow this DECISION PROCESS in priority order:
+
+  TIER 1 — Map to existing taxonomy (strongly preferred):
+    If the entity clearly belongs to an existing domain/subgroup, assign it there.
+    Set inference_tier: "existing"
+
+  TIER 2 — Propose new taxonomy:
+    If the entity does not fit any existing domain/subgroup, but the entity context
+    provides enough information to propose a meaningful new Domain and/or Subgroup,
+    propose sensible names that follow the same naming conventions as the existing taxonomy.
+    Set inference_tier: "new_proposed"
+    Note: prefer this over Tier 3 whenever possible.
+
+  TIER 3 — Unknown (last resort):
+    Only if there is genuinely insufficient context to classify the entity.
+    Set inference_tier: "unknown"
+
+  Return a JSON object with exactly these fields:
+  - entity_domain:        domain name (existing, proposed new name, or "unknown")
+  - entity_subgroup:      subgroup name (existing, proposed new name, "" if none, or "unknown")
+  - inference_tier:       "existing" | "new_proposed" | "unknown"
+  - inference_confidence: "high" | "medium" | "low"
+    - high:   clear semantic match, only one plausible option
+    - medium: plausible but two or more options could apply
+    - low:    genuinely ambiguous
+  - inference_reasoning:  one or two sentences explaining the assignment
+  - alternative_domain:   next most likely domain if confidence is not "high", else ""
+
+  For Tier 1, use domain and subgroup names EXACTLY as listed in the taxonomy.
+  For Tier 2, follow the same Title Case naming conventions as existing entries.
+  Return only the JSON object, no other text.

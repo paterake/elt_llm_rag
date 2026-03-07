@@ -1,7 +1,7 @@
 # FA Enterprise Data Glossary — Solution Overview
 
-**Generated**: March 2026  
-**Platform**: ELT LLM RAG (`elt_llm_rag`)  
+**Generated**: March 2026
+**Platform**: ELT LLM RAG (`elt_llm_rag`)
 **Target Audience**: Data Architects, Data Modellers, Governance Stakeholders
 
 ---
@@ -23,6 +23,328 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
 ```
 
 **Output**: `.tmp/fa_consolidated_catalog.json` — your complete glossary and catalogue.
+
+---
+
+## 0. AI Architecture Overview
+
+This solution combines **AI components** (RAG, LLM, prompts) with **custom code** (ingestion, consumers) to deliver an automated glossary extraction and mapping system.
+
+### 0.1 What is RAG? (Retrieval-Augmented Generation)
+
+**Definition**: RAG is an AI architecture that combines:
+- **Retrieval**: Fetching relevant documents/chunks from a knowledge base
+- **Generation**: Using an LLM to synthesize answers based on retrieved context
+
+**Why RAG?**
+- LLMs have knowledge cutoffs and can't access your private documents
+- RAG grounds the LLM in YOUR data (FA Handbook, LeanIX models)
+- Reduces hallucinations — LLM only answers based on retrieved evidence
+- Enables citation of sources (section numbers, rule numbers)
+
+**Our RAG Implementation:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ RAG PIPELINE FOR FA HANDBOOK                                 │
+│                                                              │
+│ 1. INGESTION                                                 │
+│    FA Handbook PDF → pymupdf4llm → Markdown                  │
+│    Markdown → TableAwareSentenceSplitter → 3,562 chunks     │
+│    Chunks → nomic-embed-text → 768-dim vectors              │
+│    Vectors + chunks → ChromaDB (vector store + docstore)    │
+│                                                              │
+│ 2. RETRIEVAL (at query time)                                 │
+│    User query → Hybrid search (BM25 + Vector)               │
+│    → Top-24 candidates from 3,562 chunks                    │
+│    → Embedding reranker (cosine similarity)                 │
+│    → Top-10 most relevant chunks                            │
+│                                                              │
+│ 3. GENERATION                                                │
+│    Query + 10 chunks → qwen3.5:9b LLM                       │
+│    → Structured response (definition, context, governance)  │
+│    → JSON output with citations                             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**RAG Configuration** (`elt_llm_ingest/config/rag_config.yaml`):
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| `chunking.strategy` | `table_aware` | Preserves table rows as single chunks |
+| `chunking.chunk_size` | 256 | Prose chunk size (tokens) |
+| `chunking.table_chunk_size` | 1536 | Table row max size (tokens) |
+| `query.similarity_top_k` | 8 | Chunks passed to LLM |
+| `query.reranker_top_k` | 10 | Chunks after reranking |
+| `query.num_queries` | 3 | Query variants for diversity |
+| `query.use_hybrid_search` | `true` | BM25 + Vector combined |
+| `query.use_mmr` | `true` | Maximal Marginal Relevance (diversity) |
+
+**Key Features:**
+- **Hybrid search**: BM25 (keyword) + Vector (semantic) — captures both exact matches and conceptual similarity
+- **Reranking**: Initial retrieval optimizes for speed, reranking optimizes for relevance
+- **MMR (Maximal Marginal Relevance)**: Prevents near-duplicate chunks from dominating results
+- **Table-aware chunking**: FA Handbook definitions table (Rules §8) kept intact — no split definitions
+
+---
+
+### 0.2 What is the LLM? (Large Language Model)
+
+**Our LLM**: `qwen3.5:9b` via Ollama
+
+| Specification | Value |
+|---------------|-------|
+| **Model** | Qwen 3.5 (Alibaba) |
+| **Parameters** | 9 billion |
+| **Context window** | 16,384 tokens |
+| **Embedding model** | `nomic-embed-text` (768 dimensions) |
+| **Runtime** | Ollama (local, CPU/M3) |
+
+**Why This Model?**
+- **Local execution**: No API calls, data stays on-premises
+- **9B parameters**: Good balance of quality vs. resource usage (~6.6GB VRAM)
+- **16K context**: Can process 10+ retrieved chunks simultaneously
+- **Strong reasoning**: Good at extraction, synthesis, and classification tasks
+
+**LLM Tasks in This Solution:**
+
+| Task | Prompt | Output |
+|------|--------|--------|
+| **Handbook context extraction** | `handbook_context.yaml` | Definition + context + governance |
+| **Governance extraction** | `governance_extraction.yaml` | Governance rules only |
+| **Domain inference** | `domain_inference.yaml` | Domain/subgroup classification |
+| **Relationship extraction** | `entity_relationship.yaml` | Entity-to-entity relationships |
+
+**What the LLM Does NOT Do:**
+- ❌ Parse LeanIX XML/Excel (done by custom code)
+- ❌ Match handbook terms to entities (done by string matching)
+- ❌ Consolidate results (done by Python logic)
+- ❌ Store/retrieve vectors (done by ChromaDB)
+
+---
+
+### 0.3 Prompt Engineering
+
+**What is Prompt Engineering?**
+Designing input prompts to guide the LLM toward desired outputs. Well-engineered prompts:
+- Specify the task clearly
+- Provide context and constraints
+- Define output format (JSON, sections, etc.)
+- Include examples or decision rules
+
+**Our Prompts** (in `elt_llm_consumer/config/prompts/`):
+
+#### 1. `handbook_context.yaml` — Primary Entity Query
+
+**Purpose**: Extract complete terms-of-reference for a conceptual model entity.
+
+**Variables**: `{entity_name}`, `{domain}`
+
+**Output Structure**:
+```
+FORMAL_DEFINITION: [exact quote or paraphrase]
+DOMAIN_CONTEXT: [role in domain, related concepts]
+GOVERNANCE: [rules with section/rule citations]
+```
+
+**Key Prompt Techniques**:
+- **Subtype awareness**: "The FA Handbook may refer to this entity... as 'Contract {entity_name}', 'Registered {entity_name}'..."
+- **Citation requirement**: "Cite section and rule numbers where possible"
+- **Fallback handling**: "If no handbook rules apply, state 'Not documented in FA Handbook...'"
+
+---
+
+#### 2. `governance_extraction.yaml` — Dedicated Governance Query
+
+**Purpose**: Fallback governance query when primary prompt returns empty/hedged results.
+
+**Variables**: `{entity_name}`
+
+**When Used**:
+- Always for `_GOVERNANCE_INTENSIVE_ENTITIES` (Club, Player, Match Official, etc.)
+- For other entities when initial governance is empty or starts with "Not documented..."
+
+**Key Prompt Techniques**:
+- **Structured coverage**: Lists specific governance types (registration, eligibility, compliance, etc.)
+- **Prose output**: Returns governance rules as continuous text (not structured sections)
+
+---
+
+#### 3. `domain_inference.yaml` — HANDBOOK_ONLY Classification
+
+**Purpose**: Classify handbook terms that don't match any conceptual model entity.
+
+**Variables**: `{taxonomy_context}`, `{entity_name}`, `{handbook_definition}`
+
+**Output**: JSON with domain, subgroup, confidence, reasoning
+
+**Decision Logic** (Three-Tier):
+```
+TIER 1 — Map to existing taxonomy (preferred)
+  → inference_tier: "existing"
+
+TIER 2 — Propose new taxonomy
+  → inference_tier: "new_proposed"
+
+TIER 3 — Unknown (last resort)
+  → inference_tier: "unknown"
+```
+
+**Key Prompt Techniques**:
+- **Decision process**: Explicit priority order (Tier 1 > Tier 2 > Tier 3)
+- **Confidence scoring**: "high | medium | low" based on semantic clarity
+- **Alternative consideration**: "alternative_domain" field for ambiguous cases
+
+---
+
+#### 4. `entity_relationship.yaml` — Relationship Extraction
+
+**Purpose**: Extract entity-to-entity relationships from FA Handbook for a domain pair.
+
+**Variables**: `{source_domain}`, `{source_entities}`, `{target_domain}`, `{target_entities}`, `{domain_cardinality}`
+
+**Output**: JSON array of relationship records (forward + inverse pairs)
+
+**Key Prompt Techniques**:
+- **Bidirectional requirement**: "return BOTH the forward and inverse directions"
+- **Evidence requirement**: "brief quote or paraphrase from the Handbook (max 30 words)"
+- **Inference flag**: `inferred: true/false` distinguishes explicit vs. inferred relationships
+
+---
+
+#### 5. `handbook_model_builder.yaml` — (Future Use)
+
+**Purpose**: Build handbook-only entity model (not currently used in main flow).
+
+---
+
+### 0.4 Custom Code (Non-AI Components)
+
+**What Requires Custom Code?**
+
+RAG+LLM handles **unstructured data** (FA Handbook PDF), but **structured data** (LeanIX XML/Excel) requires custom parsing and deterministic logic.
+
+#### Ingestion Layer (`elt_llm_ingest`)
+
+| Component | Purpose | AI or Custom? |
+|-----------|---------|---------------|
+| `preprocessor.py` | LeanIX XML → Markdown, Excel → Markdown | **Custom** (XML parsing, Excel reading) |
+| `preprocessor.py` | PDF → Markdown (pymupdf4llm) | **Library** (third-party) |
+| `chunking.py` | Table-aware sentence splitter | **Custom** (table detection logic) |
+| `ingest.py` | Orchestrate ingestion pipeline | **Custom** (LlamaIndex integration) |
+| `file_hash.py` | Track file changes for incremental ingestion | **Custom** (hash computation) |
+
+**Key Custom Logic:**
+
+1. **Table-Aware Chunking** (`chunking.py`):
+   ```python
+   # Detects table content via pipe-delimiter patterns
+   if "|" in line:  # Table row detected
+       keep_as_single_chunk()  # Up to 1536 tokens
+   else:
+       standard_sentence_split()  # 256 tokens
+   ```
+
+2. **LeanIX Preprocessor** (`preprocessor.py`):
+   ```python
+   # Parses draw.io XML, extracts entities/relationships
+   # Produces: _model.json, _entities.md, _relationships.md
+   # Splits by domain for targeted RAG queries
+   ```
+
+---
+
+#### Consumer Layer (`elt_llm_consumer`)
+
+| Component | Purpose | AI or Custom? |
+|-----------|---------|---------------|
+| `fa_consolidated_catalog.py` | Main consolidation logic | **Custom** (orchestration) |
+| Step 1: Load entities | Read `_model.json` | **Custom** (JSON parsing) |
+| Step 2: Inventory lookup | O(1) dict lookup by fact_sheet_id | **Custom** (deterministic) |
+| Step 3: Extract handbook terms | Docstore scan with regex | **Custom** (pattern matching) |
+| Step 4: Match terms to entities | Normalized name + alias matching | **Custom** (string matching) |
+| Step 5: Handbook context | RAG+LLM per entity | **AI** (uses prompts) |
+| Step 6: Load relationships | Read `_model.json` | **Custom** (JSON parsing) |
+| Step 7: Consolidate | Merge and classify | **Custom** (business logic) |
+
+**Key Custom Logic:**
+
+1. **Entity Alias Map** (`fa_consolidated_catalog.py`):
+   ```python
+   _ENTITY_ALIASES = {
+       "fa county": ["county association", "county football association"],
+       "competition league": ["competition", "league"],
+       "match official": ["referee", "assistant referee"],
+       # ... 25+ alias mappings
+   }
+   ```
+
+2. **No-Coverage Exclusions**:
+   ```python
+   _NO_HANDBOOK_COVERAGE = frozenset([
+       "Supplier", "Household", "Business Unit", "Prospect",
+       "Customer", "Event Attendee", "Casual & Contingent Labourers",
+       "Managed Service Workers",
+   ])
+   # Skips RAG calls for these — saves 8 LLM calls
+   ```
+
+3. **Governance-Intensive Entities**:
+   ```python
+   _GOVERNANCE_INTENSIVE_ENTITIES = frozenset([
+       "Club", "Player", "Match Official", "Club Official",
+       "County Association", "Competition", "Competition League", "FA County",
+   ])
+   # Always runs dedicated governance query for these
+   ```
+
+---
+
+### 0.5 Configuration (YAML-Based Control)
+
+**What's Configured vs. Coded?**
+
+| Aspect | Configuration File | Custom Code |
+|--------|-------------------|-------------|
+| **RAG parameters** | `rag_config.yaml` | Reads config |
+| **Chunking strategy** | `rag_config.yaml` | Implements strategy |
+| **LLM model** | `rag_config.yaml` | Calls Ollama API |
+| **Prompts** | `config/prompts/*.yaml` | Loads and formats |
+| **Ingestion sources** | `config/ingest_*.yaml` | Executes pipeline |
+| **Entity aliases** | — | Hardcoded in code |
+| **Exclusion lists** | — | Hardcoded in code |
+
+**Configuration Files:**
+
+| File | Purpose |
+|------|---------|
+| `elt_llm_ingest/config/rag_config.yaml` | Global RAG/LLM settings |
+| `elt_llm_ingest/config/ingest_fa_handbook.yaml` | FA Handbook ingestion |
+| `elt_llm_ingest/config/ingest_fa_leanix_*.yaml` | LeanIX ingestion |
+| `elt_llm_consumer/config/prompts/*.yaml` | LLM prompts |
+
+---
+
+### 0.6 AI vs. Custom Code Summary
+
+| Component | AI (RAG+LLM) | Custom Code | Why |
+|-----------|--------------|-------------|-----|
+| **FA Handbook parsing** | ❌ | ✅ | PDF → Markdown requires library |
+| **FA Handbook chunking** | ❌ | ✅ | Table detection is rule-based |
+| **FA Handbook embedding** | ✅ | ❌ | nomic-embed-text model |
+| **FA Handbook retrieval** | ✅ | ❌ | Hybrid search (BM25 + Vector) |
+| **FA Handbook synthesis** | ✅ | ❌ | qwen3.5:9b LLM |
+| **LeanIX XML parsing** | ❌ | ✅ | Structured data → custom parser |
+| **LeanIX Excel parsing** | ❌ | ✅ | Structured data → openpyxl |
+| **Term matching** | ❌ | ✅ | String matching + alias map |
+| **Domain inference** | ✅ | ❌ | LLM classification |
+| **Consolidation logic** | ❌ | ✅ | Business rules + merging |
+| **Output formatting** | ❌ | ✅ | JSON structure |
+
+**Design Principle**: 
+- **AI for unstructured**: RAG+LLM for FA Handbook (PDF text)
+- **Custom for structured**: Direct parsing for LeanIX (XML/Excel)
+- **Hybrid where needed**: LLM inference for domain classification, custom logic for consolidation
 
 ---
 

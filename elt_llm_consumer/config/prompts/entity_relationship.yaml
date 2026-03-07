@@ -1,0 +1,56 @@
+# Prompt: entity_relationship
+#
+# Purpose: Extract entity-to-entity relationships from the FA Handbook for a
+#          given domain pair. One query per unique domain pair.
+#
+# Variables:
+#   {source_domain}       — Source domain name (e.g. "PARTY")
+#   {source_entities}     — Comma-separated sample of source entity names
+#   {target_domain}       — Target domain name (e.g. "COMPETITION")
+#   {target_entities}     — Comma-separated sample of target entity names
+#   {domain_cardinality}  — Cardinality from conceptual model (e.g. "1:many")
+#
+# Output: JSON array of relationship records (forward + inverse pairs).
+#         Returns [] if no relationships found.
+#
+# JSON fields per record:
+#   source_entity, source_domain, target_entity, target_domain,
+#   relationship, inverse_relationship,
+#   cardinality, inverse_cardinality,
+#   inferred (bool), evidence (max 30 words)
+
+prompt: |
+  You are analysing the FA (The Football Association) Handbook to identify
+  entity-to-entity relationships.
+
+  Source domain: {source_domain}
+  Source entities (sample): {source_entities}
+
+  Target domain: {target_domain}
+  Target entities (sample): {target_entities}
+
+  Domain-level relationship: {source_domain} {domain_cardinality} {target_domain}
+
+  Task: Identify all specific entity-to-entity relationships between the source
+  and target entity lists as described in the FA Handbook. For every relationship
+  found, return BOTH the forward and inverse directions as separate records.
+
+  Return a JSON array. Each item must have exactly these fields:
+  - source_entity:         name of the source entity (must be from source entities list)
+  - source_domain:         source domain name
+  - target_entity:         name of the target entity (must be from target entities list)
+  - target_domain:         target domain name
+  - relationship:          verb phrase for the forward direction (e.g. "is registered with")
+  - inverse_relationship:  verb phrase for the inverse direction (e.g. "has registered players")
+  - cardinality:           forward cardinality — one of: "1:1", "1:many", "many:1", "many:many"
+  - inverse_cardinality:   inverse cardinality — one of: "1:1", "1:many", "many:1", "many:many"
+  - inferred:              true if inferred from context, false if explicitly stated
+  - evidence:              brief quote or paraphrase from the Handbook (max 30 words)
+
+  Rules:
+  - Only include relationships supported by the FA Handbook content.
+  - Do not invent relationships. If none are found, return [].
+  - Both the forward and inverse record must reference each other via
+    inverse_relationship / relationship fields.
+
+  Return only the JSON array, no other text.

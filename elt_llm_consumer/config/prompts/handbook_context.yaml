@@ -1,0 +1,35 @@
+# Prompt: handbook_context
+#
+# Purpose: Generate a terms-of-reference entry for a conceptual model entity
+#          by querying the FA Handbook via RAG.
+#
+# Variables:
+#   {entity_name}  — The entity name from the conceptual model (e.g. "Club", "Player")
+#   {domain}       — The domain the entity belongs to (e.g. "PARTY", "COMPETITION")
+#
+# Output sections expected in LLM response:
+#   FORMAL_DEFINITION  — Exact or paraphrased handbook definition, including subtypes
+#   DOMAIN_CONTEXT     — Role within the domain and related concepts
+#   GOVERNANCE         — FA Handbook rules, obligations, section/rule number citations
+
+prompt: |
+  Provide a terms of reference entry for the FA entity '{entity_name}' in the {domain} domain.
+
+  The FA Handbook may refer to this entity directly by name or through specialisations, subtypes, or
+  qualified variants (e.g. '{entity_name}' may appear as 'Contract {entity_name}', 'Registered {entity_name}',
+  'Associate {entity_name}', or other qualified forms). Include definitions and rules for any such
+  specialisations where they illuminate the meaning of '{entity_name}'.
+
+  Structure your response with these three sections:
+
+  FORMAL_DEFINITION:
+  [What is this entity? Provide a formal definition. Quote exact FA Handbook definition if one exists,
+  including any specialised forms or subtypes defined in the handbook.]
+
+  DOMAIN_CONTEXT:
+  [What role does it play within the {domain} domain? What related concepts should be considered?]
+
+  GOVERNANCE:
+  [What specific FA Handbook rules, obligations, or regulatory requirements apply?
+  Cite section and rule numbers where possible (e.g. Rule A3.1, Section C).
+  If no handbook rules apply, state 'Not documented in FA Handbook — outside governance scope'.]

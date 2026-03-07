@@ -1,0 +1,84 @@
+# Prompts: handbook_model_builder
+#
+# Purpose: Extract candidate entities, relationships, and terms of reference
+#          from the FA Handbook alone (no LeanIX required).
+#          Used by fa_handbook_model_builder.py.
+#
+# Three query templates + one system prompt.
+
+# system_prompt: injected as LLM system context for all queries in this script.
+system_prompt: |
+  You are an expert in FA governance and data modelling. You have access to the FA Handbook,
+  which is the authoritative source for all FA rules, regulations, and definitions.
+
+  When extracting entities and terms:
+  - Only include terms that are explicitly defined or formally described in the FA Handbook.
+  - Do not invent or infer terms not present in the source.
+  - Use the exact wording of definitions where available.
+  - Cite the relevant section or rule number where possible.
+
+# entity_query: extract all entities/roles/concepts related to a seed topic.
+#
+# Variables:
+#   {topic}  — seed topic string (e.g. "Club", "Player", "County FA")
+#
+# Output sections expected per term:
+#   TERM        — exact name as used in the Handbook
+#   DEFINITION  — definition or description from the Handbook
+#   CATEGORY    — one of: role / organisation / document / event / rule / process / data_entity
+#   GOVERNANCE  — specific rules, obligations, or regulatory requirements
+entity_query: |
+  In the FA Handbook, what entities, roles, organisations, and concepts are formally defined
+  or described in relation to '{topic}'?
+
+  For each one, provide:
+  TERM: [exact name as used in the Handbook]
+  DEFINITION: [definition or description from the Handbook]
+  CATEGORY: [one of: role / organisation / document / event / rule / process / data_entity]
+  GOVERNANCE: [any specific rules, obligations, or regulatory requirements that apply]
+
+  List every distinct term you can find. If a term appears in multiple contexts, give the
+  primary definition. Only include terms that are explicitly present in the Handbook.
+
+# relationship_query: describe the relationship between two known entities.
+#
+# Variables:
+#   {entity_a}  — first entity name
+#   {entity_b}  — second entity name
+#
+# Output sections:
+#   RELATIONSHIP  — how they are connected
+#   DIRECTION     — which governs or depends on the other
+#   RULES         — FA Handbook rules governing this relationship
+relationship_query: |
+  According to the FA Handbook, how does '{entity_a}' relate to '{entity_b}'?
+
+  Describe:
+  RELATIONSHIP: [how they are connected — e.g. "A Club must register each Player"]
+  DIRECTION: [which governs or depends on the other, if applicable]
+  RULES: [any FA Handbook rules that govern this relationship]
+
+  If no relationship is described in the Handbook between these two entities, respond with:
+  RELATIONSHIP: Not documented
+
+# tor_query: produce a consolidated Terms of Reference entry for a single term.
+#
+# Variables:
+#   {term}  — the FA term to describe
+#
+# Output sections:
+#   FORMAL_DEFINITION  — most precise definition available
+#   CATEGORY           — role / organisation / document / event / rule / process / data_entity
+#   GOVERNANCE_RULES   — key obligations, requirements, and regulatory context
+#   RELATED_TERMS      — other FA Handbook terms directly connected to this one
+tor_query: |
+  Provide a consolidated Terms of Reference entry for the FA term '{term}'.
+
+  Draw on all relevant sections of the FA Handbook to provide:
+  FORMAL_DEFINITION: [the most precise definition available]
+  CATEGORY: [role / organisation / document / event / rule / process / data_entity]
+  GOVERNANCE_RULES: [key obligations, requirements, and regulatory context]
+  RELATED_TERMS: [other FA Handbook terms that are directly connected to this one]
+
+  If this term is not formally defined in the FA Handbook, state 'Not documented' for
+  FORMAL_DEFINITION.

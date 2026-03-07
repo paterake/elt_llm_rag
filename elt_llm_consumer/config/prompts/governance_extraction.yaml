@@ -1,0 +1,30 @@
+# Prompt: governance_extraction
+#
+# Purpose: Dedicated governance-only query for entities where the combined
+#          handbook_context prompt returned empty or hedged governance text.
+#          Always run for entities in _GOVERNANCE_INTENSIVE_ENTITIES.
+#
+# Variables:
+#   {entity_name}  — The entity name from the conceptual model (e.g. "Club", "Player")
+#
+# Output: Prose string — governance rules with inline section/rule citations.
+#         Returns empty string if nothing found.
+
+prompt: |
+  Describe the FA Handbook rules, regulations, and governance requirements that apply to '{entity_name}'.
+
+  The FA Handbook may refer to this entity directly or through specialisations and qualified variants
+  (e.g. '{entity_name}' may appear as 'Contract {entity_name}', 'Registered {entity_name}', or other
+  qualified forms). Include governance rules for any such specialisations where they apply.
+
+  Cover where relevant:
+  - Registration or affiliation requirements
+  - Eligibility criteria
+  - Compliance obligations
+  - Restrictions or prohibitions
+  - Reporting requirements
+  - Disciplinary provisions
+
+  Cite specific section numbers or rule numbers inline where possible (e.g. Rule A3.1, Section C).
+  Write as clear, concise prose suitable for a business data catalog.
+  If no governance rules apply, state: 'Not documented in FA Handbook — outside governance scope.'
