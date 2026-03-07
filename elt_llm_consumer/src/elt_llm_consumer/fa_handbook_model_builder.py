@@ -46,6 +46,8 @@ import sys
 from itertools import combinations
 from pathlib import Path
 
+import yaml
+
 from elt_llm_core.config import RagConfig
 from elt_llm_query.query import query_collections
 
@@ -81,58 +83,21 @@ _DEFAULT_TOPICS = [
 ]
 
 # ---------------------------------------------------------------------------
-# System prompt
+# Prompt loader
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """\
-You are an expert in FA governance and data modelling. You have access to the FA Handbook,
-which is the authoritative source for all FA rules, regulations, and definitions.
+_PROMPT_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
 
-When extracting entities and terms:
-- Only include terms that are explicitly defined or formally described in the FA Handbook.
-- Do not invent or infer terms not present in the source.
-- Use the exact wording of definitions where available.
-- Cite the relevant section or rule number where possible."""
+def _load_prompts() -> dict:
+    """Load all prompts for this script from the shared YAML config."""
+    with open(_PROMPT_CONFIG_DIR / "handbook_model_builder.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-# ---------------------------------------------------------------------------
-# Query templates
-# ---------------------------------------------------------------------------
-
-_ENTITY_QUERY = """\
-In the FA Handbook, what entities, roles, organisations, and concepts are formally defined
-or described in relation to '{topic}'?
-
-For each one, provide:
-TERM: [exact name as used in the Handbook]
-DEFINITION: [definition or description from the Handbook]
-CATEGORY: [one of: role / organisation / document / event / rule / process / data_entity]
-GOVERNANCE: [any specific rules, obligations, or regulatory requirements that apply]
-
-List every distinct term you can find. If a term appears in multiple contexts, give the
-primary definition. Only include terms that are explicitly present in the Handbook."""
-
-_RELATIONSHIP_QUERY = """\
-According to the FA Handbook, how does '{entity_a}' relate to '{entity_b}'?
-
-Describe:
-RELATIONSHIP: [how they are connected — e.g. "A Club must register each Player"]
-DIRECTION: [which governs or depends on the other, if applicable]
-RULES: [any FA Handbook rules that govern this relationship]
-
-If no relationship is described in the Handbook between these two entities, respond with:
-RELATIONSHIP: Not documented"""
-
-_TOR_QUERY = """\
-Provide a consolidated Terms of Reference entry for the FA term '{term}'.
-
-Draw on all relevant sections of the FA Handbook to provide:
-FORMAL_DEFINITION: [the most precise definition available]
-CATEGORY: [role / organisation / document / event / rule / process / data_entity]
-GOVERNANCE_RULES: [key obligations, requirements, and regulatory context]
-RELATED_TERMS: [other FA Handbook terms that are directly connected to this one]
-
-If this term is not formally defined in the FA Handbook, state 'Not documented' for
-FORMAL_DEFINITION."""
+_prompts = _load_prompts()
+_SYSTEM_PROMPT     = _prompts["system_prompt"]
+_ENTITY_QUERY      = _prompts["entity_query"]
+_RELATIONSHIP_QUERY = _prompts["relationship_query"]
+_TOR_QUERY         = _prompts["tor_query"]
 
 # ---------------------------------------------------------------------------
 # Helpers

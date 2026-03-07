@@ -57,9 +57,24 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
 from elt_llm_query.query import query_collections
+
+# ---------------------------------------------------------------------------
+# Prompt loader
+# ---------------------------------------------------------------------------
+
+_PROMPT_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+
+
+def _load_prompt(filename: str, key: str = "prompt") -> str:
+    """Load a prompt string from a YAML config file in elt_llm_consumer/config/."""
+    with open(_PROMPT_CONFIG_DIR / filename, encoding="utf-8") as f:
+        return yaml.safe_load(f)[key]
+
 
 # ---------------------------------------------------------------------------
 # Entity alias map for Step 4 matching (Fix 2)
@@ -164,7 +179,6 @@ def _resolve_json_from_ingest_config(config_path: Path, suffix: str) -> Path:
       source.xml  + "_model.json"      → source_model.json
       source.xlsx + "_inventory.json"  → source_inventory.json
     """
-    import yaml
     if not config_path.exists():
         raise FileNotFoundError(
             f"Ingest config not found: {config_path}\n"
@@ -183,125 +197,10 @@ _DEFAULT_INVENTORY_JSON = _resolve_json_from_ingest_config(_INGEST_CONFIG_INVENT
 # System prompts
 # ---------------------------------------------------------------------------
 
-_HANDBOOK_CONTEXT_PROMPT = """\
-Provide a terms of reference entry for the FA entity '{entity_name}' in the {domain} domain.
-
-The FA Handbook may refer to this entity directly by name or through specialisations, subtypes, or \
-qualified variants (e.g. '{entity_name}' may appear as 'Contract {entity_name}', 'Registered {entity_name}', \
-'Associate {entity_name}', or other qualified forms). Include definitions and rules for any such \
-specialisations where they illuminate the meaning of '{entity_name}'.
-
-Structure your response with these three sections:
-
-FORMAL_DEFINITION:
-[What is this entity? Provide a formal definition. Quote exact FA Handbook definition if one exists, \
-including any specialised forms or subtypes defined in the handbook.]
-
-DOMAIN_CONTEXT:
-[What role does it play within the {domain} domain? What related concepts should be considered?]
-
-GOVERNANCE:
-[What specific FA Handbook rules, obligations, or regulatory requirements apply?
-Cite section and rule numbers where possible (e.g. Rule A3.1, Section C).
-If no handbook rules apply, state 'Not documented in FA Handbook — outside governance scope'.]
-"""
-
-_GOVERNANCE_EXTRACTION_PROMPT = """\
-Describe the FA Handbook rules, regulations, and governance requirements that apply to '{entity_name}'.
-
-The FA Handbook may refer to this entity directly or through specialisations and qualified variants \
-(e.g. '{entity_name}' may appear as 'Contract {entity_name}', 'Registered {entity_name}', or other \
-qualified forms). Include governance rules for any such specialisations where they apply.
-
-Cover where relevant:
-- Registration or affiliation requirements
-- Eligibility criteria
-- Compliance obligations
-- Restrictions or prohibitions
-- Reporting requirements
-- Disciplinary provisions
-
-Cite specific section numbers or rule numbers inline where possible (e.g. Rule A3.1, Section C).
-Write as clear, concise prose suitable for a business data catalog.
-If no governance rules apply, state: 'Not documented in FA Handbook — outside governance scope.'"""
-
-_ENTITY_RELATIONSHIP_PROMPT = """\
-You are analysing the FA (The Football Association) Handbook to identify \
-entity-to-entity relationships.
-
-Source domain: {source_domain}
-Source entities (sample): {source_entities}
-
-Target domain: {target_domain}
-Target entities (sample): {target_entities}
-
-Domain-level relationship: {source_domain} {domain_cardinality} {target_domain}
-
-Task: Identify all specific entity-to-entity relationships between the source \
-and target entity lists as described in the FA Handbook. For every relationship \
-found, return BOTH the forward and inverse directions as separate records.
-
-Return a JSON array. Each item must have exactly these fields:
-- source_entity:         name of the source entity (must be from source entities list)
-- source_domain:         source domain name
-- target_entity:         name of the target entity (must be from target entities list)
-- target_domain:         target domain name
-- relationship:          verb phrase for the forward direction (e.g. "is registered with")
-- inverse_relationship:  verb phrase for the inverse direction (e.g. "has registered players")
-- cardinality:           forward cardinality — one of: "1:1", "1:many", "many:1", "many:many"
-- inverse_cardinality:   inverse cardinality — one of: "1:1", "1:many", "many:1", "many:many"
-- inferred:              true if inferred from context, false if explicitly stated
-- evidence:              brief quote or paraphrase from the Handbook (max 30 words)
-
-Rules:
-- Only include relationships supported by the FA Handbook content.
-- Do not invent relationships. If none are found, return [].
-- Both the forward and inverse record must reference each other via \
-  inverse_relationship / relationship fields.
-
-Return only the JSON array, no other text."""
-
-_DOMAIN_INFERENCE_PROMPT = """\
-You are classifying a business entity into the FA (The Football Association) \
-data architecture taxonomy.
-
-The current known domains and subgroups are:
-{taxonomy_context}
-
-Entity name: {entity_name}
-FA Handbook definition: {handbook_definition}
-
-Follow this DECISION PROCESS in priority order:
-
-TIER 1 — Map to existing taxonomy (strongly preferred):
-  If the entity clearly belongs to an existing domain/subgroup, assign it there.
-  Set inference_tier: "existing"
-
-TIER 2 — Propose new taxonomy:
-  If the entity does not fit any existing domain/subgroup, but the entity context
-  provides enough information to propose a meaningful new Domain and/or Subgroup,
-  propose sensible names that follow the same naming conventions as the existing taxonomy.
-  Set inference_tier: "new_proposed"
-  Note: prefer this over Tier 3 whenever possible.
-
-TIER 3 — Unknown (last resort):
-  Only if there is genuinely insufficient context to classify the entity.
-  Set inference_tier: "unknown"
-
-Return a JSON object with exactly these fields:
-- entity_domain:       domain name (existing, proposed new name, or "unknown")
-- entity_subgroup:     subgroup name (existing, proposed new name, "" if none, or "unknown")
-- inference_tier:      "existing" | "new_proposed" | "unknown"
-- inference_confidence: "high" | "medium" | "low"
-  - high:   clear semantic match, only one plausible option
-  - medium: plausible but two or more options could apply
-  - low:    genuinely ambiguous
-- inference_reasoning: one or two sentences explaining the assignment
-- alternative_domain:  next most likely domain if confidence is not "high", else ""
-
-For Tier 1, use domain and subgroup names EXACTLY as listed in the taxonomy.
-For Tier 2, follow the same Title Case naming conventions as existing entries.
-Return only the JSON object, no other text."""
+_HANDBOOK_CONTEXT_PROMPT    = _load_prompt("handbook_context.yaml")
+_GOVERNANCE_EXTRACTION_PROMPT = _load_prompt("governance_extraction.yaml")
+_ENTITY_RELATIONSHIP_PROMPT = _load_prompt("entity_relationship.yaml")
+_DOMAIN_INFERENCE_PROMPT    = _load_prompt("domain_inference.yaml")
 
 # ---------------------------------------------------------------------------
 # Definition extraction from docstore (pymupdf4llm output)
