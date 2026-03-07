@@ -145,6 +145,7 @@ class RagConfig:
                 chunk_size=chunking_data.get("chunk_size", 1024),
                 chunk_overlap=chunking_data.get("chunk_overlap", 200),
                 sentence_split_threshold=chunking_data.get("sentence_split_threshold", 0.5),
+                table_chunk_size=chunking_data.get("table_chunk_size", 1024),
             ),
             query=QueryConfig(
                 similarity_top_k=query_data.get("similarity_top_k", 5),

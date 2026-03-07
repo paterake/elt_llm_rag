@@ -1149,20 +1149,18 @@ def generate_consolidated_catalog(
                 name, domain, handbook_collections, rag_config,
                 term_definitions=term_definitions,
             )
-            # If governance is empty or hedged, run a dedicated governance RAG query.
             gov = context.get("governance_rules", "")
-            if not gov or gov.startswith("Not documented in FA Handbook"):
+            if name in _GOVERNANCE_INTENSIVE_ENTITIES:
+                # Always run dedicated governance query; skip generic fallback (same call).
+                gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
+                if gov_rules and not gov_rules.startswith("Not documented"):
+                    if len(gov_rules) > len(gov):
+                        context["governance_rules"] = gov_rules
+            elif not gov or gov.startswith("Not documented in FA Handbook"):
+                # Non-intensive: only run fallback when initial result is empty/hedged.
                 gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
                 if gov_rules:
                     context["governance_rules"] = gov_rules
-            
-            # Fix 5: Always run dedicated governance query for intensive entities
-            if name in _GOVERNANCE_INTENSIVE_ENTITIES:
-                gov_rules = extract_governance_rules_via_rag(name, handbook_collections, rag_config)
-                if gov_rules and not gov_rules.startswith("Not documented"):
-                    # Merge with existing governance (prefer the more detailed one)
-                    if len(gov_rules) > len(context.get("governance_rules", "")):
-                        context["governance_rules"] = gov_rules
             
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
