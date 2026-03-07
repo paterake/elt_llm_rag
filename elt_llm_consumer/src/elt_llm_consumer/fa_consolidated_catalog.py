@@ -94,9 +94,6 @@ _ENTITY_ALIASES: dict[str, list[str]] = _catalog_cfg["entity_aliases"]
 # Entities with no handbook coverage — skip RAG calls to prevent hallucination
 _NO_HANDBOOK_COVERAGE: frozenset[str] = frozenset(_catalog_cfg["no_handbook_coverage"])
 
-# Core regulatory entities — always run dedicated governance query
-_GOVERNANCE_INTENSIVE_ENTITIES: frozenset[str] = frozenset(_catalog_cfg["governance_intensive"])
-
 # Entities present in the Handbook but without "X means Y" definitions —
 # Step 3 regex never extracts them, so Step 4 can't match them.
 # Force source=BOTH so Step 5 RAG queries still run for them.
@@ -394,25 +391,6 @@ def get_handbook_context_for_entity(
             "domain_context": "",
             "governance_rules": "",
         }
-
-
-def extract_governance_rules_via_rag(
-    entity_name: str,
-    handbook_collections: list[str],
-    rag_config: RagConfig,
-) -> str:
-    """Dedicated governance RAG query — returns prose string.
-
-    Used as a fallback when the combined context prompt returns empty or
-    hedged governance text (e.g. "Not documented in FA Handbook...").
-    Returns empty string if nothing found.
-    """
-    query = _GOVERNANCE_EXTRACTION_PROMPT.format(entity_name=entity_name)
-    try:
-        result = query_collections(handbook_collections, query, rag_config)
-        return result.response.strip()
-    except Exception:
-        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1059,19 +1037,6 @@ def generate_consolidated_catalog(
                 name, domain, target_collections, rag_config,
                 term_definitions=term_definitions,
             )
-            gov = context.get("governance_rules", "")
-            if name in _GOVERNANCE_INTENSIVE_ENTITIES:
-                # Always run dedicated governance query; skip generic fallback (same call).
-                gov_rules = extract_governance_rules_via_rag(name, target_collections, rag_config)
-                if gov_rules and not gov_rules.startswith("Not documented"):
-                    if len(gov_rules) > len(gov):
-                        context["governance_rules"] = gov_rules
-            elif not gov or gov.startswith("Not documented in FA Handbook"):
-                # Non-intensive: only run fallback when initial result is empty/hedged.
-                gov_rules = extract_governance_rules_via_rag(name, target_collections, rag_config)
-                if gov_rules:
-                    context["governance_rules"] = gov_rules
-            
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 

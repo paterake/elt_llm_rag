@@ -94,6 +94,7 @@ class QueryConfig:
     use_mmr: bool = False
     mmr_threshold: float = 0.7
     use_lost_in_middle: bool = False
+    full_context_max_chunks: int = 80
 
 
 @dataclass
@@ -162,6 +163,7 @@ class RagConfig:
                 use_mmr=query_data.get("use_mmr", False),
                 mmr_threshold=query_data.get("mmr_threshold", 0.7),
                 use_lost_in_middle=query_data.get("use_lost_in_middle", False),
+                full_context_max_chunks=query_data.get("full_context_max_chunks", 80),
             ),
         )
 
@@ -243,6 +245,7 @@ class RagConfig:
                 "use_mmr": self.query.use_mmr,
                 "mmr_threshold": self.query.mmr_threshold,
                 "use_lost_in_middle": self.query.use_lost_in_middle,
+                "full_context_max_chunks": self.query.full_context_max_chunks,
             },
         }
 

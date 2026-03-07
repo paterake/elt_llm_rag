@@ -630,16 +630,42 @@ def query_collections(
         else max(top_k, 5)
     )
 
-    # Step 1: Retrieve chunks from every collection — hybrid or vector search, no LLM yet
+    # Step 1: Retrieve chunks from every collection — hybrid or vector search, no LLM yet.
+    # Full-context mode: if a collection has ≤ full_context_max_chunks nodes, pass ALL of
+    # them directly instead of running retrieval. Small focused sections fit in the LLM
+    # context window and benefit from full visibility.
+    from llama_index.core import StorageContext
+    from llama_index.core.schema import NodeWithScore
+
+    full_ctx_threshold = rag_config.query.full_context_max_chunks
     all_nodes = []
     for index, name in zip(indices, collection_names):
-        if rag_config.query.use_hybrid_search:
-            retriever = _build_hybrid_retriever(index, name, rag_config, per_collection_k)
-        else:
-            retriever = index.as_retriever(similarity_top_k=per_collection_k)
-        nodes = retriever.retrieve(query)
-        all_nodes.extend(nodes)
-        logger.info("Collection '%s' retrieved %d nodes", name, len(nodes))
+        docstore_path = get_docstore_path(rag_config.chroma, name)
+        used_full_context = False
+        if full_ctx_threshold > 0 and docstore_path.exists():
+            try:
+                ds = StorageContext.from_defaults(persist_dir=str(docstore_path))
+                all_doc_nodes = list(ds.docstore.docs.values())
+                if 0 < len(all_doc_nodes) <= full_ctx_threshold:
+                    all_nodes.extend(
+                        NodeWithScore(node=n, score=1.0) for n in all_doc_nodes
+                    )
+                    logger.info(
+                        "Collection '%s': full-context mode (%d nodes ≤ threshold %d)",
+                        name, len(all_doc_nodes), full_ctx_threshold,
+                    )
+                    used_full_context = True
+            except Exception as e:
+                logger.debug("Full-context check failed for '%s': %s", name, e)
+
+        if not used_full_context:
+            if rag_config.query.use_hybrid_search:
+                retriever = _build_hybrid_retriever(index, name, rag_config, per_collection_k)
+            else:
+                retriever = index.as_retriever(similarity_top_k=per_collection_k)
+            nodes = retriever.retrieve(query)
+            all_nodes.extend(nodes)
+            logger.info("Collection '%s' retrieved %d nodes (hybrid/vector)", name, len(nodes))
 
     if not all_nodes:
         return QueryResult(response="No relevant content found in any collection.", source_nodes=[])

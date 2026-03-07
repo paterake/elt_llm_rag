@@ -61,6 +61,11 @@ query:
   # both ends of the context window, where LLM attention is strongest.
   use_lost_in_middle: true
 
+  # Full-context threshold: collections with ≤ this many chunks are passed in full
+  # to the LLM (no retrieval). qwen3.5:9b has 32K tokens; 80 chunks × ~256 tokens
+  # = 20K — comfortably fits. 35 of 44 fa_handbook_sNN sections qualify.
+  full_context_max_chunks: 80
+
   system_prompt: |
     You are a helpful assistant that answers questions based on the provided documents.
     Always ground your answers in the retrieved content.

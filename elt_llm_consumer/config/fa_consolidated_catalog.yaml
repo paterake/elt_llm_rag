@@ -122,20 +122,3 @@ no_handbook_coverage:
 forced_handbook_entities:
   - Sports Governing Body
 
-# ---------------------------------------------------------------------------
-# governance_intensive
-#
-# Core regulatory entities whose governance rules are scattered across
-# multiple handbook sections. A dedicated governance RAG query is always
-# run for these, regardless of whether the combined context prompt
-# returned governance text.
-# ---------------------------------------------------------------------------
-governance_intensive:
-  - Club
-  - Player
-  - Match Official
-  - Club Official
-  - County Association
-  - Competition
-  - Competition League
-  - FA County
