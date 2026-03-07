@@ -62,38 +62,33 @@ _DEFAULT_RAG_CONFIG = Path(
 _DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
 # ---------------------------------------------------------------------------
-# Seed topics — FA Handbook domain areas
+# Config + prompt loader
 # ---------------------------------------------------------------------------
 
-_DEFAULT_TOPICS = [
-    "Club",
-    "Player",
-    "Official",
-    "Referee",
-    "Competition",
-    "County FA",
-    "Registration",
-    "Transfer",
-    "Affiliation",
-    "Discipline",
-    "Safeguarding",
-    "Governance",
-    "Eligibility",
-    "Licence",
-]
+_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+_PROMPT_DIR = _CONFIG_DIR / "prompts"
 
-# ---------------------------------------------------------------------------
-# Prompt loader
-# ---------------------------------------------------------------------------
-
-_PROMPT_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
 
 def _load_prompts() -> dict:
-    """Load all prompts for this script from the shared YAML config."""
-    with open(_PROMPT_CONFIG_DIR / "handbook_model_builder.yaml", encoding="utf-8") as f:
+    """Load all prompts for this script from config/prompts/."""
+    with open(_PROMPT_DIR / "handbook_model_builder.yaml", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
+
+def _load_builder_config() -> dict:
+    """Load non-prompt config (topics, paths) from config/."""
+    with open(_CONFIG_DIR / "fa_handbook_model_builder.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
 _prompts = _load_prompts()
+_builder_cfg = _load_builder_config()
+
+# ---------------------------------------------------------------------------
+# Seed topics — loaded from config
+# ---------------------------------------------------------------------------
+
+_DEFAULT_TOPICS: list[str] = _builder_cfg["default_topics"]
 _SYSTEM_PROMPT     = _prompts["system_prompt"]
 _ENTITY_QUERY      = _prompts["entity_query"]
 _RELATIONSHIP_QUERY = _prompts["relationship_query"]

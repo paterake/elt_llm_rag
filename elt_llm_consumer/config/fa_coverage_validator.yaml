@@ -1,0 +1,30 @@
+# FA Coverage Validator — runtime configuration
+#
+# Verdict band thresholds and retrieval parameters for fa_coverage_validator.py.
+# Adjust thresholds to tune sensitivity of STRONG/MODERATE/THIN/ABSENT verdicts.
+
+# ---------------------------------------------------------------------------
+# verdict_thresholds
+#
+# Cosine similarity of the top retrieved chunk determines the verdict band.
+# Bands are evaluated top-down: score >= strong → STRONG, etc.
+#
+#   STRONG    — handbook clearly discusses this entity
+#   MODERATE  — some governance context available
+#   THIN      — weak signal; may be named differently in handbook
+#   ABSENT    — entity not meaningfully present in handbook
+# ---------------------------------------------------------------------------
+verdict_thresholds:
+  strong:   0.70
+  moderate: 0.55
+  thin:     0.40
+  # Below thin → ABSENT
+
+# ---------------------------------------------------------------------------
+# retrieval
+#
+# default_top_k: number of chunks retrieved per entity during scoring.
+# Higher values improve recall but increase runtime.
+# ---------------------------------------------------------------------------
+retrieval:
+  default_top_k: 5

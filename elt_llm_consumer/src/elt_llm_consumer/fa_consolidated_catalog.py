@@ -67,89 +67,35 @@ from elt_llm_query.query import query_collections
 # Prompt loader
 # ---------------------------------------------------------------------------
 
-_PROMPT_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+_PROMPT_DIR = _CONFIG_DIR / "prompts"
 
 
 def _load_prompt(filename: str, key: str = "prompt") -> str:
-    """Load a prompt string from a YAML config file in elt_llm_consumer/config/."""
-    with open(_PROMPT_CONFIG_DIR / filename, encoding="utf-8") as f:
+    """Load a prompt string from elt_llm_consumer/config/prompts/."""
+    with open(_PROMPT_DIR / filename, encoding="utf-8") as f:
         return yaml.safe_load(f)[key]
 
 
+def _load_catalog_config() -> dict:
+    """Load fa_consolidated_catalog.yaml (entity lists, aliases, thresholds)."""
+    with open(_CONFIG_DIR / "fa_consolidated_catalog.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+_catalog_cfg = _load_catalog_config()
+
 # ---------------------------------------------------------------------------
-# Entity alias map for Step 4 matching (Fix 2)
+# Entity alias map for Step 4 matching — loaded from config
 # ---------------------------------------------------------------------------
 
-_ENTITY_ALIASES: dict[str, list[str]] = {
-    # County/FA mappings
-    "fa county": ["county association", "county football association"],
-    "county association": ["fa county", "county fa"],
-    # Competition/League mappings
-    "competition league": ["competition", "league"],
-    "competition": ["competition league", "league"],
-    # Governing body mappings
-    "sports governing body": ["national association", "affiliated association", "governing body"],
-    "affiliated association": ["sports governing body", "national association"],
-    # Match official mappings
-    "match official": ["referee", "assistant referee", "fourth official", "var"],
-    "referee": ["match official"],
-    # Coach/Developer mappings
-    "coach developer": ["coach", "instructor", "trainer"],
-    "coach": ["coach developer"],
-    # Learner/Trainee mappings
-    "learner": ["trainee", "candidate", "student"],
-    # Board/Committee mappings
-    "board & committee members": ["board", "committee", "directors", "management committee"],
-    "board": ["board & committee members"],
-    "committee": ["board & committee members"],
-    # Club official mappings
-    "club official": ["officer", "director", "secretary", "club officer"],
-    "officer": ["club official"],
-    # Employee/Worker mappings
-    "employees": ["staff", "worker", "employee"],
-    "casual & contingent labourers": ["casual worker", "contingent worker", "temporary worker"],
-    "managed service workers": ["contractor", "third party worker", "agency worker"],
-    # Supporter/Fan mappings
-    "england supporter": ["supporter", "fan", "member"],
-    "event attendee": ["attendee", "spectator", "guest"],
-    # Customer/Commercial mappings
-    "customer": ["client", "consumer", "purchaser"],
-    "prospect": ["potential customer", "lead", "candidate"],
-    # Organisation mappings
-    "business unit": ["division", "department", "unit"],
-    "household": ["family", "domestic unit"],
-    "supplier": ["vendor", "provider", "contractor"],
-    "school": ["educational institution", "academy"],
-    "local authority": ["council", "municipality"],
-    "government": ["state", "public authority"],
-    # Role mappings
-    "mentor": ["advisor", "guide", "tutor"],
-    "candidates": ["applicant", "nominee"],
-}
+_ENTITY_ALIASES: dict[str, list[str]] = _catalog_cfg["entity_aliases"]
 
-# Entities with no handbook coverage - skip RAG calls (Fix 1)
-_NO_HANDBOOK_COVERAGE = frozenset([
-    "Supplier",
-    "Household", 
-    "Business Unit",
-    "Prospect",
-    "Customer",
-    "Event Attendee",
-    "Casual & Contingent Labourers",
-    "Managed Service Workers",
-])
+# Entities with no handbook coverage — skip RAG calls to prevent hallucination
+_NO_HANDBOOK_COVERAGE: frozenset[str] = frozenset(_catalog_cfg["no_handbook_coverage"])
 
-# Core regulatory entities requiring intensive governance queries (Fix 5)
-_GOVERNANCE_INTENSIVE_ENTITIES = frozenset([
-    "Club",
-    "Player",
-    "Match Official",
-    "Club Official",
-    "County Association",
-    "Competition",
-    "Competition League",
-    "FA County",
-])
+# Core regulatory entities — always run dedicated governance query
+_GOVERNANCE_INTENSIVE_ENTITIES: frozenset[str] = frozenset(_catalog_cfg["governance_intensive"])
 
 # ---------------------------------------------------------------------------
 # Default paths

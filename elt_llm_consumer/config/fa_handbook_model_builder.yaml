@@ -1,0 +1,27 @@
+# FA Handbook Model Builder — runtime configuration
+#
+# Tuning parameters and seed topics for fa_handbook_model_builder.py.
+# Edit default_topics to focus on specific FA Handbook domain areas.
+
+# ---------------------------------------------------------------------------
+# default_topics
+#
+# Seed topics for Pass 1 entity extraction. The script queries the FA Handbook
+# once per topic to discover defined terms, roles, organisations, and concepts.
+# Override at runtime with: --topics Club Player Competition
+# ---------------------------------------------------------------------------
+default_topics:
+  - Club
+  - Player
+  - Official
+  - Referee
+  - Competition
+  - County FA
+  - Registration
+  - Transfer
+  - Affiliation
+  - Discipline
+  - Safeguarding
+  - Governance
+  - Eligibility
+  - Licence

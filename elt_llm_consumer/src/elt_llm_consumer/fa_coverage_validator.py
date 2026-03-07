@@ -48,8 +48,25 @@ import os
 import sys
 from pathlib import Path
 
+import yaml
+
 from elt_llm_core.config import RagConfig
 from elt_llm_query.query import load_index, resolve_collection_prefixes
+
+# ---------------------------------------------------------------------------
+# Config loader
+# ---------------------------------------------------------------------------
+
+_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+
+
+def _load_validator_config() -> dict:
+    """Load fa_coverage_validator.yaml (thresholds, retrieval params)."""
+    with open(_CONFIG_DIR / "fa_coverage_validator.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+_validator_cfg = _load_validator_config()
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -69,13 +86,14 @@ _DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 _DEFAULT_HANDBOOK_JSON = _DEFAULT_OUTPUT_DIR / "fa_handbook_candidate_entities.json"
 
 # ---------------------------------------------------------------------------
-# Verdict thresholds (cosine similarity of top retrieved chunk)
+# Verdict thresholds — loaded from config
 # ---------------------------------------------------------------------------
 
-_STRONG = 0.70
-_MODERATE = 0.55
-_THIN = 0.40
-_DEFAULT_TOP_K = 5  # chunks retrieved per entity
+_thresholds = _validator_cfg["verdict_thresholds"]
+_STRONG   = _thresholds["strong"]
+_MODERATE = _thresholds["moderate"]
+_THIN     = _thresholds["thin"]
+_DEFAULT_TOP_K: int = _validator_cfg["retrieval"]["default_top_k"]
 
 # ---------------------------------------------------------------------------
 # Source loading

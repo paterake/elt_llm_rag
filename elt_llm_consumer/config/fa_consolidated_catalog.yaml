@@ -1,0 +1,105 @@
+# FA Consolidated Catalog — runtime configuration
+#
+# Tuning parameters and entity lists for fa_consolidated_catalog.py.
+# Edit this file to add aliases, exclude entities from RAG, or flag
+# governance-intensive entities — no Python code changes required.
+
+# ---------------------------------------------------------------------------
+# entity_aliases
+#
+# Bidirectional name mappings used in Step 4 term matching.
+# Key: normalised entity name (lowercase). Value: list of handbook synonyms.
+# The matching logic checks both directions automatically.
+# ---------------------------------------------------------------------------
+entity_aliases:
+  # County / FA
+  fa county:            ["county association", "county football association"]
+  county association:   ["fa county", "county fa"]
+
+  # Competition / League
+  competition league:   ["competition", "league"]
+  competition:          ["competition league", "league"]
+
+  # Governing body
+  sports governing body:  ["national association", "affiliated association", "governing body"]
+  affiliated association: ["sports governing body", "national association"]
+
+  # Match official
+  match official: ["referee", "assistant referee", "fourth official", "var"]
+  referee:        ["match official"]
+
+  # Coach / Developer
+  coach developer: ["coach", "instructor", "trainer"]
+  coach:           ["coach developer"]
+
+  # Learner / Trainee
+  learner: ["trainee", "candidate", "student"]
+
+  # Board / Committee
+  board & committee members: ["board", "committee", "directors", "management committee"]
+  board:     ["board & committee members"]
+  committee: ["board & committee members"]
+
+  # Club official
+  club official: ["officer", "director", "secretary", "club officer"]
+  officer:       ["club official"]
+
+  # Employee / Worker
+  employees:                   ["staff", "worker", "employee"]
+  casual & contingent labourers: ["casual worker", "contingent worker", "temporary worker"]
+  managed service workers:     ["contractor", "third party worker", "agency worker"]
+
+  # Supporter / Fan
+  england supporter: ["supporter", "fan", "member"]
+  event attendee:    ["attendee", "spectator", "guest"]
+
+  # Customer / Commercial
+  customer: ["client", "consumer", "purchaser"]
+  prospect: ["potential customer", "lead", "candidate"]
+
+  # Organisation
+  business unit:   ["division", "department", "unit"]
+  household:       ["family", "domestic unit"]
+  supplier:        ["vendor", "provider", "contractor"]
+  school:          ["educational institution", "academy"]
+  local authority: ["council", "municipality"]
+  government:      ["state", "public authority"]
+
+  # Role
+  mentor:     ["advisor", "guide", "tutor"]
+  candidates: ["applicant", "nominee"]
+
+# ---------------------------------------------------------------------------
+# no_handbook_coverage
+#
+# Entities confirmed to have no FA Handbook coverage.
+# RAG calls are skipped entirely for these — prevents hallucination and
+# saves LLM calls. Add entities here when confirmed absent from the handbook.
+# ---------------------------------------------------------------------------
+no_handbook_coverage:
+  - Supplier
+  - Household
+  - Business Unit
+  - Prospect
+  - Customer
+  - Event Attendee
+  - Casual & Contingent Labourers
+  - Managed Service Workers
+
+# ---------------------------------------------------------------------------
+# governance_intensive
+#
+# Core regulatory entities whose governance rules are scattered across
+# multiple handbook sections. A dedicated governance RAG query is always
+# run for these, regardless of whether the combined context prompt
+# returned governance text.
+# ---------------------------------------------------------------------------
+governance_intensive:
+  - Club
+  - Player
+  - Match Official
+  - Club Official
+  - County Association
+  - Competition
+  - Competition League
+  - FA County
