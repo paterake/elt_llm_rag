@@ -65,6 +65,7 @@ class ChunkingConfig:
     chunk_overlap: int = 200
     sentence_split_threshold: float = 0.5
     table_chunk_size: int = 1024
+    table_detection_threshold: float = 0.3
 
 
 @dataclass
@@ -146,6 +147,7 @@ class RagConfig:
                 chunk_overlap=chunking_data.get("chunk_overlap", 200),
                 sentence_split_threshold=chunking_data.get("sentence_split_threshold", 0.5),
                 table_chunk_size=chunking_data.get("table_chunk_size", 1024),
+                table_detection_threshold=chunking_data.get("table_detection_threshold", 0.3),
             ),
             query=QueryConfig(
                 similarity_top_k=query_data.get("similarity_top_k", 5),
@@ -225,11 +227,22 @@ class RagConfig:
                 "chunk_size": self.chunking.chunk_size,
                 "chunk_overlap": self.chunking.chunk_overlap,
                 "sentence_split_threshold": self.chunking.sentence_split_threshold,
+                "table_chunk_size": self.chunking.table_chunk_size,
+                "table_detection_threshold": self.chunking.table_detection_threshold,
             },
             "query": {
                 "similarity_top_k": self.query.similarity_top_k,
                 "system_prompt": self.query.system_prompt,
                 "use_hybrid_search": self.query.use_hybrid_search,
+                "use_reranker": self.query.use_reranker,
+                "reranker_model": self.query.reranker_model,
+                "reranker_strategy": self.query.reranker_strategy,
+                "reranker_retrieve_k": self.query.reranker_retrieve_k,
+                "reranker_top_k": self.query.reranker_top_k,
+                "num_queries": self.query.num_queries,
+                "use_mmr": self.query.use_mmr,
+                "mmr_threshold": self.query.mmr_threshold,
+                "use_lost_in_middle": self.query.use_lost_in_middle,
             },
         }
 

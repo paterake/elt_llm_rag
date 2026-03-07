@@ -31,7 +31,8 @@ chunking:
   chunk_size: 256          # Prose chunk size
   chunk_overlap: 32        # Prose overlap
   sentence_split_threshold: 0.5
-  table_chunk_size: 1536   # Max size for table rows (accommodates multi-line definitions)
+  table_chunk_size: 1536        # Max size for table rows (accommodates multi-line definitions)
+  table_detection_threshold: 0.3  # Min proportion of pipe-delimited lines to classify as table
 
 # Query settings
 query:

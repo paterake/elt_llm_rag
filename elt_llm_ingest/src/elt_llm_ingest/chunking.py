@@ -40,21 +40,25 @@ class TableAwareSentenceSplitter(SentenceSplitter):
     """
     
     table_chunk_size: int = 1024
-    
+    table_detection_threshold: float = 0.3
+
     def __init__(
         self,
         chunk_size: int = 256,
         chunk_overlap: int = 32,
         table_chunk_size: int = 1024,
+        table_detection_threshold: float = 0.3,
         paragraph_separator: str = "\n\n",
         **kwargs: Any,
     ):
         """Initialize the table-aware splitter.
-        
+
         Args:
             chunk_size: Token size for prose chunks.
             chunk_overlap: Overlap between prose chunks.
             table_chunk_size: Maximum token size for table row chunks.
+            table_detection_threshold: Min proportion of pipe-delimited lines to
+                classify a node as table content (0.0–1.0).
             paragraph_separator: Separator for paragraph boundaries.
             **kwargs: Additional arguments passed to SentenceSplitter.
         """
@@ -66,6 +70,7 @@ class TableAwareSentenceSplitter(SentenceSplitter):
         )
         # Use object.__setattr__ to bypass Pydantic's field validation
         object.__setattr__(self, "table_chunk_size", table_chunk_size)
+        object.__setattr__(self, "table_detection_threshold", table_detection_threshold)
         object.__setattr__(self, "paragraph_separator", paragraph_separator)
     
     def _parse_nodes(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
@@ -123,8 +128,7 @@ class TableAwareSentenceSplitter(SentenceSplitter):
             if "|" in stripped:
                 table_line_count += 1
         
-        # Consider it table content if >30% of lines contain table markers
-        return len(lines) > 0 and (table_line_count / len(lines)) > 0.3
+        return len(lines) > 0 and (table_line_count / len(lines)) > self.table_detection_threshold
     
     def _split_table_rows(self, node: BaseNode) -> List[BaseNode]:
         """Split table content into one chunk per table row.
@@ -327,12 +331,13 @@ def create_splitter(
             **kwargs,
         )
     elif strategy == "table_aware":
-        # Extract table_chunk_size from kwargs to avoid duplicate argument
         table_chunk_size = kwargs.pop("table_chunk_size", 1024)
+        table_detection_threshold = kwargs.pop("table_detection_threshold", 0.3)
         return TableAwareSentenceSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             table_chunk_size=table_chunk_size,
+            table_detection_threshold=table_detection_threshold,
             **kwargs,
         )
     elif strategy == "section_aware":

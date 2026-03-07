@@ -233,6 +233,7 @@ def build_index(
         chunk_size=chunking.chunk_size,
         chunk_overlap=chunking.chunk_overlap,
         table_chunk_size=getattr(chunking, "table_chunk_size", 1024),
+        table_detection_threshold=getattr(chunking, "table_detection_threshold", 0.3),
     )
     
     nodes = IngestionPipeline(transformations=[splitter]).run(

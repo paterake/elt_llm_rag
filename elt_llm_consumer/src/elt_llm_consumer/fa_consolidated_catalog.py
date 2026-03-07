@@ -97,6 +97,13 @@ _NO_HANDBOOK_COVERAGE: frozenset[str] = frozenset(_catalog_cfg["no_handbook_cove
 # Core regulatory entities — always run dedicated governance query
 _GOVERNANCE_INTENSIVE_ENTITIES: frozenset[str] = frozenset(_catalog_cfg["governance_intensive"])
 
+# Entities present in the Handbook but without "X means Y" definitions —
+# Step 3 regex never extracts them, so Step 4 can't match them.
+# Force source=BOTH so Step 5 RAG queries still run for them.
+_FORCED_HANDBOOK_ENTITIES: frozenset[str] = frozenset(
+    _catalog_cfg.get("forced_handbook_entities", [])
+)
+
 # ---------------------------------------------------------------------------
 # Default paths
 # ---------------------------------------------------------------------------
@@ -586,6 +593,22 @@ def consolidate_catalog(
             is_direct = term_lower == mapped_entity
             if existing is None or is_direct:
                 entity_to_mapping[mapped_entity] = (term_lower, mapping)
+
+    # Inject forced entries for entities known to be in the Handbook but
+    # whose definitions aren't in "X means Y" format (never extracted by Step 3).
+    for forced_name in _FORCED_HANDBOOK_ENTITIES:
+        forced_norm = _normalize(forced_name)
+        if forced_norm not in entity_to_mapping:
+            entity_to_mapping[forced_norm] = (
+                forced_norm,
+                {
+                    "mapped_entity": forced_name,
+                    "domain": "",
+                    "fact_sheet_id": "",
+                    "mapping_confidence": "medium",
+                    "mapping_rationale": "Forced handbook match — entity present in Handbook without formal definition",
+                },
+            )
 
     # Original casing lookup: term_lower → term string as extracted from Handbook
     term_casing: dict[str, str] = {

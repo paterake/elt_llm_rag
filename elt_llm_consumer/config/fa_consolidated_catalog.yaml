@@ -87,6 +87,19 @@ no_handbook_coverage:
   - Managed Service Workers
 
 # ---------------------------------------------------------------------------
+# forced_handbook_entities
+#
+# Entities confirmed to be present in the FA Handbook but whose definition
+# is NOT in "X means Y" format — so they are never extracted by the regex
+# in Step 3 and never matched in Step 4.
+#
+# Entities listed here are always classified as source=BOTH and have the
+# normal RAG+LLM Step 5 queries run for them.
+# ---------------------------------------------------------------------------
+forced_handbook_entities:
+  - Sports Governing Body
+
+# ---------------------------------------------------------------------------
 # governance_intensive
 #
 # Core regulatory entities whose governance rules are scattered across
