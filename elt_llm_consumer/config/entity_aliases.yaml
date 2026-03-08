@@ -1,0 +1,295 @@
+# FA Entity Alias Map — grounded against FA Conceptual Model (175 entities) and FA Handbook
+#
+# Purpose (two uses):
+#   Step 4 — term matching: maps handbook-extracted defined terms → model entity names
+#   Step 5 — BM25 section routing: expands entity name with handbook vocabulary
+#
+# Format:
+#   Key:   normalised entity name (lowercase, as it appears in the conceptual model)
+#   Value: list of alternative terms the FA Handbook uses for the same concept
+#
+# The matching logic checks both directions — you only need to list each pair once,
+# but explicit reverse entries improve BM25 section routing scores.
+#
+# To add a new pair: edit this file. No Python code changes required.
+# ---------------------------------------------------------------------------
+
+
+# ===========================================================================
+# PARTY — Individual
+# ===========================================================================
+
+# Match officials
+match official:      ["referee", "assistant referee", "fourth official", "var",
+                      "video assistant referee", "official", "match officials"]
+referee:             ["match official", "official"]
+
+# Players
+player:              ["registered player", "participant", "footballer",
+                      "professional player", "amateur player", "youth player"]
+
+# Coaches
+coach developer:     ["coach educator", "fa coach educator", "tutor", "instructor",
+                      "assessor", "coach", "coach developer"]
+coach:               ["coach developer", "manager", "head coach"]
+
+# Learners
+learner:             ["student", "trainee", "course participant", "candidate"]
+
+# Club officials
+club official:       ["officer", "club officer", "secretary", "chairman",
+                      "director", "appointed official"]
+officer:             ["club official"]
+
+# County
+county administrator: ["county officer", "county official", "county secretary",
+                       "county fa administrator", "county administrator"]
+
+# Board / Committee
+board & committee members: ["board member", "committee member", "director",
+                             "management committee", "board", "committee",
+                             "directors", "trustees"]
+board:     ["board & committee members"]
+committee: ["board & committee members"]
+
+# Staff
+employees:                     ["staff", "employee", "worker", "fa staff",
+                                 "full time staff", "part time staff"]
+casual & contingent labourers: ["casual worker", "contingent worker",
+                                 "temporary staff", "agency staff",
+                                 "casual staff", "temporary worker"]
+managed service workers:       ["contractor", "third party worker", "agency worker",
+                                 "outsourced worker", "managed service"]
+
+# Supporters
+england supporter: ["supporter", "fan", "england fan", "member",
+                    "england supporters travel club", "away supporter"]
+event attendee:    ["attendee", "spectator", "audience", "guest"]
+
+# Other PARTY / Individual
+mentor:     ["advisor", "guide", "tutor"]
+candidates: ["applicant", "nominee", "candidate"]
+customer:   ["client", "consumer", "purchaser", "buyer"]
+prospect:   ["potential customer", "lead", "prospective member"]
+
+
+# ===========================================================================
+# PARTY — Organisation
+# ===========================================================================
+
+club:                  ["football club", "affiliated club", "member club",
+                        "association football club", "registered club",
+                        "professional club", "amateur club"]
+
+competition league:    ["competition", "league", "cup", "cup competition",
+                        "domestic competition", "national competition",
+                        "fa competition", "approved competition"]
+competition:           ["competition league", "league", "cup"]
+
+fa county:             ["county association", "county fa",
+                        "county football association", "affiliated association",
+                        "county"]
+county association:    ["fa county", "county fa", "county football association"]
+
+sports governing body: ["national governing body", "governing body", "ngb",
+                        "national association", "affiliated association",
+                        "international federation", "uefa", "fifa",
+                        "football association"]
+affiliated association: ["sports governing body", "national association",
+                         "county association", "fa county"]
+
+school:          ["educational institution", "academy", "college", "university",
+                  "secondary school", "primary school"]
+local authority: ["council", "local council", "municipality", "local government"]
+government:      ["government body", "public authority", "state",
+                  "government department", "ministry"]
+charity:         ["charitable organisation", "non-profit", "voluntary organisation",
+                  "third sector"]
+supplier:        ["vendor", "provider", "contractor", "service provider",
+                  "third party supplier"]
+
+# Unstructured PARTY
+business unit:   ["department", "division", "directorate", "business area",
+                  "team", "unit"]
+household:       ["family", "domestic unit"]
+team:            ["football team", "squad", "first team", "youth team",
+                  "club team", "playing squad"]
+
+
+# ===========================================================================
+# AGREEMENTS
+# ===========================================================================
+
+# Participant eligibility
+player registration:       ["registration", "player registration form",
+                             "registration document", "fa registration",
+                             "transfer registration"]
+player transfer:           ["transfer", "transfer agreement", "permanent transfer",
+                             "transfer window", "transfer clearance"]
+player loan agreement:     ["loan", "loan agreement", "temporary transfer",
+                             "dual registration", "emergency loan"]
+youth agreements:          ["youth contract", "scholars agreement",
+                             "apprentice agreement", "academy contract",
+                             "youth player agreement", "development centre agreement"]
+medical clearance agreement: ["medical clearance", "fitness to play",
+                               "medical certificate", "fitness assessment"]
+
+# Regulatory
+antidoping:              ["anti-doping", "doping control", "drug testing",
+                          "prohibited substances", "whereabouts"]
+disciplinary agreement:  ["disciplinary", "charge", "disciplinary charge",
+                          "penalty", "sanction", "misconduct charge",
+                          "disciplinary proceedings"]
+safeguarding case:       ["safeguarding", "dbs check", "enhanced disclosure",
+                          "welfare concern", "safeguarding referral",
+                          "child protection"]
+agent agreements:        ["agent", "intermediary", "players agent",
+                          "registered intermediary", "agent agreement",
+                          "representation contract"]
+
+# Governance
+codes of conduct:        ["code of conduct", "conduct regulations",
+                          "rules of conduct", "behaviour standards",
+                          "participant conduct"]
+competition agreements:  ["competition rules", "rules of competition",
+                           "competition regulations", "league rules",
+                           "cup rules", "fa rules"]
+tournament participation: ["cup entry", "competition entry", "tournament entry",
+                            "entry form", "competition application"]
+policy:                  ["fa policy", "rule", "regulation", "standing orders",
+                          "bye-law", "directive"]
+licence:                 ["license", "fa licence", "coaching licence",
+                          "referee licence", "coaching badge", "dbs licence"]
+
+# Match execution
+fixture commitment:      ["fixture", "fixture list", "match schedule",
+                          "fixture programme", "scheduled match"]
+match appointment:       ["appointment", "referee appointment",
+                          "official appointment", "match official appointment"]
+
+# Commercial & Legal
+insurance:               ["insurance cover", "public liability",
+                          "player personal accident insurance",
+                          "employers liability"]
+advertising agreements:  ["advertising", "commercial agreement",
+                          "advertising rights"]
+broadcasting rights agreement: ["broadcasting", "tv rights", "media rights",
+                                 "broadcast agreement", "streaming rights"]
+sponsorship, merchandising & image rights: ["sponsorship", "commercial rights",
+                                             "image rights", "merchandising",
+                                             "kit sponsorship"]
+privacy & consent agreements: ["consent form", "gdpr consent",
+                                "data protection consent", "privacy notice",
+                                "parental consent"]
+worker type contracts:    ["employment contract", "contract of employment",
+                           "service agreement", "terms of engagement"]
+venue use agreement:      ["ground agreement", "venue hire", "ground lease",
+                           "stadium agreement", "ground sharing agreement"]
+
+# Learning
+assessments, exams, certification & licencing: ["coaching qualification",
+                         "coaching badge", "certification", "exam",
+                         "assessment", "referee qualification",
+                         "licence assessment"]
+learning pathway enrolment agreements: ["course enrolment", "learning agreement",
+                                         "course registration"]
+match official development agreements: ["referee development agreement",
+                                         "official development programme",
+                                         "match official pathway"]
+
+
+# ===========================================================================
+# LOCATION
+# ===========================================================================
+
+ground:                ["football ground", "stadium", "pitch",
+                        "home ground", "playing surface",
+                        "football stadium", "ground"]
+venue:                 ["stadium", "facility", "event venue", "arena",
+                        "sports venue", "host venue"]
+uk geographic county:  ["county", "geographic county", "ceremonial county"]
+country:               ["nation", "member association country", "territory"]
+people management location: ["office", "workplace", "hr location",
+                              "work location"]
+
+
+# ===========================================================================
+# TRANSACTION AND EVENTS — Football Admin & Governance
+# ===========================================================================
+
+player registration event:  ["player registration", "registration",
+                              "registering a player", "player signed"]
+club registration event:     ["club registration", "affiliation",
+                               "club affiliation", "club joining"]
+fixture scheduling event:    ["fixture list", "schedule", "draw",
+                               "fixture announcement", "match schedule"]
+league governance decision:  ["fa decision", "ruling", "appeal decision",
+                               "board decision", "disciplinary decision"]
+transfer approval event:     ["transfer clearance", "itc",
+                               "international transfer certificate",
+                               "transfer approval"]
+referee assignment event:    ["referee appointment", "official appointment",
+                               "match official assignment"]
+team sheet submission event: ["team sheet", "match day squad", "line-up",
+                               "starting eleven", "named squad"]
+
+# ===========================================================================
+# TRANSACTION AND EVENTS — Incidents & Disciplinary
+# ===========================================================================
+
+match incident:     ["misconduct", "sending off", "red card", "violent conduct",
+                     "foul and abusive language", "incident report",
+                     "improper conduct"]
+player suspension:  ["suspension", "ban", "playing ban", "disciplinary ban",
+                     "automatic suspension", "touchline ban"]
+safeguarding charge:    ["safeguarding allegation", "safeguarding charge",
+                          "child welfare charge"]
+safeguarding incident:  ["safeguarding concern", "welfare concern",
+                          "child protection concern", "referral"]
+safeguarding sanction:  ["safeguarding ban", "safeguarding order",
+                          "suspension from football"]
+
+# ===========================================================================
+# TRANSACTION AND EVENTS — Performance & Game
+# ===========================================================================
+
+match results:           ["result", "score", "final score", "match report",
+                          "match outcome", "league result"]
+player performance event: ["performance data", "statistics", "stats",
+                            "player stats", "performance metrics"]
+coaching session event:  ["training session", "coaching session",
+                          "training programme"]
+injury or medical event: ["injury", "medical treatment", "fitness",
+                          "injury report", "medical report"]
+
+# ===========================================================================
+# REFERENCE DATA
+# ===========================================================================
+
+football season:             ["season", "playing season", "competition season",
+                               "football season", "current season"]
+football development phases: ["player development phases", "age group",
+                               "development phase", "age band",
+                               "youth development phase"]
+
+# ===========================================================================
+# PRODUCT — Football Services
+# ===========================================================================
+
+player pathway & development:          ["player development", "talent pathway",
+                                         "academy pathway", "development programme",
+                                         "elite player pathway"]
+match officiating & governance:        ["referee management", "officials management",
+                                         "match official services"]
+coach education & certification:       ["coaching education", "coaching qualifications",
+                                         "fa coaching", "coach licensing",
+                                         "coaching courses"]
+football administration:               ["football admin", "fa administration",
+                                         "affiliation", "administrative services"]
+match official development & promotion: ["referee development",
+                                          "officials development programme",
+                                          "referee promotion",
+                                          "match official pathway"]
+tournaments & competitions:            ["tournament", "competition",
+                                         "cup competition", "league",
+                                         "fa cup", "fa trophy", "fa vase"]

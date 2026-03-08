@@ -1,8 +1,13 @@
 # FA Consolidated Catalog — runtime configuration
 #
 # Tuning parameters and entity lists for fa_consolidated_catalog.py.
-# Edit this file to add aliases, exclude entities from RAG, or flag
-# governance-intensive entities — no Python code changes required.
+# Edit this file (or entity_aliases.yaml) to adjust behaviour — no Python
+# code changes required.
+#
+# entity_aliases_file: path to the alias map (relative to this config dir).
+#   Loaded and merged at startup. Edit entity_aliases.yaml to add new pairs.
+# ---------------------------------------------------------------------------
+entity_aliases_file: entity_aliases.yaml
 
 # ---------------------------------------------------------------------------
 # handbook_sections
@@ -16,81 +21,21 @@
 #   in Stage 1. Much higher precision than querying the monolithic fa_handbook
 #   collection because top-k chunks are drawn from focused, relevant sections.
 #
-# section_prefix:            ChromaDB collection prefix → resolves fa_handbook_s01…s44
-# section_routing_threshold: Minimum BM25 score to include a section (0.0 = any hit)
-# section_routing_top_n:     Max sections to pass to Stage 2 (null = all above threshold)
-# section_bm25_top_k:        BM25 candidates per section during Stage 1 scoring
+# section_prefix:             ChromaDB collection prefix → resolves fa_handbook_s01…s44
+# section_routing_threshold:  Minimum BM25 score to include a section (0.0 = any hit)
+# section_routing_top_n:      Max sections to pass to Stage 2 (null = all above threshold)
+# section_bm25_top_k:         BM25 candidates per section during Stage 1 scoring
+# section_routing_min_sections: If BM25 + entity_aliases find fewer than this many
+#                               sections, trigger an LLM alias-expansion call to generate
+#                               domain-aware synonyms and re-run BM25. Set to 0 to disable.
+#                               Recommended: 1 (fires only when BM25 finds nothing at all).
 # ---------------------------------------------------------------------------
 handbook_sections:
   section_prefix: "fa_handbook"
   section_routing_threshold: 0.0
   section_routing_top_n: 5
   section_bm25_top_k: 3
-
-# ---------------------------------------------------------------------------
-# entity_aliases
-#
-# Bidirectional name mappings used in Step 4 term matching.
-# Key: normalised entity name (lowercase). Value: list of handbook synonyms.
-# The matching logic checks both directions automatically.
-# ---------------------------------------------------------------------------
-entity_aliases:
-  # County / FA
-  fa county:            ["county association", "county football association"]
-  county association:   ["fa county", "county fa"]
-
-  # Competition / League
-  competition league:   ["competition", "league"]
-  competition:          ["competition league", "league"]
-
-  # Governing body
-  sports governing body:  ["national association", "affiliated association", "governing body"]
-  affiliated association: ["sports governing body", "national association"]
-
-  # Match official
-  match official: ["referee", "assistant referee", "fourth official", "var"]
-  referee:        ["match official"]
-
-  # Coach / Developer
-  coach developer: ["coach", "instructor", "trainer"]
-  coach:           ["coach developer"]
-
-  # Learner / Trainee
-  learner: ["trainee", "candidate", "student"]
-
-  # Board / Committee
-  board & committee members: ["board", "committee", "directors", "management committee"]
-  board:     ["board & committee members"]
-  committee: ["board & committee members"]
-
-  # Club official
-  club official: ["officer", "director", "secretary", "club officer"]
-  officer:       ["club official"]
-
-  # Employee / Worker
-  employees:                   ["staff", "worker", "employee"]
-  casual & contingent labourers: ["casual worker", "contingent worker", "temporary worker"]
-  managed service workers:     ["contractor", "third party worker", "agency worker"]
-
-  # Supporter / Fan
-  england supporter: ["supporter", "fan", "member"]
-  event attendee:    ["attendee", "spectator", "guest"]
-
-  # Customer / Commercial
-  customer: ["client", "consumer", "purchaser"]
-  prospect: ["potential customer", "lead", "candidate"]
-
-  # Organisation
-  business unit:   ["division", "department", "unit"]
-  household:       ["family", "domestic unit"]
-  supplier:        ["vendor", "provider", "contractor"]
-  school:          ["educational institution", "academy"]
-  local authority: ["council", "municipality"]
-  government:      ["state", "public authority"]
-
-  # Role
-  mentor:     ["advisor", "guide", "tutor"]
-  candidates: ["applicant", "nominee"]
+  section_routing_min_sections: 1
 
 # ---------------------------------------------------------------------------
 # no_handbook_coverage

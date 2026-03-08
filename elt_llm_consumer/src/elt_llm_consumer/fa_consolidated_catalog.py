@@ -61,7 +61,7 @@ import yaml
 
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
-from elt_llm_query.query import discover_relevant_sections, query_collections
+from elt_llm_query.query import discover_relevant_sections, expand_entity_aliases, query_collections
 
 # ---------------------------------------------------------------------------
 # Prompt loader
@@ -78,9 +78,19 @@ def _load_prompt(filename: str, key: str = "prompt") -> str:
 
 
 def _load_catalog_config() -> dict:
-    """Load fa_consolidated_catalog.yaml (entity lists, aliases, thresholds)."""
+    """Load fa_consolidated_catalog.yaml and merge in the entity aliases file."""
     with open(_CONFIG_DIR / "fa_consolidated_catalog.yaml", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+
+    aliases_file = cfg.pop("entity_aliases_file", None)
+    if aliases_file:
+        aliases_path = _CONFIG_DIR / aliases_file
+        with open(aliases_path, encoding="utf-8") as f:
+            cfg["entity_aliases"] = yaml.safe_load(f) or {}
+    else:
+        cfg.setdefault("entity_aliases", {})
+
+    return cfg
 
 
 _catalog_cfg = _load_catalog_config()
@@ -107,6 +117,7 @@ _SECTION_PREFIX: str = _sections_cfg.get("section_prefix", "fa_handbook")
 _SECTION_THRESHOLD: float = _sections_cfg.get("section_routing_threshold", 0.0)
 _SECTION_TOP_N: int | None = _sections_cfg.get("section_routing_top_n", None)
 _SECTION_BM25_TOP_K: int = _sections_cfg.get("section_bm25_top_k", 3)
+_SECTION_MIN_SECTIONS: int = _sections_cfg.get("section_routing_min_sections", 1)
 
 # ---------------------------------------------------------------------------
 # Default paths
@@ -1023,14 +1034,37 @@ def generate_consolidated_catalog(
                 }
                 continue
             
-            # Stage 1: BM25 section discovery (no LLM — fast keyword scan)
+            # Stage 1a: BM25 section discovery with config aliases
+            config_aliases = [v for v in _get_alias_variants(name) if v.lower() != name.lower()]
             relevant_sections = discover_relevant_sections(
                 entity_name=name,
                 section_prefix=_SECTION_PREFIX,
                 rag_config=rag_config,
                 threshold=_SECTION_THRESHOLD,
                 bm25_top_k=_SECTION_BM25_TOP_K,
+                aliases=config_aliases,
             )
+
+            # Stage 1b: LLM alias expansion — fires only when BM25 + config aliases
+            # found fewer than min_sections (e.g. entity uses domain-specific synonym
+            # not in config, like "Referee" when handbook only says "Match Official")
+            if _SECTION_MIN_SECTIONS > 0 and len(relevant_sections) < _SECTION_MIN_SECTIONS:
+                llm_aliases = expand_entity_aliases(name, rag_config)
+                if llm_aliases:
+                    extra = discover_relevant_sections(
+                        entity_name=name,
+                        section_prefix=_SECTION_PREFIX,
+                        rag_config=rag_config,
+                        threshold=_SECTION_THRESHOLD,
+                        bm25_top_k=_SECTION_BM25_TOP_K,
+                        aliases=llm_aliases,
+                    )
+                    seen = set(relevant_sections)
+                    for s in extra:
+                        if s not in seen:
+                            relevant_sections.append(s)
+                            seen.add(s)
+
             if _SECTION_TOP_N and relevant_sections:
                 relevant_sections = relevant_sections[:_SECTION_TOP_N]
             # Fall back to all handbook collections when section routing finds nothing

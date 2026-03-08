@@ -121,12 +121,18 @@ def discover_relevant_sections(
     rag_config: RagConfig,
     threshold: float = 0.0,
     bm25_top_k: int = 3,
+    aliases: list[str] | None = None,
 ) -> list[str]:
     """Stage-1 BM25 section routing: find handbook sections relevant to entity_name.
 
     Runs BM25 keyword retrieval (no LLM, no embedding) against every collection
     matching ``{section_prefix}_sNN``. Returns collection names whose best BM25
     score exceeds ``threshold``, sorted by score descending.
+
+    When ``aliases`` is provided, each alias is also queried via BM25 and the
+    maximum score across all variants is used for each section. This allows
+    "Referee" → ["Match Official"] to find sections that never use the word
+    "referee" but do discuss "match officials".
 
     This is a fast, no-LLM operation — it only reads docstore JSON files and runs
     in-memory BM25 scoring. Typical runtime: 1-3 seconds for 44 sections.
@@ -137,6 +143,8 @@ def discover_relevant_sections(
         rag_config: RAG configuration (used to locate docstores).
         threshold: Minimum BM25 score to include a section (default 0.0 = any hit).
         bm25_top_k: BM25 candidates per section for scoring (default 3).
+        aliases: Additional search terms to query alongside entity_name. The max
+            score across all variants is used per section (default None).
 
     Returns:
         Collection names sorted by relevance score (best first).
@@ -163,6 +171,7 @@ def discover_relevant_sections(
         logger.warning("No section collections found matching '%s_sNN'", section_prefix)
         return []
 
+    query_variants = [entity_name] + [a for a in (aliases or []) if a and a.lower() != entity_name.lower()]
     scored: list[tuple[str, float]] = []
 
     for collection_name in sorted(section_collections):
@@ -178,11 +187,15 @@ def discover_relevant_sections(
 
             k = min(bm25_top_k, len(nodes))
             bm25 = BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=k)
-            hits = bm25.retrieve(entity_name)
-            if not hits:
-                continue
 
-            max_score = max((n.score for n in hits if n.score is not None), default=0.0)
+            max_score = 0.0
+            for variant in query_variants:
+                hits = bm25.retrieve(variant)
+                if hits:
+                    s = max((n.score for n in hits if n.score is not None), default=0.0)
+                    if s > max_score:
+                        max_score = s
+
             if max_score >= threshold:
                 scored.append((collection_name, max_score))
 
@@ -196,6 +209,41 @@ def discover_relevant_sections(
         [c for c, _ in scored[:5]],
     )
     return [c for c, _ in scored]
+
+
+def expand_entity_aliases(
+    entity_name: str,
+    rag_config: RagConfig,
+) -> list[str]:
+    """Use the LLM to generate domain-aware synonyms for an entity name.
+
+    This is a lightweight generation call (no RAG context) used as a fallback
+    when BM25 + config aliases fail to find any relevant handbook sections.
+    Generates 2-4 alternative terms the handbook might use for the same concept.
+
+    Args:
+        entity_name: Conceptual model entity name (e.g. "Referee").
+        rag_config: RAG configuration (used to create the LLM).
+
+    Returns:
+        List of lower-cased alternative terms, capped at 4.
+        Returns empty list on LLM failure.
+    """
+    prompt = (
+        f"In FA football governance, list 2-4 alternative names or related official "
+        f"terms that the FA Handbook might use for the concept '{entity_name}'. "
+        f"Return only a comma-separated list of terms with no explanations."
+    )
+    try:
+        llm = create_llm_model(rag_config.ollama)
+        response = str(llm.complete(prompt)).strip()
+        terms = [t.strip().lower() for t in response.split(",") if t.strip()]
+        terms = [t for t in terms if 2 <= len(t) <= 60 and t != entity_name.lower()]
+        logger.info("LLM alias expansion for '%s': %s", entity_name, terms[:4])
+        return terms[:4]
+    except Exception as e:
+        logger.debug("LLM alias expansion failed for '%s': %s", entity_name, e)
+        return []
 
 
 def _build_hybrid_retriever(
