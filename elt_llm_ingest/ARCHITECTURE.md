@@ -27,14 +27,14 @@ Ingest heterogeneous documents into a RAG-ready store with:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ 1. Preprocessing: PyMuPDFPreprocessor                           │
+│ 1. Preprocessing: DoclingPreprocessor                           │
 ├─────────────────────────────────────────────────────────────────┤
 │ Input:  FA_Handbook_2025-26.pdf                                 │
-│         ↓ pymupdf4llm.to_markdown()                             │
-│ Output: FA_Handbook_2025-26_clean.md (2.2M chars, 64s)          │
-│         - Headings detected via font size/weight                │
-│         - Tables preserved in reading order                     │
-│         - No page-range config needed                           │
+│         ↓ Docling StandardPipeline (DocLayNet + TableFormer)    │
+│ Output: per-section .md files (2.5M chars, ~250s)               │
+│         - Section splits: fa_handbook_s01 … fa_handbook_s44     │
+│         - Tables as markdown pipe-delimited rows                │
+│         - Cached at _section_splits/ (re-run skips Docling)     │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -108,11 +108,11 @@ Ingest heterogeneous documents into a RAG-ready store with:
 - Writes `<stem>_inventory.json` next to source Excel — keyed by `fact_sheet_id` for O(1) lookup
 - Writes per-type Markdown → per-type ChromaDB collections (`fa_leanix_global_inventory_*`)
 
-**`PyMuPDFPreprocessor`** — FA Handbook PDF:
-- PDF → Markdown via pymupdf4llm + pymupdf-layout (PyMuPDF); no model downloads or internet access required. pymupdf-layout adds ML-based layout analysis for improved table and header extraction.
-- Detects headings via font size/weight, preserves tables and reading order
-- No page-range configuration needed
-- Output: `_clean.md` → `fa_handbook` ChromaDB collection
+**`DoclingPreprocessor`** — FA Handbook PDF:
+- PDF → per-section Markdown via IBM Docling (DocLayNet + TableFormer models); first run downloads ~200MB to `~/.cache/docling/`, all subsequent runs are fully offline
+- Layout-aware: detects headings, preserves table structure as markdown
+- Splits document into sections (s01–s44), each → separate ChromaDB collection
+- Output: `_section_splits/<stem>_sections/s*.md` → `fa_handbook_sNN` collections
 
 **Split-mode**: one source → N collections via `collection_prefix` and section mapping
 

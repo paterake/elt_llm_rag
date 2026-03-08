@@ -95,30 +95,26 @@ elt_llm_rag/
 
 ### 3.1 PDF Processing (FA Handbook)
 
-**Tool**: `pymupdf4llm` (PyMuPDF) — **not LLM-based**
+**Tool**: IBM Docling (`DoclingPreprocessor`) — deep-learning layout analysis, **not LLM-based**
 
 **Process**:
-1. PDF → Markdown conversion using layout-aware extraction
-2. Preserves section hierarchy as headings
-3. Handles multi-column layouts with correct reading order
-4. Extracts tables as structured Markdown
+1. PDF → per-section Markdown via Docling StandardPipeline (DocLayNet + TableFormer models)
+2. Section boundaries detected from headings; each section → separate ChromaDB collection
+3. Running-header artefacts (repeated section title on each page) collapsed automatically
+4. Tables preserved as markdown pipe-delimited rows
 
 **Performance**:
-- ~1 second per page
-- FA Handbook 2025-26: 2.2M chars in 64 seconds
-- No internet access required, no model downloads
+- FA Handbook 2025-26: 2.5M chars in ~250 seconds
+- First run downloads DocLayNet + TableFormer models (~200MB to `~/.cache/docling/`) — fully offline thereafter
+- Section files cached at `_section_splits/` — subsequent runs skip Docling conversion
 
 **Configuration**:
 ```yaml
 preprocessor:
-  module: "elt_llm_ingest.preprocessor"
-  class: "PyMuPDFPreprocessor"
+  module: "elt_llm_ingest.docling_preprocessor"
+  class: "DoclingPreprocessor"
+  split_by_sections: true
 ```
-
-**Why not LLM-based extraction?**
-- PDFs are text-based (not scanned) — no OCR needed
-- pymupdf4llm is faster, simpler, and fully local
-- LLM enhancement (e.g., Marker) only beneficial for scanned PDFs or complex tables
 
 ---
 
@@ -314,9 +310,9 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for full phase detail, runbooks, and cu
 
 ### Q: Does PDF processing require HuggingFace or internet access?
 
-**A:** No — the system uses **`pymupdf4llm`** (PyMuPDF) for PDF-to-Markdown conversion, which is 100% local. See [elt_llm_ingest/ARCHITECTURE.md](elt_llm_ingest/ARCHITECTURE.md) for full ingestion performance details.
+**A:** First run downloads Docling's DocLayNet + TableFormer models (~200MB from HuggingFace, cached at `~/.cache/docling/`). All subsequent runs are fully offline. See [elt_llm_ingest/ARCHITECTURE.md](elt_llm_ingest/ARCHITECTURE.md) for full ingestion performance details.
 
-**If you see HuggingFace errors**, they're from:
+**If you see HuggingFace errors after first run**, they're from:
 - **Cross-encoder reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) — optional, uses `sentence-transformers`
 - **Not PDF processing**
 
@@ -331,29 +327,22 @@ query:
   reranker_strategy: "embedding"  # Instead of "cross-encoder"
 ```
 
-### Q: Should I use Marker instead of pymupdf4llm?
+### Q: Should I use Marker instead of Docling?
 
-**A:** Probably not — `pymupdf4llm` is working well for your FA Handbook PDF.
+**A:** Probably not — Docling is working well and already handles the FA Handbook tables correctly.
 
-| Aspect | pymupdf4llm (current) | Marker |
-|--------|----------------------|--------|
-| **Your FA Handbook** | ✅ 2.2M chars, 3 min total | Similar quality |
-| **Internet required** | ❌ No | ⚠️ First run only (model download) |
-| **GPU required** | ❌ No | ✅ Recommended (3.5-5GB VRAM) |
-| **Disk space** | ~50MB | ~2-5GB (Surya + Texify models) |
-| **Speed** | Fast (~1s/page) | Similar with GPU, slower on CPU |
-| **Tables/layout** | Good | Better (but FA Handbook is simple) |
-| **LLM enhancement** | ❌ No | ✅ Optional (works with Ollama) |
+| Aspect | Docling (current) | Marker |
+|--------|-------------------|--------|
+| **Your FA Handbook** | ✅ 2.5M chars, ~250s | Similar quality |
+| **Internet required** | ⚠️ First run only (~200MB models) | ⚠️ First run only |
+| **GPU required** | ❌ No (MPS/CPU) | ✅ Recommended |
+| **Disk space** | ~200MB (`~/.cache/docling/`) | ~2-5GB |
+| **Tables/layout** | ✅ Excellent (TableFormer) | ✅ Excellent |
+| **LLM enhancement** | ❌ No | ✅ Optional |
 
 **Use Marker if:**
 - You have **scanned PDFs** (OCR needed)
-- **Complex multi-column layouts** or heavy tables
-- You have a **GPU** and want better table extraction
-
-**Stick with pymupdf4llm if:**
-- PDFs are **text-based** (like FA Handbook)
-- You want **simple, fast** conversion
-- You don't want GPU dependencies
+- You have a **GPU** and want LLM-enhanced extraction
 
 **Try Marker** (optional):
 ```bash

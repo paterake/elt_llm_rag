@@ -49,7 +49,7 @@ This solution combines **AI components** (RAG, LLM, prompts) with **custom code*
 │ RAG PIPELINE FOR FA HANDBOOK                                 │
 │                                                              │
 │ 1. INGESTION                                                 │
-│    FA Handbook PDF → pymupdf4llm → Markdown                  │
+│    FA Handbook PDF → Docling → per-section Markdown          │
 │    Markdown → TableAwareSentenceSplitter → 3,562 chunks     │
 │    Chunks → nomic-embed-text → 768-dim vectors              │
 │    Vectors + chunks → ChromaDB (vector store + docstore)    │
@@ -229,7 +229,7 @@ RAG+LLM handles **unstructured data** (FA Handbook PDF), but **structured data**
 | Component | Purpose | AI or Custom? |
 |-----------|---------|---------------|
 | `preprocessor.py` | LeanIX XML → Markdown, Excel → Markdown | **Custom** (XML parsing, Excel reading) |
-| `preprocessor.py` | PDF → Markdown (pymupdf4llm) | **Library** (third-party) |
+| `docling_preprocessor.py` | PDF → per-section Markdown (Docling) | **Library** (third-party) |
 | `chunking.py` | Table-aware sentence splitter | **Custom** (table detection logic) |
 | `ingest.py` | Orchestrate ingestion pipeline | **Custom** (LlamaIndex integration) |
 | `file_hash.py` | Track file changes for incremental ingestion | **Custom** (hash computation) |

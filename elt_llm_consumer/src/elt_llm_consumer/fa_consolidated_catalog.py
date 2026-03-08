@@ -159,10 +159,10 @@ _ENTITY_RELATIONSHIP_PROMPT = _load_prompt("entity_relationship.yaml")
 _DOMAIN_INFERENCE_PROMPT    = _load_prompt("domain_inference.yaml")
 
 # ---------------------------------------------------------------------------
-# Definition extraction from docstore (pymupdf4llm output)
+# Definition extraction from docstore (Docling output)
 # ---------------------------------------------------------------------------
 
-# Matches FA Handbook definition patterns as produced by pymupdf4llm:
+# Matches FA Handbook definition patterns as produced by Docling:
 #   **"Term"** means DEFINITION       (bold + quoted — most common)
 #   "Term" means DEFINITION           (quoted only)
 #   Term means DEFINITION             (plain — fallback)

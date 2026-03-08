@@ -38,16 +38,14 @@ class TableAwareSentenceSplitter(SentenceSplitter):
         table_chunk_size: Maximum token size for table row chunks (default: 1024).
         paragraph_separator: Separator used to detect paragraph boundaries.
     """
-    
+
     table_chunk_size: int = 1024
-    table_detection_threshold: float = 0.3
 
     def __init__(
         self,
         chunk_size: int = 256,
         chunk_overlap: int = 32,
         table_chunk_size: int = 1024,
-        table_detection_threshold: float = 0.3,
         paragraph_separator: str = "\n\n",
         **kwargs: Any,
     ):
@@ -57,8 +55,6 @@ class TableAwareSentenceSplitter(SentenceSplitter):
             chunk_size: Token size for prose chunks.
             chunk_overlap: Overlap between prose chunks.
             table_chunk_size: Maximum token size for table row chunks.
-            table_detection_threshold: Min proportion of pipe-delimited lines to
-                classify a node as table content (0.0–1.0).
             paragraph_separator: Separator for paragraph boundaries.
             **kwargs: Additional arguments passed to SentenceSplitter.
         """
@@ -70,7 +66,6 @@ class TableAwareSentenceSplitter(SentenceSplitter):
         )
         # Use object.__setattr__ to bypass Pydantic's field validation
         object.__setattr__(self, "table_chunk_size", table_chunk_size)
-        object.__setattr__(self, "table_detection_threshold", table_detection_threshold)
         object.__setattr__(self, "paragraph_separator", paragraph_separator)
     
     def _parse_nodes(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
@@ -103,32 +98,6 @@ class TableAwareSentenceSplitter(SentenceSplitter):
                     all_nodes.append(n)
 
         return all_nodes
-    
-    def _is_table_content(self, text: str) -> bool:
-        """Detect if text contains markdown table patterns.
-        
-        Looks for pipe-delimited table rows. A text is considered table content
-        if >30% of its lines are table rows (contain pipe delimiters).
-        
-        Args:
-            text: The text to analyze.
-            
-        Returns:
-            True if the text is primarily table content.
-        """
-        lines = text.strip().split("\n")
-        if len(lines) == 0:
-            return False
-        
-        table_line_count = 0
-        for line in lines:
-            stripped = line.strip()
-            # Count lines that contain pipe delimiters (table content)
-            # More lenient detection: lines with | anywhere are considered table-related
-            if "|" in stripped:
-                table_line_count += 1
-        
-        return len(lines) > 0 and (table_line_count / len(lines)) > self.table_detection_threshold
     
     def _split_table_rows(self, node: BaseNode) -> List[BaseNode]:
         """Split table content into chunks respecting table_chunk_size.
@@ -351,12 +320,11 @@ def create_splitter(
         )
     elif strategy == "table_aware":
         table_chunk_size = kwargs.pop("table_chunk_size", 1024)
-        table_detection_threshold = kwargs.pop("table_detection_threshold", 0.3)
+        kwargs.pop("table_detection_threshold", None)  # removed — no longer used
         return TableAwareSentenceSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             table_chunk_size=table_chunk_size,
-            table_detection_threshold=table_detection_threshold,
             **kwargs,
         )
     elif strategy == "section_aware":

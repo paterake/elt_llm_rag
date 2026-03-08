@@ -181,13 +181,13 @@ Trust Architecture Reference?
 | File | Source Format | Reusability |
 |------|---------------|-------------|
 | `doc_leanix_parser.py` | LeanIX draw.io XML | Format-specific — rewrite for new EA tool |
-| `preprocessor.py` (PyMuPDFPreprocessor) | Any PDF | 100% generic — works for any PDF without config |
+| `docling_preprocessor.py` (DoclingPreprocessor) | Any PDF | 100% generic — works for any PDF without config |
 | `file_hash.py` | SHA256 file hashing | 100% generic — no changes |
 
 **Example: FA → Healthcare**
 
 If NHS provides policies as:
-- **PDF** → Reuse `PyMuPDFPreprocessor` unchanged — no config needed
+- **PDF** → Reuse `DoclingPreprocessor` unchanged — no config needed
 - **HTML** → Reuse pattern, change HTML parser
 - **Word docs** → New preprocessor needed (`doc_nhs_parser.py`)
 
