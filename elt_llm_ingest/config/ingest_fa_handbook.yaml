@@ -34,4 +34,4 @@ chunking:
   strategy: "table_aware"
   chunk_size: 512
   chunk_overlap: 64
-  table_chunk_size: 1536
+  table_chunk_size: 512   # nomic-embed-text num_ctx defaults to 2048 — keep well under

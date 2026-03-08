@@ -10,6 +10,11 @@ Optimized for FA Handbook-style regulatory documents with:
 - Numbered sections (Section 1, Section 2, etc.)
 - Definition tables (|Term|means Definition|)
 - Hierarchical structure (sections → subsections → content)
+
+Configuration via YAML (elt_llm_ingest/config/ingest_fa_handbook_docling.yaml):
+  preprocessor:
+    docling_options: Dict with pipeline and export options
+    section_splitting: Section splitting configuration
 """
 
 from __future__ import annotations
@@ -34,17 +39,12 @@ class DoclingPreprocessor(BasePreprocessor):
     - Mixed content (text + tables + figures)
     - Regulatory document formatting
     
-    Output format: Markdown with preserved structure
-    - Headers: ## Section N, ### Subsection
-    - Tables: Pipe-delimited markdown
-    - Lists: Bullet/numbered lists
-    - Code blocks: Fenced code blocks
-    
-    Attributes:
-        output_format: Output format (always 'markdown' for Docling).
-        split_by_sections: Whether to split output into per-section files.
-        collection_prefix: Prefix for section collections when splitting.
-        table_format: How to format tables ('markdown' or 'html').
+    Configuration (via YAML config):
+      docling_options: Dict with pipeline and export options
+      split_by_sections: Whether to split by section boundaries
+      collection_prefix: Prefix for section collections
+      table_format: Table output format ('markdown' or 'html')
+      section_splitting: Section splitting configuration
     """
     
     def __init__(
@@ -53,6 +53,8 @@ class DoclingPreprocessor(BasePreprocessor):
         collection_prefix: Optional[str] = None,
         split_by_sections: bool = False,
         table_format: str = "markdown",
+        docling_options: Optional[Dict[str, Any]] = None,
+        section_splitting: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ):
         """Initialize Docling preprocessor.
@@ -62,13 +64,17 @@ class DoclingPreprocessor(BasePreprocessor):
             collection_prefix: Prefix for section collections.
             split_by_sections: Whether to split by section boundaries.
             table_format: Table output format ('markdown' or 'html').
-            **kwargs: Additional Docling-specific options.
+            docling_options: Docling pipeline and export options from YAML config.
+            section_splitting: Section splitting configuration from YAML config.
+            **kwargs: Additional arguments (unused).
         """
         self.output_format = output_format
         self.collection_prefix = collection_prefix
         self.split_by_sections = split_by_sections
         self.table_format = table_format
-        self.docling_options = kwargs
+        self.docling_options = docling_options or {}
+        self.section_splitting = section_splitting or {}
+        self.extra_kwargs = kwargs
     
     def preprocess(self, input_file: str, output_path: str, **kwargs: Any) -> PreprocessorResult:
         """Preprocess PDF using Docling.
@@ -76,7 +82,7 @@ class DoclingPreprocessor(BasePreprocessor):
         Args:
             input_file: Path to input PDF file.
             output_path: Base path for output file(s).
-            **kwargs: Additional arguments (unused).
+            **kwargs: Additional arguments (merged with docling_options).
             
         Returns:
             PreprocessorResult with output file paths and section mapping.
@@ -113,25 +119,27 @@ class DoclingPreprocessor(BasePreprocessor):
         logger.info("Docling: processing %s", input_path.name)
         
         try:
-            # Configure Docling pipeline
-            pipeline_options = PdfPipelineOptions(
-                do_table_structure=True,
-                do_ocr=False,  # FA Handbook is text-based, no OCR needed
-                generate_page_images=False,
-                generate_picture_images=False,
-            )
+            # Merge kwargs with config options (kwargs take precedence)
+            options = {**self.docling_options, **kwargs}
             
+            # Configure Docling pipeline from config
+            pipeline_options = PdfPipelineOptions(
+                do_table_structure=options.get('do_table_structure', True),
+                do_ocr=options.get('do_ocr', False),
+                generate_page_images=options.get('generate_page_images', False),
+                generate_picture_images=options.get('generate_picture_images', False),
+            )
+
             # Create converter with options — must wrap in PdfFormatOption
             converter = DocumentConverter(
                 format_options={
                     InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
                 }
             )
-            
+
             # Convert PDF to Docling document
             result = converter.convert(str(input_path))
-            
-            # Export to markdown
+
             if self.table_format == "html":
                 md_content = result.document.export_to_html()
             else:
@@ -176,12 +184,12 @@ class DoclingPreprocessor(BasePreprocessor):
     ) -> PreprocessorResult:
         """Split markdown content by section headers.
         
-        Detects section boundaries using multiple patterns to handle
+        Detects section boundaries using configured patterns to handle
         various Docling output formats:
-        - ## Section N
-        - ## N - Section Title
-        - # Section N
-        - ### Section N
+        - # 1 - Section Title
+        - ## 1 - Section Title
+        - ## Section 1
+        - ### 1 - Title
         
         Args:
             content: Markdown content to split.
@@ -190,43 +198,68 @@ class DoclingPreprocessor(BasePreprocessor):
         Returns:
             PreprocessorResult with section files and collection mapping.
         """
-        # Detect section boundaries (multiple patterns for flexibility)
-        # Try to match various section header formats Docling might produce
-        section_patterns = [
-            (r'^#\s+(\d+)\s*[-–]\s*(.+?)$', 'H1_NUM'),      # # 1 - Section Title
-            (r'^##\s+(\d+)\s*[-–]\s*(.+?)$', 'H2_NUM'),     # ## 1 - Section Title
-            (r'^##\s+Section\s+(\d+)', 'H2_SECTION'),       # ## Section 1
-            (r'^#\s+Section\s+(\d+)', 'H1_SECTION'),        # # Section 1
-            (r'^###\s+(\d+)\s*[-–]', 'H3_NUM'),             # ### 1 - Title
-            (r'^####\s+(\d+)\s*[-–]', 'H4_NUM'),            # #### 1 - Title
-        ]
+        # Get patterns from config or use defaults
+        patterns_config = self.section_splitting.get('patterns', [])
+        min_section_chars = self.section_splitting.get('min_section_chars', 100)
+        
+        if patterns_config:
+            # Use configured patterns
+            section_patterns = [
+                (p['pattern'], p['name'], p.get('priority', 99))
+                for p in patterns_config
+            ]
+        else:
+            # Default patterns
+            section_patterns = [
+                (r'^#\s+(\d+)\s*[-–]\s*(.+?)$', 'H1_NUM', 1),
+                (r'^##\s+(\d+)\s*[-–]\s*(.+?)$', 'H2_NUM', 2),
+                (r'^##\s+Section\s+(\d+)', 'H2_SECTION', 2),
+                (r'^#\s+Section\s+(\d+)', 'H1_SECTION', 1),
+                (r'^###\s+(\d+)\s*[-–]', 'H3_NUM', 3),
+                (r'^####\s+(\d+)\s*[-–]', 'H4_NUM', 4),
+            ]
+        
+        # Sort patterns by priority (lower = higher priority)
+        section_patterns.sort(key=lambda x: x[2])
         
         # Find all section starts
-        section_starts: List[Tuple[int, int, str, str]] = []
+        section_starts: List[Tuple[int, int, str, str, int]] = []
         
-        for pattern, pattern_name in section_patterns:
+        for pattern, pattern_name, priority in section_patterns:
             for match in re.finditer(pattern, content, re.MULTILINE | re.IGNORECASE):
                 section_num = int(match.group(1))
                 section_title = match.group(2) if len(match.groups()) > 1 else match.group(0)
-                section_starts.append((match.start(), section_num, pattern_name, section_title))
+                section_starts.append((match.start(), section_num, pattern_name, section_title, priority))
         
-        # Sort by position and deduplicate (keep earliest pattern match per position)
-        section_starts.sort(key=lambda x: x[0])
-        
-        # Deduplicate: if multiple patterns match same position, keep first
+        # Sort by position, then by priority
+        section_starts.sort(key=lambda x: (x[0], x[4]))
+
+        # Step 1: deduplicate matches at the same position (multiple patterns firing)
         deduped: List[Tuple[int, int, str, str]] = []
-        seen_positions = set()
-        for pos, num, ptype, title in section_starts:
-            # Check if we already have a section within 100 chars
+        for pos, num, ptype, title, priority in section_starts:
             if not any(abs(pos - p) < 100 for p, _, _, _ in deduped):
                 deduped.append((pos, num, ptype, title))
-        
-        section_starts = deduped
+
+        # Step 2: collapse repeated section numbers (Docling running-header artefact).
+        # PDFs often repeat the section title as a page header on every page of that
+        # section. Each repeat looks like a fresh section boundary but is not — it
+        # should be absorbed into the ongoing section.  Keep only the FIRST occurrence
+        # of each section number; a new boundary is only recognised when the number
+        # changes.
+        collapsed: List[Tuple[int, int, str, str]] = []
+        prev_num: Optional[int] = None
+        for pos, num, ptype, title in deduped:
+            if num != prev_num:
+                collapsed.append((pos, num, ptype, title))
+                prev_num = num
+
+        section_starts = collapsed
         
         if not section_starts:
             logger.warning(
                 "Docling: no section boundaries detected in %s — returning as single file. "
-                "Check if Docling output uses different heading format.",
+                "Check if Docling output uses different heading format. "
+                "Consider adjusting section_patterns in config.",
                 output_path.name,
             )
             logger.debug("First 2000 chars of content: %s", content[:2000])
@@ -250,6 +283,14 @@ class DoclingPreprocessor(BasePreprocessor):
             
             # Extract section content
             section_content = content[start:end].strip()
+            
+            # Skip sections that are too small
+            if len(section_content) < min_section_chars:
+                logger.debug(
+                    "  Skipping section %02d: only %d chars (min: %d)",
+                    section_num, len(section_content), min_section_chars,
+                )
+                continue
             
             # Write section file
             collection_name = f"{self.collection_prefix}_s{section_num:02d}"

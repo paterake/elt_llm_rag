@@ -75,33 +75,33 @@ class TableAwareSentenceSplitter(SentenceSplitter):
     
     def _parse_nodes(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
         """Override to handle table content specially.
-        
-        For each input node:
-        - If it contains table content: split by table rows, keep each row intact
-        - Otherwise: use standard sentence splitting
-        
+
+        Always routes through _split_table_rows which handles mixed content:
+        - Pipe-delimited lines → table_chunk_size-bounded chunks (kept intact)
+        - Prose blocks → sentence-split with standard chunk_size
+
+        This ensures correct chunking regardless of the table/prose ratio in a
+        node (e.g. §8 is ~9% pipe lines but still contains definition tables).
+
         Args:
             nodes: Input nodes to split.
             **kwargs: Additional arguments.
-            
+
         Returns:
             List of split nodes with appropriate chunking.
         """
         all_nodes: List[BaseNode] = []
-        
+
         for node in nodes:
-            text = node.text if hasattr(node, "text") else str(node)
-            
-            # Detect if this node contains table content
-            if self._is_table_content(text):
-                # Split table content by rows, keep each row as one chunk
-                table_nodes = self._split_table_rows(node)
-                all_nodes.extend(table_nodes)
-            else:
-                # Normal prose - use standard sentence splitting
-                prose_nodes = super()._parse_nodes([node], **kwargs)
-                all_nodes.extend(prose_nodes)
-        
+            mixed_nodes = self._split_table_rows(node)
+            for n in mixed_nodes:
+                ct = n.metadata.get("content_type", "") if hasattr(n, "metadata") else ""
+                if ct == "prose":
+                    # Further sentence-split prose blocks to respect chunk_size
+                    all_nodes.extend(super()._parse_nodes([n], **kwargs))
+                else:
+                    all_nodes.append(n)
+
         return all_nodes
     
     def _is_table_content(self, text: str) -> bool:
@@ -131,77 +131,96 @@ class TableAwareSentenceSplitter(SentenceSplitter):
         return len(lines) > 0 and (table_line_count / len(lines)) > self.table_detection_threshold
     
     def _split_table_rows(self, node: BaseNode) -> List[BaseNode]:
-        """Split table content into one chunk per table row.
-        
-        Each complete table row (from | to |) is kept as a single chunk,
-        even if it exceeds the normal chunk_size. This preserves the
-        semantic integrity of definitions and other table-based content.
-        
-        For multi-line table rows (where a definition spans multiple lines),
-        all consecutive lines containing | are accumulated into a single chunk.
-        
+        """Split table content into chunks respecting table_chunk_size.
+
+        Accumulates consecutive pipe-delimited lines into chunks bounded by
+        table_chunk_size (rough token estimate: 4 chars ≈ 1 token).  Prose
+        lines interspersed with table content are flushed as separate nodes.
+
         Args:
             node: Input node containing table content.
-            
+
         Returns:
-            List of nodes, one per table row.
+            List of nodes, each within table_chunk_size tokens.
         """
         text = node.text if hasattr(node, "text") else str(node)
         metadata = dict(node.metadata) if hasattr(node, "metadata") else {}
-        
+
+        # Rough token estimate — avoids a tokeniser round-trip
+        max_chars = self.table_chunk_size * 4
+
         lines = text.split("\n")
         nodes: List[BaseNode] = []
-        
-        current_row_lines: List[str] = []
-        in_table_row = False
-        
+
+        table_lines: List[str] = []
+        table_chars: int = 0
+        prose_lines: List[str] = []
+
+        def _flush_table() -> None:
+            nonlocal table_lines, table_chars
+            if table_lines:
+                nodes.append(TextNode(
+                    text="\n".join(table_lines),
+                    metadata={**metadata, "content_type": "table_row"},
+                ))
+                table_lines = []
+                table_chars = 0
+
+        def _flush_prose() -> None:
+            nonlocal prose_lines
+            if prose_lines:
+                prose_text = "\n".join(prose_lines).strip()
+                if prose_text:
+                    nodes.append(TextNode(
+                        text=prose_text,
+                        metadata={**metadata, "content_type": "prose"},
+                    ))
+                prose_lines = []
+
         for line in lines:
-            stripped = line.strip()
-            
-            # Check if this is a table line (contains pipe delimiter)
-            if "|" in stripped:
-                if not in_table_row:
-                    # Starting a new table row
-                    # If we have accumulated non-table content, emit it first
-                    if current_row_lines and not any("|" in l for l in current_row_lines):
-                        nodes.append(
-                            TextNode(
-                                text="\n".join(current_row_lines),
-                                metadata={**metadata, "content_type": "prose"},
-                            )
-                        )
-                        current_row_lines = []
-                    in_table_row = True
-                
-                current_row_lines.append(line)
-            else:
-                # Non-table line
-                if in_table_row and current_row_lines:
-                    # End of table row - emit as single node
-                    row_text = "\n".join(current_row_lines)
-                    nodes.append(
-                        TextNode(
-                            text=row_text,
+            if "|" in line:
+                # Skip markdown table separator lines (|---|---|) — no semantic value
+                # and they can be very long, causing tokenizer overflow
+                stripped = line.strip()
+                if stripped and all(c in '|-+: ' for c in stripped):
+                    continue
+                _flush_prose()
+                line_chars = len(line)
+                # Start a new chunk when the current one would overflow
+                if table_chars + line_chars > max_chars and table_lines:
+                    _flush_table()
+                # Single line exceeds max_chars — split at word boundaries
+                if line_chars > max_chars:
+                    words = line.split(" ")
+                    sub_chunk: List[str] = []
+                    sub_chars = 0
+                    for word in words:
+                        word_chars = len(word) + 1  # +1 for space
+                        if sub_chars + word_chars > max_chars and sub_chunk:
+                            nodes.append(TextNode(
+                                text=" ".join(sub_chunk),
+                                metadata={**metadata, "content_type": "table_row"},
+                            ))
+                            sub_chunk = [word]
+                            sub_chars = word_chars
+                        else:
+                            sub_chunk.append(word)
+                            sub_chars += word_chars
+                    if sub_chunk:
+                        nodes.append(TextNode(
+                            text=" ".join(sub_chunk),
                             metadata={**metadata, "content_type": "table_row"},
-                        )
-                    )
-                    current_row_lines = []
-                    in_table_row = False
-                
-                current_row_lines.append(line)
-        
-        # Emit remaining content as final node
-        if current_row_lines:
-            row_text = "\n".join(current_row_lines)
-            content_type = "table_row" if in_table_row else "mixed"
-            nodes.append(
-                TextNode(
-                    text=row_text,
-                    metadata={**metadata, "content_type": content_type},
-                )
-            )
-        
-        # If no nodes were created, return original node
+                        ))
+                else:
+                    table_lines.append(line)
+                    table_chars += line_chars
+            else:
+                _flush_table()
+                prose_lines.append(line)
+
+        _flush_table()
+        _flush_prose()
+
         return nodes if nodes else [node]
 
 

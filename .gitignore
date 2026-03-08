@@ -10,7 +10,7 @@ build/
 .vscode/
 
 # ChromaDB
-**/chroma_db/
+.chroma_db
 
 # Generated intermediate files (preprocessor output)
 **/_leanix_sections/
