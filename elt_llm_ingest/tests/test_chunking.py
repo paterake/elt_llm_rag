@@ -5,7 +5,7 @@ This script shows how the TableAwareSentenceSplitter preserves table rows
 as single chunks while using standard sentence splitting for prose content.
 
 Usage:
-    uv run python elt_llm_ingest/src/elt_llm_ingest/test_chunking.py
+    uv run python elt_llm_ingest/tests/test_chunking.py
 """
 
 from elt_llm_ingest.chunking import TableAwareSentenceSplitter, create_splitter
