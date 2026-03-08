@@ -9,9 +9,8 @@ dependencies = [
     "llama-index>=0.12.0",
     "llama-index-readers-file>=0.4.0",
     "openpyxl>=3.1.0",
-    "pymupdf4llm>=0.0.17",
-    "pymupdf-layout>=0.1.0",
     "python-pptx>=0.6.23",
+    "docling>=2.77.0",
 ]
 
 [project.scripts]

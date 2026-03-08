@@ -1,27 +1,37 @@
-# Ingestion Config: The Football Association Handbook
+# Ingestion Config: FA Handbook PDF → Docling → per-section collections
 #
-# Split mode: one ChromaDB collection per handbook section (fa_handbook_s01 … fa_handbook_s44).
-# The RegulatoryPDFPreprocessor reads the pre-converted Markdown and splits it on
-# the "#### **N - SECTION TITLE**" headers produced by PyMuPDFPreprocessor.
+# Uses IBM Docling (StandardPipeline) for layout-aware PDF parsing.
+# Produces one ChromaDB collection per handbook section: fa_handbook_s01 … fa_handbook_s44
 #
-# To re-generate the source Markdown from the raw PDF first:
-#   uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook_pdf
+# First run downloads DocLayNet + TableFormer models from HuggingFace (~200MB),
+# then caches them at ~/.cache/docling/ — all subsequent runs are fully offline.
+#
+# Usage:
+#   uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook -f
 
 collection_prefix: "fa_handbook"
 
 file_paths:
-  - "~/Documents/__data/resources/thefa/FA_Handbook_2025-26_processed_clean.md"
+  - "~/Documents/__data/resources/thefa/FA_Handbook_2025-26.pdf"
 
 metadata:
   domain: "Regulations"
   type: "handbook"
   source: "TheFA Handbook"
+  parser: "docling"
 
 rebuild: true
 
 preprocessor:
-  module: "elt_llm_ingest.preprocessor"
-  class: "RegulatoryPDFPreprocessor"
+  module: "elt_llm_ingest.docling_preprocessor"
+  class: "DoclingPreprocessor"
   output_format: "markdown"
   collection_prefix: "fa_handbook"
   split_by_sections: true
+  table_format: "markdown"
+
+chunking:
+  strategy: "table_aware"
+  chunk_size: 512
+  chunk_overlap: 64
+  table_chunk_size: 1536

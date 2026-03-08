@@ -37,10 +37,8 @@ uv run python -m elt_llm_ingest.runner --list
 # Ingest all collections (batch)
 uv run python -m elt_llm_ingest.runner --cfg load_rag
 
-# FA Handbook — two-step process:
-#   Step 1: Convert raw PDF → processed Markdown (only needed once or when PDF changes)
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook_pdf
-#   Step 2: Split Markdown into per-section collections (fa_handbook_s01…s44)
+# FA Handbook — single step (PDF → Docling → per-section collections fa_handbook_s01…s44)
+# First run downloads DocLayNet + TableFormer models from HuggingFace (~200MB, cached after)
 uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook -f
 
 # Other collections
