@@ -78,9 +78,9 @@ def load_indices(
         try:
             index = load_index(name, rag_config)
             indices.append(index)
-            logger.info("Loaded index for collection: %s", name)
+            logger.debug("Loaded index for collection: %s", name)
         except Exception as e:
-            logger.warning("Failed to load collection '%s': %s", name, e)
+            logger.debug("Failed to load collection '%s': %s", name, e)
     return indices
 
 

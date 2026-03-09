@@ -56,14 +56,18 @@ import json
 import logging
 import re
 import sys
+import warnings
 from pathlib import Path
 
 import yaml
 
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+
 # Suppress llama_index INFO flood (docstore loading) before project imports
 # trigger llama_index initialisation. basicConfig in main() is too late —
 # llama_index may add a root handler during import, making basicConfig a no-op.
-logging.getLogger("llama_index").setLevel(logging.WARNING)
+for _noisy_lib in ("llama_index", "httpx", "httpcore", "backoff", "urllib3"):
+    logging.getLogger(_noisy_lib).setLevel(logging.WARNING)
 logging.getLogger("llama_index").propagate = False
 
 from elt_llm_core.config import RagConfig

@@ -830,17 +830,33 @@ Agentic RAG adds an **orchestration layer** on top of existing RAG infrastructur
 3. Executes tools (JSON lookup, graph traversal, RAG queries)
 4. Synthesizes final answer from multiple sources with citations
 
-**ReAct Pattern** (Reason + Act):
+**Hybrid Agentic RAG Pattern** (Quality Gate + ReAct):
 ```
-Query → Plan → [Tool: JSON Lookup] → [Tool: Graph Traversal] → [Tool: RAG Query]
-   → Reason → Observe → Repeat → Synthesize → Answer
+Query → Classic RAG (2-6s) → Quality Gate (<10ms) → Pass? → Return (fast path)
+                                    ↓ Fail
+                                    ↓
+                            ReAct Agent (10-30s)
+                            Plan → [Tools] → Synthesize
 ```
 
-**Key Tools**:
+**Key Components**:
+| Component | Purpose | Latency | Uses LLM? |
+|-----------|---------|---------|-----------|
+| **Classic RAG** | Fast path for simple queries | 2-6s | Yes (synthesis) |
+| **Quality Gate** | Rule-based routing decision | <10ms | ❌ No |
+| **ReAct Agent** | Slow path for complex queries | 10-30s | Yes (planning + synthesis) |
+
+**Quality Gate Checks** (rule-based, no LLM):
+- ✓ Has citations? (`len(source_nodes) > 0`)
+- ✓ Not empty/hedged? (no "not defined", "LEANIX_ONLY", etc.)
+- ✓ Not too short? (`len(response) > 100`)
+- ✓ Not generic? (no "the provided documents", etc.)
+
+**Key Tools** (used by agent):
 | Tool | Purpose | Uses |
 |------|---------|------|
 | `rag_query_tool` | Query RAG collections | `elt_llm_query` |
-| `json_lookup_tool` | Direct JSON sidecar access | `.tmp/*_model.json`, `*_inventory.json` |
+| `json_lookup_tool` | Direct JSON sidecar access | `.tmp/*_model.json`, `*_inventory.json`, consumer catalog |
 | `graph_traversal_tool` | Relationship traversal | NetworkX (in-memory graph) |
 
 **When to Use Agent vs Consumer**:
@@ -857,41 +873,94 @@ Query → Plan → [Tool: JSON Lookup] → [Tool: Graph Traversal] → [Tool: RA
 
 **Example Commands**:
 ```bash
-# Interactive chat
+# Interactive chat (uses quality gate automatically)
 uv run python -m elt_llm_agent.chat
 
-# Single query
+# Single query with quality gate
 uv run python -m elt_llm_agent.query \
   -q "What data objects flow through the Player Registration interface?"
 
 # Batch queries
 uv run python -m elt_llm_agent.query --file queries.json --output results.json
+
+# Test quality gate performance
+uv run python test_quality_gate.py
 ```
 
-**Example Query Flow**:
+**Performance** (with Quality Gate):
+
+| Metric | Always Agent | Quality Gate | Improvement |
+|--------|--------------|--------------|-------------|
+| Simple query | 10-30s | 2-6s | 70-80% faster |
+| Complex query | 10-30s | 10-30s | Same |
+| **Average** (80% simple, 20% complex) | 10-30s | **4-8s** | **60-75% faster** |
+
+**Expected Distribution**:
+- 70-90% queries → Classic RAG (fast path, 2-6s)
+- 10-30% queries → Agent fallback (slow path, 10-30s)
+
+**Example Query Flow** (with Quality Gate):
+
 ```
-Query: "What data objects flow through the Player Registration interface?"
+Query: "What does the FA Handbook say about Club?"
 
-Step 1: json_lookup_tool(entity_type="interface", entity_name="Player Registration")
-  → Returns: {fact_sheet_id: "INT-456", name: "Player Registration System", ...}
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 1: CLASSIC RAG (Fast Path)                                 │
+│ query_collections(["fa_handbook"], "What does the FA Handbook...") │
+│ Latency: 2-6s                                                   │
+│ Result: "Club is defined as a football club affiliated..."      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 2: QUALITY GATE (<10ms)                                    │
+│ ✓ Has citations? YES (5 source nodes)                           │
+│ ✓ Not empty? YES (no "not defined" phrases)                     │
+│ ✓ Not too short? YES (250 chars)                                │
+│ ✓ Not generic? YES (specific content)                           │
+│ Result: PASS → Return classic RAG result                        │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                      RETURN RESULT (2-6s total)
 
-Step 2: graph_traversal_tool(entity_name="INT-456", operation="neighbors")
-  → Returns: {neighbors: ["Player", "Registration", "County FA"]}
 
-Step 3: rag_query_tool(collection="fa_handbook", query="governance for Player data")
-  → Returns: "FA Handbook Section C, Rule 8: Player data must..."
+Query: "What does the FA Handbook say about Club Official?"
 
-Step 4: Synthesize final answer with citations
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 1: CLASSIC RAG (Fast Path)                                 │
+│ query_collections(["fa_handbook"], "What does the FA Handbook...") │
+│ Result: "The term 'Club Official' is not defined..."            │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 2: QUALITY GATE (<10ms)                                    │
+│ ✗ Has citations? YES (2 source nodes)                           │
+│ ✗ Not empty? NO (contains "not defined")                        │
+│ Result: FAIL → Activate agent                                   │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 3: REACT AGENT (Slow Path)                                 │
+│  - rag_query_tool("fa_handbook", "Club Official rules...")     │
+│  - json_lookup_tool("consumer_all", "Club Official")           │
+│  - Synthesize final answer                                     │
+│ Latency: 10-30s                                                 │
+│ Result: "Club Official is referenced in advertising..."         │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                      RETURN RESULT (10-30s total)
 ```
 
-**Runtime**: 10–30s per query (3–5 tool calls typical)
+**Runtime**: 
+- Classic RAG (fast path): 2-6s (70-90% of queries)
+- Agent fallback (slow path): 10-30s (10-30% of queries)
+- **Average**: 4-8s per query (60-75% faster than always-using-agent)
 
 **Open-Source Compliance**: All components are open-source:
 - LlamaIndex (MIT) — Agent framework
 - NetworkX (BSD) — Graph traversal (no Neo4j required)
 - ChromaDB (Apache 2.0) — Vector store (via `elt_llm_query`)
 
-See [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture, or [AGENT_VS_CONSUMER.md](AGENT_VS_CONSUMER.md) for detailed comparison with `elt_llm_consumer`.
+See [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture, [elt_llm_agent/QUALITY_GATE.md](elt_llm_agent/QUALITY_GATE.md) for quality gate implementation details, or [AGENT_VS_CONSUMER.md](AGENT_VS_CONSUMER.md) for detailed comparison with `elt_llm_consumer`.
 
 ---
 
