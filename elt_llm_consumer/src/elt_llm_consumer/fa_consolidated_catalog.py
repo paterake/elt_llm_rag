@@ -53,11 +53,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sys
 from pathlib import Path
 
 import yaml
+
+# Suppress noisy LlamaIndex INFO logs (docstore loading, kvstore messages)
+logging.getLogger("llama_index").setLevel(logging.WARNING)
 
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
@@ -411,7 +415,7 @@ def get_handbook_context_for_entity(
     def_query = _HANDBOOK_DEFINITION_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix
     seen: set = set()
     def_collections: list[str] = []
-    for s in [*_DEFINITION_SECTIONS, *(bm25_sections or [])[:2]]:
+    for s in [*_DEFINITION_SECTIONS, *(bm25_sections or [])[:5]]:
         if s not in seen:
             def_collections.append(s)
             seen.add(s)
@@ -1221,7 +1225,7 @@ def generate_consolidated_catalog(
         if any(vl.startswith(p) for p in _pure_negative):
             return False
         # Positive signal: contains an actual definition
-        _positive = ("is defined as", "are defined as", "means ", "is described as")
+        _positive = ("is defined as", "are defined as", "means ", "is described as", "is referenced", "is described")
         if any(p in vl for p in _positive):
             return True
         # Substantive length with handbook content (partial/indirect definitions)
@@ -1245,6 +1249,10 @@ def generate_consolidated_catalog(
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+    for _lib in ("httpx", "httpcore", "chromadb", "llama_index", "bm25s"):
+        logging.getLogger(_lib).setLevel(logging.WARNING)
+
     parser = argparse.ArgumentParser(
         description=(
             "Generate FA Consolidated Catalog via RAG+LLM queries — "
