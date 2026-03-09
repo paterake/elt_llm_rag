@@ -1,0 +1,27 @@
+# Prompt: handbook_governance
+#
+# Purpose: Find governance rules and domain context for a conceptual model entity
+#          from the FA Handbook. Targets BM25-routed sections where rules live.
+#
+# Variables:
+#   {entity_name}  — The entity name from the conceptual model (e.g. "Club", "Player")
+#   {domain}       — The domain the entity belongs to (e.g. "PARTY", "COMPETITION")
+#
+# Output sections expected in LLM response:
+#   DOMAIN_CONTEXT  — Role within the domain and related entities
+#   GOVERNANCE      — FA Handbook rules, obligations, section/rule number citations
+
+prompt: |
+  For the FA entity '{entity_name}' in the {domain} domain, identify its governance rules
+  and domain context from the FA Handbook.
+
+  Respond using this exact format:
+
+  DOMAIN_CONTEXT:
+  [What role does '{entity_name}' play within the {domain} domain?
+  What related FA entities and concepts are relevant? Keep this concise (2-4 sentences).]
+
+  GOVERNANCE:
+  [What specific FA Handbook rules, obligations, or regulatory requirements apply to '{entity_name}'?
+  Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).
+  If no specific rules are documented, write: Not documented in FA Handbook — outside governance scope.]

@@ -33,7 +33,7 @@ entity_aliases_file: entity_aliases.yaml
 handbook_sections:
   section_prefix: "fa_handbook"
   section_routing_threshold: 0.0
-  section_routing_top_n: 3
+  section_routing_top_n: 5
   section_bm25_top_k: 3
   section_routing_min_sections: 1
 

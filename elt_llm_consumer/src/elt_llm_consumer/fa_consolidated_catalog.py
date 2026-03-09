@@ -165,9 +165,16 @@ _DEFAULT_INVENTORY_JSON = _resolve_json_from_ingest_config(_INGEST_CONFIG_INVENT
 # System prompts
 # ---------------------------------------------------------------------------
 
-_HANDBOOK_CONTEXT_PROMPT    = _load_prompt("handbook_context.yaml")
+_HANDBOOK_CONTEXT_PROMPT    = _load_prompt("handbook_context.yaml")  # legacy, kept for reference
+_HANDBOOK_DEFINITION_PROMPT = _load_prompt("handbook_definition.yaml")
+_HANDBOOK_GOVERNANCE_PROMPT = _load_prompt("handbook_governance.yaml")
 _ENTITY_RELATIONSHIP_PROMPT = _load_prompt("entity_relationship.yaml")
 _DOMAIN_INFERENCE_PROMPT    = _load_prompt("domain_inference.yaml")
+
+# Authoritative definition sections — always queried for Pass 1 (formal definitions).
+# S07 = Articles of Association (127 def hits), S27 = Standardised Rules (104 def hits).
+# These are the two "X means Y" definition tables in the FA Handbook.
+_DEFINITION_SECTIONS: list[str] = ["fa_handbook_s07", "fa_handbook_s27"]
 
 # ---------------------------------------------------------------------------
 # Definition extraction from docstore (Docling output)
@@ -356,63 +363,91 @@ def load_inventory_from_json(json_path: Path) -> dict[str, dict]:
 def get_handbook_context_for_entity(
     entity_name: str,
     domain: str,
-    handbook_collections: list[str],
+    governance_collections: list[str],
     rag_config: RagConfig,
     term_definitions: dict[str, str] | None = None,
     leanix_description: str | None = None,
+    bm25_sections: list[str] | None = None,
 ) -> dict:
-    """Get FA Handbook context (definition, governance, domain context) for an entity.
+    """Get FA Handbook context for an entity using a two-pass approach.
+
+    Pass 1 — Formal definition:
+        Always queries the authoritative definition sections (S07 Articles of Association,
+        S27 Standardised Rules) plus the top BM25 sections for the entity. This guarantees
+        the 'X means Y' definition tables are always checked, regardless of BM25 routing.
+
+    Pass 2 — Governance + domain context:
+        Queries ALL handbook sections so the reranker can surface governance rules
+        regardless of which section they live in. Player/club governance is scattered
+        across S08-S09, S28-S30, S44 etc. — BM25 routing on term frequency tends to
+        surface definition sections rather than rules sections, so governance always
+        searches the full handbook.
 
     Args:
-        entity_name:          Conceptual model entity name (drives the RAG query).
-        domain:               Domain of the entity.
-        handbook_collections: Handbook collection names for RAG.
-        rag_config:           RAG configuration.
-        term_definitions:     Pre-built dict of {term_lower: definition} from Step 3.
-                              When the entity name exactly matches a handbook term,
-                              its formal definition overrides the RAG-synthesised text.
-        leanix_description:   LeanIX inventory description for this entity. When provided,
-                              appended to the query to improve retrieval of relevant handbook
-                              chunks (esp. for entities whose handbook name differs from the
-                              conceptual model name).
+        entity_name:            Conceptual model entity name (drives the RAG query).
+        domain:                 Domain of the entity.
+        governance_collections: All handbook collections for Pass 2 (reranker selects best).
+        rag_config:             RAG configuration.
+        term_definitions:       Pre-built dict of {term_lower: definition} from Step 3.
+                                When entity name exactly matches a handbook term, that
+                                definition overrides the RAG-synthesised Pass 1 result.
+        leanix_description:     LeanIX inventory description. Appended to both queries
+                                to improve retrieval for entities whose handbook name
+                                differs from the conceptual model name.
+        bm25_sections:          BM25-routed sections (top-N). Supplements Pass 1 alongside
+                                S07+S27 for entities defined outside the main definition tables.
     """
-    query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain)
+    context_suffix = ""
     if leanix_description and leanix_description != "Not documented in LeanIX inventory":
-        query += f"\n\nContext from data model: {leanix_description[:500]}"
+        context_suffix = f"\n\nContext from data model: {leanix_description[:500]}"
+
+    sections: dict = {"formal_definition": "", "domain_context": "", "governance_rules": ""}
+
+    # ------------------------------------------------------------------
+    # Pass 1: Formal definition from authoritative definition sections.
+    # Always includes S07 + S27; supplements with top-2 BM25 sections for
+    # entities whose definitions live outside the main definition tables.
+    # ------------------------------------------------------------------
+    def_query = _HANDBOOK_DEFINITION_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix
+    seen: set = set()
+    def_collections: list[str] = []
+    for s in [*_DEFINITION_SECTIONS, *(bm25_sections or [])[:2]]:
+        if s not in seen:
+            def_collections.append(s)
+            seen.add(s)
 
     try:
-        result = query_collections(handbook_collections, query, rag_config, iterative=False)
+        result = query_collections(def_collections, def_query, rag_config, iterative=False)
         response = result.response.strip()
+        match = re.search(r"FORMAL_DEFINITION:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
+        sections["formal_definition"] = match.group(1).strip() if match else response
+    except Exception as e:
+        sections["formal_definition"] = f"[Error: {e}]"
 
-        _section_key_map = {
-            "FORMAL_DEFINITION": "formal_definition",
-            "DOMAIN_CONTEXT": "domain_context",
-            "GOVERNANCE": "governance_rules",
-        }
-        sections = {}
-        for prompt_key, output_key in _section_key_map.items():
-            match = re.search(rf"{prompt_key}:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
-            sections[output_key] = match.group(1).strip() if match else ""
+    # Override with exact handbook term if Step 3 found a direct match — highest confidence.
+    if term_definitions:
+        direct_def = term_definitions.get(entity_name.lower())
+        if direct_def:
+            sections["formal_definition"] = direct_def
 
-        # If entity name directly matches a handbook-defined term, use the exact
-        # definition (highest confidence) rather than the LLM synthesis.
-        if term_definitions:
-            direct_def = term_definitions.get(entity_name.lower())
-            if direct_def:
-                sections["formal_definition"] = direct_def
+    # ------------------------------------------------------------------
+    # Pass 2: Governance rules + domain context from BM25-routed sections.
+    # ------------------------------------------------------------------
+    gov_query = _HANDBOOK_GOVERNANCE_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix
 
-        # Preserve per-section raw findings alongside the polished synthesis
+    try:
+        result = query_collections(governance_collections, gov_query, rag_config, iterative=False)
+        response = result.response.strip()
+        match = re.search(r"DOMAIN_CONTEXT:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
+        sections["domain_context"] = match.group(1).strip() if match else ""
+        match = re.search(r"GOVERNANCE:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
+        sections["governance_rules"] = match.group(1).strip() if match else ""
         if result.raw_response:
             sections["raw_handbook_sections"] = result.raw_response
-
-        return sections
     except Exception as e:
-        return {
-            "formal_definition": f"[Error: {e}]",
-            "domain_context": "",
-            "governance_rules": "",
-            "raw_handbook_sections": "",
-        }
+        sections["governance_rules"] = f"[Error: {e}]"
+
+    return sections
 
 
 # ---------------------------------------------------------------------------
@@ -1074,15 +1109,22 @@ def generate_consolidated_catalog(
 
             if _SECTION_TOP_N and relevant_sections:
                 relevant_sections = relevant_sections[:_SECTION_TOP_N]
-            # Fall back to all handbook collections when section routing finds nothing
-            target_collections = relevant_sections if relevant_sections else handbook_collections
 
-            # Stage 2: LLM synthesis against targeted sections only
+            # Stage 2: Two-pass LLM synthesis
+            # Pass 1 (definition): always hits S07+S27 + top-2 BM25 sections
+            # Pass 2 (governance): always uses ALL handbook sections so the reranker
+            #   can find governance rules scattered across competition/disciplinary sections.
+            #   BM25 routing is intentionally NOT used for governance — player/club rules
+            #   are spread across S08-S09, S28-S30, S44 etc. and BM25 routing (which
+            #   scores on term frequency) tends to surface definition sections, not rules.
             inv_desc = inventory_descriptions.get(_normalize(name), {}).get("description")
             context = get_handbook_context_for_entity(
-                name, domain, target_collections, rag_config,
+                name, domain,
+                governance_collections=handbook_collections,  # all 44 — reranker finds best governance chunks
+                rag_config=rag_config,
                 term_definitions=term_definitions,
                 leanix_description=inv_desc,
+                bm25_sections=relevant_sections,  # top-N BM25 sections supplement Pass 1 only
             )
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")

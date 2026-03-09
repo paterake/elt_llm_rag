@@ -1,0 +1,27 @@
+# Prompt: handbook_definition
+#
+# Purpose: Find the formal FA Handbook definition for a conceptual model entity.
+#          Targets the authoritative definition sections (Articles of Association,
+#          Standardised Rules) to maximise precision.
+#
+# Variables:
+#   {entity_name}  — The entity name from the conceptual model (e.g. "Club", "Player")
+#   {domain}       — The domain the entity belongs to (e.g. "PARTY", "COMPETITION")
+#
+# Output sections expected in LLM response:
+#   FORMAL_DEFINITION  — Exact or paraphrased handbook definition, including subtypes
+
+prompt: |
+  Find the formal FA Handbook definition for the entity '{entity_name}' in the {domain} domain.
+
+  The handbook may define this entity directly by name or through specialisations or qualified
+  variants (e.g. 'Contract {entity_name}', 'Registered {entity_name}', 'Associate {entity_name}',
+  or other qualified forms). Include definitions for any such specialisations where they illuminate
+  the meaning of '{entity_name}'.
+
+  Respond using this exact format:
+
+  FORMAL_DEFINITION:
+  [Quote or closely paraphrase the handbook definition, including any specialised subtypes defined.
+  If no definition for '{entity_name}' or its variants exists in the provided documents,
+  write exactly: Not defined in FA Handbook.]
