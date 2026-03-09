@@ -247,8 +247,8 @@ def query_with_quality_gate(
     from elt_llm_query.query import query_collections
 
     if collection_names is None:
-        # Default to all FA Handbook sections
-        collection_names = ["fa_handbook"]  # Will be expanded to fa_handbook, fa_handbook_s01, etc.
+        # Default to all FA Handbook sections - will use BM25 to find relevant ones
+        collection_names = ["fa_handbook"]
 
     logger.info("Quality gate: Trying classic RAG first (query: %s...)", query[:50])
 
@@ -262,14 +262,36 @@ def query_with_quality_gate(
     logger.debug("Loading RAG config from: %s", rag_config_path)
     rag_config = load_config(rag_config_path)
     
-    # Resolve collection prefixes (e.g., "fa_handbook" → ["fa_handbook", "fa_handbook_s01", ...])
-    from elt_llm_query.query import resolve_collection_prefixes
-    resolved_collections = resolve_collection_prefixes(collection_names, rag_config)
+    # Resolve collection prefixes and use BM25 to find relevant sections (fast, no LLM)
+    # This is critical for performance: FA Handbook has 40+ sections, querying all is slow
+    from elt_llm_query.query import resolve_collection_prefixes, discover_relevant_sections
     
-    if not resolved_collections:
+    # Step 1: Resolve prefixes (e.g., "fa_handbook" → all fa_handbook_* collections)
+    all_collections = resolve_collection_prefixes(collection_names, rag_config)
+    
+    if not all_collections:
         logger.warning("No collections found for prefixes: %s", collection_names)
         # Fall back to agent
         return _activate_agent(query, max_agent_iterations, verbose)
+    
+    # Step 2: Use BM25 to find relevant sections (fast, 1-3s, no LLM)
+    # Extract prefix from first collection (e.g., "fa_handbook_s01" → "fa_handbook")
+    prefix = collection_names[0]
+    relevant_sections = discover_relevant_sections(
+        entity_name=query[:50],  # Use query as entity name for BM25
+        section_prefix=prefix,
+        rag_config=rag_config,
+        threshold=0.0,  # Include any section with BM25 match
+        bm25_top_k=3,  # Top 3 candidates per section
+    )
+    
+    # Use relevant sections if found, otherwise use all collections
+    if relevant_sections:
+        resolved_collections = relevant_sections
+        logger.info("BM25 found %d relevant sections: %s", len(resolved_collections), resolved_collections[:5])
+    else:
+        resolved_collections = all_collections
+        logger.info("BM25 found no relevant sections, using all %d collections", len(resolved_collections))
     
     logger.info("Resolved collections: %s", resolved_collections)
 

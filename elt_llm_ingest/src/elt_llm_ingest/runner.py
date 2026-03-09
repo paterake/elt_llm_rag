@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 import chromadb
 import yaml
