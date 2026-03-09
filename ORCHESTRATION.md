@@ -5,6 +5,8 @@
 **Last Updated**: 2026-03-02  
 **Status**: Phase 1 Complete  | Phase 2-5 Planning
 
+**Start here**: Read [ARCHITECTURE.md](ARCHITECTURE.md) first for the complete system overview. This document focuses on runbooks, commands, phase status, and troubleshooting.
+
 ---
 
 ## Executive Summary

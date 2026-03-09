@@ -1,29 +1,55 @@
 # elt_llm_ingest — Architecture
 
-## Purpose
+**Module**: `elt_llm_ingest`  
+**Role**: Document ingestion into RAG-ready store
+
+**Start here**: Read [ARCHITECTURE.md](../ARCHITECTURE.md) §5 for the big picture on ingestion strategies and the JSON sidecar pattern. This document covers module-specific implementation details.
+
+---
+
+## Table of Contents
+
+- [1. Purpose](#1-purpose)
+- [2. Pipeline Overview](#2-pipeline-overview)
+- [3. PDF Ingestion Flow](#3-pdf-ingestion-flow)
+- [4. Preprocessors](#4-preprocessors)
+- [5. Change Detection](#5-change-detection)
+- [6. Configuration](#6-configuration)
+- [7. Commands](#7-commands)
+
+---
+
+## 1. Purpose
+
 Ingest heterogeneous documents into a RAG-ready store with:
 - Dense vectors in ChromaDB for semantic retrieval
 - BM25 docstores on disk for keyword retrieval
 - Smart change detection and collection-level rebuilds
 
-**See also**: [RAG_STRATEGY.md](../RAG_STRATEGY.md) for detailed documentation on how the ingested data is used in hybrid retrieval and reranking.
+---
 
-## Pipeline ([ingest.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/src/elt_llm_ingest/ingest.py))
+## 2. Pipeline Overview
+
+```
 1. Load files (PDF, PPTX, DOCX, TXT, HTML, CSV/XML via preprocessors)
    - Optional preprocessing (e.g., LeanIX XML → Markdown; Excel inventory enrichment)
    - Scalar-only metadata sanitization to satisfy Chroma constraints
+
 2. Chunk and transform
    - Sentence splitter (configurable `chunk_size`, `chunk_overlap`)
+
 3. Persist two stores
    - ChromaDB vectors (per collection)
    - SimpleDocumentStore persisted to disk for BM25 hybrid search
+
 4. Rebuild / Append
    - `rebuild: true` deletes the collection and resets file-hash tracking
    - `--no-rebuild` appends only changed files (SHA256 detection)
+```
 
 ---
 
-## PDF Ingestion Flow (FA Handbook)
+## 3. PDF Ingestion Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -71,16 +97,6 @@ Ingest heterogeneous documents into a RAG-ready store with:
 │ - 3,375 nodes           │     │ - Same nodes as ChromaDB│
 │ - 768 dimensions        │     │                         │
 └─────────────────────────┘     └─────────────────────────┘
-              ↓                               ↓
-              └───────────────┬───────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 5. Retrieval: Hybrid (BM25 + Vector)                            │
-├─────────────────────────────────────────────────────────────────┤
-│ Query → BM25 (docstore) + Vector (ChromaDB)                     │
-│       → Rerank (cross-encoder or embedding)                     │
-│       → Top-k → LLM synthesis                                   │
-└─────────────────────────────────────────────────────────────────┘
 ```
 
 **Performance (FA Handbook 2025-26)**:
@@ -91,41 +107,103 @@ Ingest heterogeneous documents into a RAG-ready store with:
 
 ---
 
-## Change Detection ([file_hash.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/src/elt_llm_ingest/file_hash.py))
-- Stores per-file SHA256 keyed by `collection_name::file_path` in a dedicated `file_hashes` collection
-- Skips unchanged files; supports selective removal on rebuild
+## 4. Preprocessors
 
-## Preprocessors ([preprocessor.py](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/src/elt_llm_ingest/preprocessor.py))
+### 4.1 LeanIXPreprocessor (`output_format: json_md`)
 
-**`LeanIXPreprocessor`** (`output_format: json_md`) — LeanIX Conceptual Model (draw.io XML):
+**Source**: LeanIX Conceptual Model (draw.io XML)
+
+**Process**:
 - Calls `doc_leanix_parser.py` to parse the XML into corrected domain/subtype/entity structure
 - Writes `<stem>_model.json` next to source XML — canonical structured output for consumers
 - Writes flat per-entity and per-relationship Markdown → ChromaDB collections (for semantic search)
 - Fan-out: single XML parse → JSON sidecar + ChromaDB, not two separate parses
 
-**`LeanIXInventoryPreprocessor`** (`output_format: split`) — LeanIX Inventory (Excel):
-- Reads all fact sheets from Excel export
-- Writes `<stem>_inventory.json` next to source Excel — keyed by `fact_sheet_id` for O(1) lookup
-- Writes per-type Markdown → per-type ChromaDB collections (`fa_leanix_global_inventory_*`)
+**Configuration**:
+```yaml
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "LeanIXPreprocessor"
+  output_format: "json_md"
+  collection_prefix: "fa_leanix_dat_enterprise_conceptual_model"
+```
 
-**`DoclingPreprocessor`** — FA Handbook PDF:
-- PDF → per-section Markdown via IBM Docling (DocLayNet + TableFormer models); first run downloads ~200MB to `~/.cache/docling/`, all subsequent runs are fully offline
+---
+
+### 4.2 LeanIXInventoryPreprocessor (`output_format: split`)
+
+**Source**: LeanIX Inventory (Excel)
+
+**Process**:
+- Reads all fact sheets from first non-ReadMe sheet (timestamp-named export)
+- Groups by `type` field (DataObject, Interface, Application, etc.)
+- Generates per-type Markdown files (split mode)
+- Writes `<stem>_inventory.json` next to source Excel — keyed by `fact_sheet_id` for O(1) lookup
+
+**Fact Sheet Types**:
+| Type | Collection Suffix | Count |
+|------|-------------------|-------|
+| DataObject | `dataobject` | 229 |
+| Interface | `interface` | 271 |
+| Application | `application` | 215 |
+| BusinessCapability | `capability` | 272 |
+| Organization | `organization` | 115 |
+| ITComponent | `itcomponent` | 180 |
+| Provider | `provider` | 74 |
+| Objective | `objective` | 59 |
+
+**Configuration**:
+```yaml
+preprocessor:
+  module: "elt_llm_ingest.preprocessor"
+  class: "LeanIXInventoryPreprocessor"
+  output_format: "split"
+  collection_prefix: "fa_leanix_global_inventory"
+```
+
+---
+
+### 4.3 DoclingPreprocessor
+
+**Source**: FA Handbook PDF
+
+**Process**:
+- PDF → per-section Markdown via IBM Docling (DocLayNet + TableFormer models)
+- First run downloads ~200MB to `~/.cache/docling/`, all subsequent runs are fully offline
 - Layout-aware: detects headings, preserves table structure as markdown
 - Splits document into sections (s01–s44), each → separate ChromaDB collection
 - Output: `_section_splits/<stem>_sections/s*.md` → `fa_handbook_sNN` collections
 
-**Split-mode**: one source → N collections via `collection_prefix` and section mapping
+**Split-mode**: One source → N collections via `collection_prefix` and section mapping
 
-## Configuration
-- Global RAG: [rag_config.yaml](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config/rag_config.yaml)
-- Ingest configs: [config/](file:///Users/rpatel/Documents/__code/git/emailrak/elt_llm_rag/elt_llm_ingest/config)
-  - `ingest_fa_leanix_dat_enterprise_conceptual_model.yaml`
-  - `ingest_fa_leanix_global_inventory.yaml`
-  - `ingest_fa_handbook.yaml`
-  - `ingest_dama_dmbok.yaml`
-  - `load_rag.yaml` (batch)
+---
 
-## Commands
+## 5. Change Detection
+
+**File**: [`file_hash.py`](src/elt_llm_ingest/file_hash.py)
+
+- Stores per-file SHA256 keyed by `collection_name::file_path` in a dedicated `file_hashes` collection
+- Skips unchanged files; supports selective removal on rebuild
+
+---
+
+## 6. Configuration
+
+**Global RAG**: [`rag_config.yaml`](config/rag_config.yaml)
+
+**Ingest configs**: [`config/`](config/)
+- `ingest_fa_leanix_dat_enterprise_conceptual_model.yaml`
+- `ingest_fa_leanix_global_inventory.yaml`
+- `ingest_fa_handbook.yaml`
+- `ingest_dama_dmbok.yaml`
+- `load_rag.yaml` (batch)
+
+---
+
+## 7. Commands
+
+See [README.md](README.md) for the full command reference.
+
 ```bash
 # List configs and examples
 uv run python -m elt_llm_ingest.runner --list
@@ -144,8 +222,10 @@ uv run python -m elt_llm_ingest.clean_slate
 uv run python -m elt_llm_ingest.clean_slate --prefix fa_leanix
 ```
 
-## Notes
-- Local-first: embeddings via Ollama; ChromaDB persisted under `persist_dir`
-- Metadata: keep scalar (str/int/float/bool/None) — complex fields are dropped by the sanitizer
-- Per-collection chunking overrides are supported via `IngestConfig.chunking_override`
+---
 
+## Notes
+
+- **Local-first**: embeddings via Ollama; ChromaDB persisted under `persist_dir`
+- **Metadata**: keep scalar (str/int/float/bool/None) — complex fields are dropped by the sanitizer
+- **Per-collection chunking overrides** are supported via `IngestConfig.chunking_override`

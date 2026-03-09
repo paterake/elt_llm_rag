@@ -2,6 +2,8 @@
 
 Purpose-built products that drive the LLM+RAG infrastructure to produce structured deliverables.
 
+**Start here for understanding**: Read [ARCHITECTURE.md](../ARCHITECTURE.md) §7 for the consumer layer overview and 7-step pipeline. This README is for commands and usage.
+
 **All commands run from the repository root.**
 
 ---

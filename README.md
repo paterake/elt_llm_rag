@@ -2,6 +2,8 @@
 
 RAG platform for FA architecture knowledge, data governance, and automated documentation generation.
 
+**Start here for understanding**: Read [ARCHITECTURE.md](ARCHITECTURE.md) for the complete system overview — what's built, why, how AI + custom code work together, and end-to-end flow. This README is for quick start commands only.
+
 ---
 
 ## Quick Start
@@ -31,112 +33,23 @@ uv run python -m elt_llm_api.app
 
 ## Documentation
 
-| Document | Purpose | Location |
-|----------|---------|----------|
-| **README.md** (this file) | Quick start and module overview | Root |
-| **SOLUTION_OVERVIEW.md** | Stakeholder presentation — challenge, solution, output | Root |
-| **ARCHITECTURE.md** | Technical architecture — system design, components, roadmap | Root |
-| **RAG_STRATEGY.md** | Retrieval strategy — hybrid search, reranking, configuration | Root |
-| **ORCHESTRATION.md** | Workflow documentation — ingestion to output pipeline | Root |
-| **Module README** | Module-specific usage and reference | Each module directory |
+| Document | Purpose | When to Read |
+|----------|---------|--------------|
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | **Complete system overview** — what's built, why, how it works | **Read this first** |
+| **[README.md](README.md)** (this file) | Quick start commands only | Use for running the system |
+| **[RAG_STRATEGY.md](RAG_STRATEGY.md)** | Retrieval strategy details, tuning, enhancement roadmap | When optimizing RAG |
+| **[ORCHESTRATION.md](ORCHESTRATION.md)** | Runbooks, phase status, troubleshooting | When running or extending |
+| **Module README** | Module-specific usage and reference | When working on a module |
 
 ### Module Documentation
 
 | Module | Purpose | Documentation |
 |--------|---------|---------------|
 | `elt_llm_core/` | Shared RAG infrastructure | [README](elt_llm_core/README.md) |
-| `elt_llm_ingest/` | Document ingestion pipeline | [README](elt_llm_ingest/README.md) |
+| `elt_llm_ingest/` | Document ingestion pipeline | [README](elt_llm_ingest/README.md), [ARCHITECTURE](elt_llm_ingest/ARCHITECTURE.md) |
 | `elt_llm_query/` | Query interface | [README](elt_llm_query/README.md) |
 | `elt_llm_api/` | Gradio GUI + API | [README](elt_llm_api/README.md) |
-| `elt_llm_consumer/` | Purpose-built output generators | [README](elt_llm_consumer/README.md) |
-
----
-
-## Modules Overview
-
-### elt_llm_core
-
-Shared infrastructure: ChromaDB client, Ollama models, configuration, base query engine.
-
-```bash
-# Not run directly — imported by other modules
-```
-
-**Docs**: [elt_llm_core/README.md](elt_llm_core/README.md)
-
----
-
-### elt_llm_ingest
-
-Document ingestion: chunk, embed, store in ChromaDB + DocStore.
-
-```bash
-# Ingest all collections
-uv run python -m elt_llm_ingest.runner --cfg load_rag
-
-# Ingest specific source
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
-
-# Check status
-uv run python -m elt_llm_ingest.runner --status
-```
-
-**Docs**: [elt_llm_ingest/README.md](elt_llm_ingest/README.md)
-
----
-
-### elt_llm_query
-
-Query interface: hybrid retrieval (BM25 + Vector), reranking, LLM synthesis.
-
-```bash
-# List query profiles
-uv run python -m elt_llm_query.runner --list
-
-# Query with profile
-uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture -q "What is a Club?"
-uv run python -m elt_llm_query.runner --cfg fa_data_management -q "What are the key PARTY domain entities?"
-
-# Interactive session
-uv run python -m elt_llm_query.runner --cfg fa_handbook_only
-```
-
-**Docs**: [elt_llm_query/README.md](elt_llm_query/README.md)
-
----
-
-### elt_llm_api
-
-Gradio GUI (http://localhost:7860) + programmatic API.
-
-```bash
-# Start GUI
-uv run python -m elt_llm_api.app
-```
-
-**Docs**: [elt_llm_api/README.md](elt_llm_api/README.md)
-
----
-
-### elt_llm_consumer
-
-Purpose-built output generators: consolidated catalog, handbook model builder, coverage validator.
-
-```bash
-# Primary output: consolidated catalog
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
-
-# Handbook-only entity extraction
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
-
-# Coverage validation
-uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
-```
-
-**Docs**: [elt_llm_consumer/README.md](elt_llm_consumer/README.md)
+| `elt_llm_consumer/` | Purpose-built output generators | [README](elt_llm_consumer/README.md), [ARCHITECTURE](elt_llm_consumer/ARCHITECTURE.md) |
 
 ---
 
@@ -211,7 +124,7 @@ uv run python -m elt_llm_ingest.runner --cfg load_rag
 2. **Update review status** — Mark entities as APPROVED/REJECTED/NEEDS_CLARIFICATION
 3. **Downstream import** — Transform for Purview, Erwin LDM, MS Fabric
 
-See [SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md) for detailed stakeholder review process.
+See [ORCHESTRATION.md](ORCHESTRATION.md) for the full stakeholder review workflow.
 
 ---
 

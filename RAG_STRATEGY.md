@@ -3,6 +3,8 @@
 **Status**: Production-ready for FA glossary/catalogue generation  
 **Last Updated**: March 2026
 
+**Start here**: Read [ARCHITECTURE.md](ARCHITECTURE.md) first for the complete system overview. This document focuses on retrieval strategy details, configuration tuning, and enhancement roadmap.
+
 ---
 
 ## Executive Summary
@@ -42,11 +44,11 @@ For current parameter values and tuning rationale, see [RAG_TUNING.md](RAG_TUNIN
 
 ### Technology Stack
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) § Technology Stack.
+See [ARCHITECTURE.md](ARCHITECTURE.md) §8.
 
 ### Package Boundaries
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) § Module Structure for the full package breakdown.
+See [ARCHITECTURE.md](ARCHITECTURE.md) §10 for the full module structure.
 
 `elt_llm_query` is the single query interface consumed by both `elt_llm_consumer` and `elt_llm_api` — it returns a `QueryResult` that includes LLM synthesis output.
 
