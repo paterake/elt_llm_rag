@@ -394,12 +394,6 @@ def get_handbook_context_for_entity(
             if direct_def:
                 sections["formal_definition"] = direct_def
 
-        # DEBUG: print raw LLM response to diagnose section parsing failures
-        if not any(sections.values()):
-            print(f"\n[DEBUG] All sections empty for '{entity_name}'. Raw response ({len(response)} chars):")
-            print(response[:2000])
-            print("[/DEBUG]")
-
         # Preserve per-section raw findings alongside the polished synthesis
         if result.raw_response:
             sections["raw_handbook_sections"] = result.raw_response
