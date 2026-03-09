@@ -14,7 +14,7 @@ ollama:
   embed_batch_size: 1
   context_window: 16384         # 16K — safe on M3 18GB; allows 15 chunks of 512 tokens to LLM
   request_timeout: 300.0        # 5 minutes — sufficient with num_predict cap; was 600s but synthesis hit it
-  num_predict: 600              # Cap synthesis response to ~600 tokens (~120s on 14B models at 5 tok/s)
+  num_predict: 1000             # Cap synthesis response to ~1000 tokens (~200s on 9B models at 5 tok/s)
                                 # Avoids ReadTimeout on long LLM responses. -1 = unlimited.
   thinking: false               # Disable thinking mode — prevents token budget consumed by <think> blocks
 

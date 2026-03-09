@@ -359,6 +359,7 @@ def get_handbook_context_for_entity(
     handbook_collections: list[str],
     rag_config: RagConfig,
     term_definitions: dict[str, str] | None = None,
+    leanix_description: str | None = None,
 ) -> dict:
     """Get FA Handbook context (definition, governance, domain context) for an entity.
 
@@ -370,8 +371,14 @@ def get_handbook_context_for_entity(
         term_definitions:     Pre-built dict of {term_lower: definition} from Step 3.
                               When the entity name exactly matches a handbook term,
                               its formal definition overrides the RAG-synthesised text.
+        leanix_description:   LeanIX inventory description for this entity. When provided,
+                              appended to the query to improve retrieval of relevant handbook
+                              chunks (esp. for entities whose handbook name differs from the
+                              conceptual model name).
     """
     query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain)
+    if leanix_description and leanix_description != "Not documented in LeanIX inventory":
+        query += f"\n\nContext from data model: {leanix_description[:500]}"
 
     try:
         result = query_collections(handbook_collections, query, rag_config, iterative=False)
@@ -1071,9 +1078,11 @@ def generate_consolidated_catalog(
             target_collections = relevant_sections if relevant_sections else handbook_collections
 
             # Stage 2: LLM synthesis against targeted sections only
+            inv_desc = inventory_descriptions.get(_normalize(name), {}).get("description")
             context = get_handbook_context_for_entity(
                 name, domain, target_collections, rag_config,
                 term_definitions=term_definitions,
+                leanix_description=inv_desc,
             )
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
