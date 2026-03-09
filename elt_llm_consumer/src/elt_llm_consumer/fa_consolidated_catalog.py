@@ -374,7 +374,7 @@ def get_handbook_context_for_entity(
     query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain)
 
     try:
-        result = query_collections(handbook_collections, query, rag_config, iterative=True)
+        result = query_collections(handbook_collections, query, rag_config, iterative=False)
         response = result.response.strip()
 
         _section_key_map = {

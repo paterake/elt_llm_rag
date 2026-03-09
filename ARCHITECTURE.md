@@ -241,6 +241,8 @@ This solution combines **AI components** (RAG, LLM, prompts) with **custom code*
 - **MMR (Maximal Marginal Relevance)**: Prevents near-duplicate chunks from dominating results
 - **Table-aware chunking**: FA Handbook definitions table (Rules §8) kept intact — no split definitions
 
+**For a detailed walkthrough of the RAG+LLM flow** (with visual diagrams), see [SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md) Parts 2-3.
+
 See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, and enhancement roadmap.
 
 ---

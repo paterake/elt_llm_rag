@@ -36,6 +36,7 @@ uv run python -m elt_llm_api.app
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | **Complete system overview** — what's built, why, how it works | **Read this first** |
+| **[SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md)** | **How RAG+LLM works** — ingestion → retrieval → synthesis (with diagrams) | **Understand the flow** |
 | **[README.md](README.md)** (this file) | Quick start commands only | Use for running the system |
 | **[RAG_STRATEGY.md](RAG_STRATEGY.md)** | Retrieval strategy details, tuning, enhancement roadmap | When optimizing RAG |
 | **[ORCHESTRATION.md](ORCHESTRATION.md)** | Runbooks, phase status, troubleshooting | When running or extending |
