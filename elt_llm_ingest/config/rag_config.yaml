@@ -10,7 +10,7 @@ chroma:
 ollama:
   base_url: "http://localhost:11434"
   embedding_model: "nomic-embed-text"  # keep this, it's good
-  llm_model: "qwen2.5:14b"       # ~9.0GB — best structured output quality; no thinking mode; strong at regulatory text
+  llm_model: "qwen3.5:9b"        # ~6.6GB — newer generation (2025); faster than 14B; /no_think suppresses thinking mode
   embed_batch_size: 1
   context_window: 16384         # 16K — safe on M3 18GB; allows 15 chunks of 512 tokens to LLM
   request_timeout: 300.0        # 5 minutes — sufficient with num_predict cap; was 600s but synthesis hit it
@@ -72,6 +72,7 @@ query:
   full_context_max_chunks: 20
 
   system_prompt: |
+    /no_think
     You are a helpful assistant that answers questions based on the provided documents.
     Always ground your answers in the retrieved content.
     When the documents clearly list items (such as chapters, steps, or roles), enumerate them explicitly.
