@@ -43,12 +43,14 @@ uv run python -m elt_llm_query.runner --cfg <profile> -q "..." -v
 
 | Profile | Collections |
 |---------|-------------|
-| `fa_enterprise_architecture` | All `fa_leanix_*` + `fa_handbook` + `fa_data_architecture` |
-| `fa_data_management` | All `fa_leanix_*` + `fa_handbook` + `fa_data_architecture` + `dama_dmbok` |
+| `fa_enterprise_architecture` | All `fa_leanix_*` + `fa_handbook` |
+| `fa_data_management` | All `fa_leanix_*` + `fa_handbook` + `dama_dmbok` |
 | `dama_fa_handbook` | `dama_dmbok` + `fa_handbook` |
 | `dama_only` | `dama_dmbok` |
 | `fa_handbook_only` | `fa_handbook` |
 | `all_collections` | All ingested collections |
+
+**Note**: `fa_data_architecture` collection was removed in 2026-03. Use `fa_data_management` for DAMA + FA Handbook queries.
 
 ---
 
@@ -80,10 +82,6 @@ uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
 # Gap analysis
 uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
   -q "Are there governance structures or roles described in the FA Handbook that don't appear as entities in the conceptual model?"
-
-# Data flows
-uv run python -m elt_llm_query.runner --cfg fa_enterprise_architecture \
-  -q "How does data flow from Workday to Purview?"
 ```
 
 ### FA Handbook Only (`fa_handbook_only`)

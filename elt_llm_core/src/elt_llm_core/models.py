@@ -30,6 +30,7 @@ class OllamaConfig:
     embed_batch_size: int = 10
     context_window: int = 4096
     request_timeout: float = 60.0
+    num_predict: int = -1  # -1 = unlimited; set to cap response tokens and avoid timeout
 
 
 def create_embedding_model(config: OllamaConfig) -> OllamaEmbedding:
@@ -69,11 +70,16 @@ def create_llm_model(config: OllamaConfig) -> Ollama:
         config.context_window,
     )
 
+    kwargs: dict = {}
+    if config.num_predict != -1:
+        kwargs["additional_kwargs"] = {"num_predict": config.num_predict}
+
     return Ollama(
         model=config.llm_model,
         base_url=config.base_url,
         request_timeout=config.request_timeout,
         context_window=config.context_window,
+        **kwargs,
     )
 
 

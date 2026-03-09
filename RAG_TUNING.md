@@ -33,6 +33,18 @@ getting the right chunks in front of the LLM, not about making the model bigger.
 
 All retrieval parameters live in [`elt_llm_ingest/config/rag_config.yaml`](elt_llm_ingest/config/rag_config.yaml).
 
+**Current values** (as of 2026-03):
+
+```yaml
+context_window:      16384   # M3 18GB safe limit
+reranker_retrieve_k: 24      # candidates fetched (BM25 + vector combined)
+reranker_top_k:      10      # chunks passed to LLM after reranking
+num_queries:         1       # disabled for batch consumer runs (set to 3 for interactive)
+chunk_size:          256     # prose chunks (in ingest_fa_handbook.yaml)
+chunk_overlap:       32      # 12.5% overlap prevents split-boundary loss
+table_chunk_size:    512     # max size for table rows
+```
+
 ---
 
 ## Tuning Levers
@@ -47,7 +59,7 @@ context_window: 16384  # current — safe on M3 18GB
 
 **Rule of thumb**: `context_window ≥ (reranker_top_k × chunk_size) + prompt_tokens + response_tokens`
 
-For 15 chunks × 512 tokens + ~1K prompt + ~1K response = ~9.5K → 16K is comfortable.
+For 10 chunks × 256 tokens + ~1K prompt + ~600 tokens response = ~4.2K → 16K is comfortable.
 
 ---
 
@@ -56,17 +68,19 @@ For 15 chunks × 512 tokens + ~1K prompt + ~1K response = ~9.5K → 16K is comfo
 Controls how large each indexed unit is.
 
 ```yaml
-chunk_size: 512   # current — keeps full FA Handbook rule paragraphs together
-chunk_overlap: 64 # 12% overlap prevents split-boundary loss
+chunk_size: 256   # current — prose chunks
+chunk_overlap: 32 # 12.5% overlap prevents split-boundary loss
 ```
 
 | Chunk size | Effect |
 |---|---|
-| Too small (128-256) | Definitions split across chunks; context lost |
-| **512 (current)** | Full rule paragraphs fit; good embedding specificity |
-| Too large (1024+) | Each chunk covers multiple topics; dilutes retrieval signal |
+| Too small (128) | Definitions split across chunks; context lost |
+| **256 (current)** | Good balance for FA Handbook prose |
+| Too large (512+) | Each chunk covers multiple topics; dilutes retrieval signal |
 
-**Do not increase chunk size to improve recall** — increase `reranker_top_k` instead.
+**Table rows**: Handled separately with `table_chunk_size: 512` — keeps definition table rows intact.
+
+**Do not increase chunk size to improve recall** — increase `reranker_retrieve_k` instead.
 Re-ingestion is required if chunk size changes.
 
 ---
@@ -74,15 +88,15 @@ Re-ingestion is required if chunk size changes.
 ### 3. Retrieval Breadth (`reranker_retrieve_k`, `reranker_top_k`)
 
 ```yaml
-reranker_retrieve_k: 30  # candidates fetched (BM25 + vector combined)
-reranker_top_k: 15       # chunks passed to LLM after reranking
+reranker_retrieve_k: 24  # candidates fetched (BM25 + vector combined)
+reranker_top_k:      10  # chunks passed to LLM after reranking
 ```
 
-The reranker sees 30 candidates and keeps the best 15 for the LLM.
+The reranker sees 24 candidates and keeps the best 10 for the LLM.
 
 | Parameter | Too low | Too high |
 |---|---|---|
-| `reranker_retrieve_k` | Misses relevant chunks ranked > N | Marginal cost; set to 30-40 |
+| `reranker_retrieve_k` | Misses relevant chunks ranked > N | Marginal cost; set to 24-30 |
 | `reranker_top_k` | Misses specialisation chunks | Dilutes LLM context; wastes context window |
 
 ---
@@ -90,8 +104,10 @@ The reranker sees 30 candidates and keeps the best 15 for the LLM.
 ### 4. Multi-Query Expansion (`num_queries`)
 
 ```yaml
-num_queries: 3  # generates 2 additional query variants per entity
+num_queries: 1  # disabled for batch consumer runs
 ```
+
+**For interactive queries**, set to 3 to generate 2 additional query variants per entity.
 
 For entity `Player`, the LLM generates variants such as:
 - `"Contract Player registration FA Handbook"`
@@ -103,8 +119,8 @@ rather than under a single `Player` entry.
 
 | Value | Effect |
 |---|---|
-| 1 | Disabled — fastest, lowest recall for compound concepts |
-| **3 (current)** | 2 extra LLM calls per query — best balance for this use case |
+| **1 (current)** | Disabled — fastest, best for batch processing |
+| 3 | 2 extra LLM calls per query — best balance for interactive use |
 | 5 | Diminishing returns; adds latency |
 
 **Note**: Each extra query variant costs 1 LLM call. For a 28-entity domain run,
@@ -124,7 +140,7 @@ Effective when a concept appears repeatedly in adjacent handbook sections.
 
 | Value | Effect |
 |---|---|
-| 1.0 | Pure relevance — may return 15 near-identical chunks |
+| 1.0 | Pure relevance — may return 10 near-identical chunks |
 | **0.7 (current)** | Good balance for FA Handbook |
 | 0.0 | Maximum diversity — may include irrelevant chunks |
 
@@ -147,11 +163,12 @@ content is attended to less reliably. Leave enabled.
 ```yaml
 # rag_config.yaml (as of 2026-03)
 context_window:      16384   # M3 18GB safe limit
-reranker_retrieve_k: 30      # candidates before reranking
-reranker_top_k:      15      # chunks passed to LLM
-num_queries:         3       # query expansion for specialisation recall
-chunk_size:          512     # FA Handbook (in ingest_fa_handbook.yaml)
-chunk_overlap:       64
+reranker_retrieve_k: 24      # candidates before reranking
+reranker_top_k:      10      # chunks passed to LLM
+num_queries:         1       # disabled for batch runs (set to 3 for interactive)
+chunk_size:          256     # prose chunks (in ingest_fa_handbook.yaml)
+chunk_overlap:       32
+table_chunk_size:    512     # table rows
 ```
 
 ---

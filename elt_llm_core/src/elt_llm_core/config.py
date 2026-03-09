@@ -38,6 +38,8 @@ class OllamaConfig:
         embed_batch_size: Batch size for embeddings.
         context_window: Context window size for LLM.
         request_timeout: Request timeout in seconds.
+        num_predict: Max tokens to generate (-1 = unlimited). Set to cap response length
+                     and avoid timeout on slow models (e.g. 600 for phi4:14b synthesis).
     """
 
     base_url: str = "http://localhost:11434"
@@ -46,6 +48,7 @@ class OllamaConfig:
     embed_batch_size: int = 10
     context_window: int = 4096
     request_timeout: float = 60.0
+    num_predict: int = -1
 
 
 @dataclass
@@ -141,6 +144,7 @@ class RagConfig:
                 embed_batch_size=ollama_data.get("embed_batch_size", 10),
                 context_window=ollama_data.get("context_window", 4096),
                 request_timeout=ollama_data.get("request_timeout", 60.0),
+                num_predict=ollama_data.get("num_predict", -1),
             ),
             chunking=ChunkingConfig(
                 strategy=chunking_data.get("strategy", "sentence"),

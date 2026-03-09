@@ -10,10 +10,12 @@ chroma:
 ollama:
   base_url: "http://localhost:11434"
   embedding_model: "nomic-embed-text"  # keep this, it's good
-  llm_model: "phi4:14b"          # ~9.1GB — optimised for instruction following; reliable structured output
+  llm_model: "qwen2.5:14b"       # ~9.0GB — best structured output quality; no thinking mode; strong at regulatory text
   embed_batch_size: 1
   context_window: 16384         # 16K — safe on M3 18GB; allows 15 chunks of 512 tokens to LLM
-  request_timeout: 600.0        # 10 minutes for complex multi-collection queries
+  request_timeout: 300.0        # 5 minutes — sufficient with num_predict cap; was 600s but synthesis hit it
+  num_predict: 600              # Cap synthesis response to ~600 tokens (~120s on 14B models at 5 tok/s)
+                                # Avoids ReadTimeout on long LLM responses. -1 = unlimited.
 
 # Chunking settings: Table-aware strategy preserves FA Handbook definition tables
 # Rules §8 (pp.86-95) contains a two-column definitions table where each row
@@ -63,10 +65,9 @@ query:
   use_lost_in_middle: true
 
   # Full-context threshold: collections with ≤ this many chunks are passed in full
-  # to the LLM (no retrieval). Lowered from 80 → 20 for phi4:14b:
-  # - 80 chunks × ~130 tokens = ~10K tokens/call → iterative polish pass compounds to
-  #   5 × 10K = 50K of previous responses → single call easily exceeds 600s timeout
-  # - 20 chunks × ~130 tokens = ~2.6K tokens/call → fast, well within timeout
+  # to the LLM (no retrieval). Lowered from 80 → 20 for 14B models on M3 18GB:
+  # - 80 chunks × ~130 tokens = ~10K tokens/call → single synthesis call can exceed timeout
+  # - 20 chunks × ~130 tokens = ~2.6K tokens/call → fast, well within 300s timeout
   # - Sections >20 chunks fall through to retrieval path (reranker_top_k: 10 chunks)
   full_context_max_chunks: 20
 
