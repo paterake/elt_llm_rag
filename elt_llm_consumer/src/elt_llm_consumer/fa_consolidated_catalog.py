@@ -60,9 +60,6 @@ from pathlib import Path
 
 import yaml
 
-# Suppress noisy LlamaIndex INFO logs (docstore loading, kvstore messages)
-logging.getLogger("llama_index").setLevel(logging.WARNING)
-
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
 from elt_llm_query.query import discover_relevant_sections, expand_entity_aliases, query_collections
