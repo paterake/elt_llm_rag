@@ -141,6 +141,8 @@ class ReActAgent:
         # Execute reasoning loop
         iteration = 0
         observations = []
+        last_tool = None
+        consecutive_same_tool = 0
 
         while iteration < self.config.max_iterations:
             iteration += 1
@@ -156,6 +158,17 @@ class ReActAgent:
             if action["tool_name"] is None:
                 logger.info("Agent: Sufficient information gathered")
                 break
+
+            # Detect infinite loop: same tool called 3 times in a row
+            if action["tool_name"] == last_tool:
+                consecutive_same_tool += 1
+                if consecutive_same_tool >= 2:
+                    logger.warning("Agent: Detected loop (%d consecutive %s calls) - forcing synthesis", 
+                                   consecutive_same_tool, action["tool_name"])
+                    break
+            else:
+                consecutive_same_tool = 0
+                last_tool = action["tool_name"]
 
             # Execute tool call
             tool_name = action["tool_name"]
@@ -183,9 +196,21 @@ class ReActAgent:
                     "result_length": len(result) if isinstance(result, str) else 0,
                 })
 
+                # Check if tool returned an error or no data
+                if "Error:" in result or "No JSON sidecars found" in result or "not found" in result.lower():
+                    logger.warning("Tool returned error/no data: %s", tool_name)
+                    observations.append({
+                        "tool": tool_name,
+                        "observation": result[:300],
+                        "status": "error",
+                    })
+                    # Don't retry failed tools - move to next
+                    continue
+
                 observations.append({
                     "tool": tool_name,
                     "observation": result[:500] if isinstance(result, str) else result,
+                    "status": "success",
                 })
 
                 self.workspace_memory.set(f"last_{tool_name}_result", result)
@@ -204,6 +229,7 @@ class ReActAgent:
                 observations.append({
                     "tool": tool_name,
                     "observation": f"Error: {e}",
+                    "status": "error",
                 })
 
         # Synthesize final answer

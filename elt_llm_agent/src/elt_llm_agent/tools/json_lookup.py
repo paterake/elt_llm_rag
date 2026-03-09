@@ -16,16 +16,16 @@ DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / ".tmp"
 
 
 def _load_json_sidecars() -> dict[str, dict[str, Any]]:
-    """Load all JSON sidecars from .tmp directory.
+    """Load all JSON sidecars from .tmp directory and consumer outputs.
 
     Returns:
         Dict mapping entity type to dict of entities keyed by fact_sheet_id
     """
     sidecars = {}
 
-    # Look for _model.json and _inventory.json files
+    # Default output directory from elt_llm_consumer
     search_dirs = [
-        DEFAULT_OUTPUT_DIR,
+        Path(__file__).parent.parent.parent.parent.parent / ".tmp",  # Project root .tmp
         Path.cwd() / ".tmp",
     ]
 
@@ -33,6 +33,7 @@ def _load_json_sidecars() -> dict[str, dict[str, Any]]:
         if not search_dir.exists():
             continue
 
+        # Look for LeanIX _model.json files (from ingestion)
         for json_file in search_dir.glob("*_model.json"):
             try:
                 with open(json_file, "r") as f:
@@ -56,6 +57,7 @@ def _load_json_sidecars() -> dict[str, dict[str, Any]]:
             except (json.JSONDecodeError, IOError) as e:
                 logger.warning("Failed to load %s: %s", json_file.name, e)
 
+        # Look for LeanIX _inventory.json files (from ingestion)
         for json_file in search_dir.glob("*_inventory.json"):
             try:
                 with open(json_file, "r") as f:
@@ -68,6 +70,40 @@ def _load_json_sidecars() -> dict[str, dict[str, Any]]:
 
             except (json.JSONDecodeError, IOError) as e:
                 logger.warning("Failed to load %s: %s", json_file.name, e)
+
+        # Fallback: Load consumer consolidated catalog (contains entity data)
+        catalog_file = search_dir / "fa_consolidated_catalog_party.json"
+        if catalog_file.exists():
+            try:
+                with open(catalog_file, "r") as f:
+                    catalog = json.load(f)
+
+                # Extract entities from nested domain structure
+                # Structure: {DOMAIN: {subtypes: {SUBTYPE: {entities: [...]}}}}
+                for domain_name, domain_data in catalog.items():
+                    if not isinstance(domain_data, dict):
+                        continue  # Skip non-domain keys
+                    
+                    # Get entities from subtypes
+                    subtypes = domain_data.get("subtypes", {})
+                    for subtype_name, subtype_data in subtypes.items():
+                        entities = subtype_data.get("entities", [])
+                        for entity in entities:
+                            entity_name = entity.get("entity_name", "")
+                            if entity_name:
+                                # Store under consumer_{domain}_{subtype} for organized access
+                                key = f"consumer_{domain_name.lower()}_{subtype_name.lower().replace(' ', '_')}"
+                                if key not in sidecars:
+                                    sidecars[key] = {}
+                                sidecars[key][entity_name] = entity
+                                
+                                # Also store under just entity name for easy lookup
+                                sidecars.setdefault("consumer_all", {})[entity_name] = entity
+
+                logger.debug("Loaded consumer catalog into sidecars: %d keys", len(sidecars))
+
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning("Failed to load consumer catalog: %s", e)
 
     return sidecars
 
@@ -134,12 +170,15 @@ def json_lookup_tool(
                         search_data.update(data)
                     elif isinstance(data, list):
                         search_data.update({item.get("fact_sheet_id", str(i)): item for i, item in enumerate(data)})
+        elif entity_type.startswith("consumer"):
+            # Consumer catalog lookup
+            search_data = sidecars.get(entity_type, {})
         else:
             # Specific domain
             search_data = sidecars.get(entity_type.lower(), {})
 
         if not search_data:
-            return f"No data found for entity_type='{entity_type}'. Available: {list(sidecars.keys())}"
+            return f"No data found for entity_type='{entity_type}'. Available: {list(sidecars.keys())[:15]}"
 
         # Lookup by ID
         if entity_id:
@@ -152,7 +191,8 @@ def json_lookup_tool(
         if entity_name:
             matches = []
             for item in search_data.values():
-                name = item.get("name", "")
+                # Check both "name" (LeanIX) and "entity_name" (consumer catalog)
+                name = item.get("name", "") or item.get("entity_name", "")
                 if entity_name.lower() in name.lower():
                     matches.append(item)
             if matches:

@@ -45,34 +45,44 @@ def rag_query_tool(collection: str, query: str) -> str:
         ... )
     """
     try:
-        from elt_llm_query.query import QueryProfile, query_with_profile
+        from elt_llm_query.query import query_collections
 
-        # Map collection to profile
-        profile_map = {
-            "fa_handbook": "fa_handbook_only",
-            "fa_leanix_dat_enterprise_conceptual_model": "fa_enterprise_architecture",
-            "fa_leanix_global_inventory": "fa_enterprise_architecture",
-            "dama_dmbok": "dama_only",
-            "all": "all_collections",
+        # Map collection to collection prefix
+        collection_map = {
+            "fa_handbook": ["fa_handbook"],
+            "fa_leanix_dat_enterprise_conceptual_model": ["fa_leanix_dat_enterprise_conceptual_model"],
+            "fa_leanix_global_inventory": ["fa_leanix_global_inventory"],
+            "dama_dmbok": ["dama_dmbok"],
+            "all": None,  # Will query all available
         }
 
-        profile_name = profile_map.get(collection, "all_collections")
+        collections = collection_map.get(collection, ["fa_handbook"])
 
         logger.info(
-            "RAG query: collection=%s, profile=%s, query=%s",
+            "RAG query: collection=%s, query=%s",
             collection,
-            profile_name,
             query[:100],
         )
 
-        result = query_with_profile(profile_name, query)
+        # Import config to get RAG config - use absolute path from project root
+        from elt_llm_core.config import load_config
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent.parent.parent  # Goes to elt_llm_rag/
+        rag_config = load_config(project_root / "elt_llm_ingest" / "config" / "rag_config.yaml")
+
+        result = query_collections(
+            collection_names=collections if collections else ["fa_handbook"],
+            query=query,
+            rag_config=rag_config,
+            iterative=False,
+        )
 
         # Format with sources if available
         output = [result.response]
-        if result.source_nodes:
+        if hasattr(result, 'source_nodes') and result.source_nodes:
             output.append("\n\n--- Sources ---")
             for i, source in enumerate(result.source_nodes[:5], 1):
-                collection_name = source.get("metadata", {}).get("collection", "unknown")
+                collection_name = source.node.metadata.get("collection", "unknown") if hasattr(source, 'node') else "unknown"
                 output.append(f"[{i}] ({collection_name})")
 
         return "\n".join(output)

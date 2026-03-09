@@ -32,6 +32,7 @@
 - [7. Consumer Layer](#7-consumer-layer)
   - [7.1 Primary Consumer: Consolidated Catalog](#71-primary-consumer-consolidated-catalog)
   - [7.2 Supporting Consumers](#72-supporting-consumers)
+- [7.3 Agent Layer: Agentic RAG](#73-agent-layer-agentic-rag)
 - [8. Technology Stack](#8-technology-stack)
 - [9. Performance Characteristics](#9-performance-characteristics)
 - [10. Module Reference](#10-module-reference)
@@ -815,6 +816,85 @@ See [elt_llm_consumer/ARCHITECTURE.md](elt_llm_consumer/ARCHITECTURE.md) for the
 
 ---
 
+### 7.3 Agent Layer: Agentic RAG
+
+**Module**: `elt_llm_agent`  
+**Purpose**: Interactive, multi-step reasoning across data sources  
+**Start here**: [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture
+
+**What is Agentic RAG?**
+
+Agentic RAG adds an **orchestration layer** on top of existing RAG infrastructure. Instead of single-shot retrieval (one query → one collection → one answer), the agent:
+1. Receives natural language questions (no collection name needed)
+2. Plans multi-step reasoning loops (which tools to call, in what order)
+3. Executes tools (JSON lookup, graph traversal, RAG queries)
+4. Synthesizes final answer from multiple sources with citations
+
+**ReAct Pattern** (Reason + Act):
+```
+Query → Plan → [Tool: JSON Lookup] → [Tool: Graph Traversal] → [Tool: RAG Query]
+   → Reason → Observe → Repeat → Synthesize → Answer
+```
+
+**Key Tools**:
+| Tool | Purpose | Uses |
+|------|---------|------|
+| `rag_query_tool` | Query RAG collections | `elt_llm_query` |
+| `json_lookup_tool` | Direct JSON sidecar access | `.tmp/*_model.json`, `*_inventory.json` |
+| `graph_traversal_tool` | Relationship traversal | NetworkX (in-memory graph) |
+
+**When to Use Agent vs Consumer**:
+
+| Goal | Use Agent | Use Consumer |
+|------|-----------|--------------|
+| **Structured JSON output** | ❌ No | ✅ Yes |
+| **Complete entity coverage** | ❌ No (query-driven) | ✅ Yes (all 175 entities) |
+| **Interactive Q&A** | ✅ Yes (chat-style) | ❌ No (batch only) |
+| **Fast response (<30s)** | ❌ No (10–30s) | ❌ No (45–60 min) |
+| **Follow-up questions** | ✅ Yes (conversation memory) | ❌ No (stateless) |
+| **Graph traversal** | ✅ Yes (NetworkX) | ❌ No (direct lookup) |
+| **Downstream import** | ❌ No (prose output) | ✅ Yes (schema-enforced JSON) |
+
+**Example Commands**:
+```bash
+# Interactive chat
+uv run python -m elt_llm_agent.chat
+
+# Single query
+uv run python -m elt_llm_agent.query \
+  -q "What data objects flow through the Player Registration interface?"
+
+# Batch queries
+uv run python -m elt_llm_agent.query --file queries.json --output results.json
+```
+
+**Example Query Flow**:
+```
+Query: "What data objects flow through the Player Registration interface?"
+
+Step 1: json_lookup_tool(entity_type="interface", entity_name="Player Registration")
+  → Returns: {fact_sheet_id: "INT-456", name: "Player Registration System", ...}
+
+Step 2: graph_traversal_tool(entity_name="INT-456", operation="neighbors")
+  → Returns: {neighbors: ["Player", "Registration", "County FA"]}
+
+Step 3: rag_query_tool(collection="fa_handbook", query="governance for Player data")
+  → Returns: "FA Handbook Section C, Rule 8: Player data must..."
+
+Step 4: Synthesize final answer with citations
+```
+
+**Runtime**: 10–30s per query (3–5 tool calls typical)
+
+**Open-Source Compliance**: All components are open-source:
+- LlamaIndex (MIT) — Agent framework
+- NetworkX (BSD) — Graph traversal (no Neo4j required)
+- ChromaDB (Apache 2.0) — Vector store (via `elt_llm_query`)
+
+See [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture, or [AGENT_VS_CONSUMER.md](AGENT_VS_CONSUMER.md) for detailed comparison with `elt_llm_consumer`.
+
+---
+
 ## 8. Technology Stack
 
 | Component | Technology | Configuration |
@@ -902,10 +982,18 @@ elt_llm_rag/
 ├── elt_llm_api/            # Gradio GUI + API
 │   └── app.py              # Gradio web application
 │
-└── elt_llm_consumer/       # Output generators
-    ├── fa_consolidated_catalog.py  # Target output (primary)
-    ├── fa_handbook_model_builder.py
-    └── fa_coverage_validator.py
+├── elt_llm_consumer/       # Output generators
+│   ├── fa_consolidated_catalog.py  # Target output (primary)
+│   ├── fa_handbook_model_builder.py
+│   └── fa_coverage_validator.py
+│
+└── elt_llm_agent/          # Agentic RAG orchestration
+    ├── agent.py            # ReActAgent orchestrator
+    ├── chat.py             # Interactive chat CLI
+    ├── runner.py           # Batch query runner
+    ├── tools/              # Tool wrappers (RAG, JSON, Graph)
+    ├── planners/           # ReAct + Plan-and-Execute
+    └── memory/             # Conversation + Workspace memory
 ```
 
 ### Module Documentation
@@ -917,6 +1005,7 @@ elt_llm_rag/
 | `elt_llm_query/` | Query interface | [README](elt_llm_query/README.md) |
 | `elt_llm_api/` | Gradio GUI + API | [README](elt_llm_api/README.md) |
 | `elt_llm_consumer/` | Purpose-built output generators | [README](elt_llm_consumer/README.md), [ARCHITECTURE](elt_llm_consumer/ARCHITECTURE.md) |
+| `elt_llm_agent/` 🆕 | Agentic RAG orchestration | [README](elt_llm_agent/README.md), [ARCHITECTURE](elt_llm_agent/ARCHITECTURE.md) |
 
 ---
 

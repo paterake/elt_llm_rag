@@ -60,6 +60,12 @@ from pathlib import Path
 
 import yaml
 
+# Suppress llama_index INFO flood (docstore loading) before project imports
+# trigger llama_index initialisation. basicConfig in main() is too late —
+# llama_index may add a root handler during import, making basicConfig a no-op.
+logging.getLogger("llama_index").setLevel(logging.WARNING)
+logging.getLogger("llama_index").propagate = False
+
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
 from elt_llm_query.query import discover_relevant_sections, expand_entity_aliases, query_collections
@@ -176,6 +182,38 @@ _DOMAIN_INFERENCE_PROMPT    = _load_prompt("domain_inference.yaml")
 # S07 = Articles of Association (127 def hits), S27 = Standardised Rules (104 def hits).
 # These are the two "X means Y" definition tables in the FA Handbook.
 _DEFINITION_SECTIONS: list[str] = ["fa_handbook_s07", "fa_handbook_s27"]
+
+# ---------------------------------------------------------------------------
+# Quality filters — used in consolidate_catalog (source promotion) and metrics
+# ---------------------------------------------------------------------------
+
+
+def _has_real_definition(e: dict) -> bool:
+    """Return True if the entity has substantive FA Handbook definition content."""
+    v = e.get("formal_definition", "").strip()
+    if not v or v.startswith("[Error:"):
+        return False
+    vl = v.lower()
+    _pure_negative = (
+        "the provided context does not contain",
+        "the provided handbook documents do not contain",
+        "the provided text does not",
+        "not defined or referenced",
+    )
+    if any(vl.startswith(p) for p in _pure_negative):
+        return False
+    _positive = ("is defined as", "are defined as", "means ", "is described as", "is referenced", "is described")
+    if any(p in vl for p in _positive):
+        return True
+    return len(v) > 300
+
+
+def _has_real_governance(e: dict) -> bool:
+    """Return True if the entity has substantive FA Handbook governance content."""
+    v = e.get("governance_rules", "").strip().lstrip("*").strip()
+    _negative = ("not documented", "no specific", "no documented", "no governance", "outside governance scope")
+    return bool(v) and not any(v.lower().startswith(n) for n in _negative)
+
 
 # ---------------------------------------------------------------------------
 # Definition extraction from docstore (Docling output)
@@ -688,7 +726,7 @@ def consolidate_catalog(
 
         seen_names.add(name_norm)
 
-        # Determine source classification using reverse mapping
+        # Determine source classification using reverse mapping (Step 4)
         term_match = entity_to_mapping.get(name_norm)
         if term_match:
             source = "BOTH"
@@ -705,6 +743,16 @@ def consolidate_catalog(
 
         # Get handbook context
         hb_context = handbook_context.get(name_norm, {})
+
+        # Promote LEANIX_ONLY → BOTH if Step 5 RAG found real handbook content.
+        # Step 4 name-matching only catches exact/alias matches; RAG may find content
+        # for entities whose handbook name differs (e.g. "Club" → "Full Member Club").
+        if source == "LEANIX_ONLY" and (_has_real_definition(hb_context) or _has_real_governance(hb_context)):
+            source = "BOTH"
+            mapped = {
+                "mapping_confidence": "medium",
+                "mapping_rationale": "Handbook content found via RAG — entity referenced but not exact-matched in Step 4",
+            }
 
         # Get relationships
         entity_rels = relationships.get(name_norm, [])
@@ -1201,37 +1249,6 @@ def generate_consolidated_catalog(
     print("\n=== Summary by Review Status ===")
     for status, count in sorted(status_counts.items()):
         print(f"  {status}: {count}")
-
-    # Quality metrics — count only real data, not error placeholders or hedged fallbacks.
-    # Strategy: check opening 200 chars for pure-negative responses; also require either
-    # "defined as" / "means" anywhere (positive signal) OR substantive length (>300 chars)
-    # to count responses that hedge but still deliver content ("X is not directly defined,
-    # however Y is defined as...").
-    def _has_real_definition(e: dict) -> bool:
-        v = e.get("formal_definition", "").strip()
-        if not v or v.startswith("[Error:"):
-            return False
-        vl = v.lower()
-        # Pure-negative opening: nothing useful follows
-        _pure_negative = (
-            "the provided context does not contain",
-            "the provided handbook documents do not contain",
-            "the provided text does not",
-            "not defined or referenced",
-        )
-        if any(vl.startswith(p) for p in _pure_negative):
-            return False
-        # Positive signal: contains an actual definition
-        _positive = ("is defined as", "are defined as", "means ", "is described as", "is referenced", "is described")
-        if any(p in vl for p in _positive):
-            return True
-        # Substantive length with handbook content (partial/indirect definitions)
-        return len(v) > 300
-
-    def _has_real_governance(e: dict) -> bool:
-        v = e.get("governance_rules", "").strip().lstrip("*").strip()
-        _negative = ("not documented", "no specific", "no documented", "no governance", "outside governance scope")
-        return bool(v) and not any(v.lower().startswith(n) for n in _negative)
 
     print("\n=== Quality Metrics ===")
     with_definitions = sum(1 for e in consolidated_entities if _has_real_definition(e))

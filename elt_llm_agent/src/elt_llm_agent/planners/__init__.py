@@ -116,46 +116,78 @@ class ReActPlanner:
         Returns:
             Action dict with tool_name, tool_input, and reasoning
         """
-        # Simple heuristic: if no tool calls yet, start with json_lookup for entity identification
-        if not history:
+        # Check if any tool calls resulted in errors
+        has_errors = any(h.get("status") == "error" for h in history)
+        has_json_error = any(
+            h.get("tool") == "json_lookup" and h.get("status") == "error"
+            for h in history
+        )
+        
+        # Check what information we have
+        has_entity_data = any(
+            h.get("tool") == "json_lookup" and h.get("status") == "success"
+            for h in history
+        )
+        has_rag_data = any(
+            h.get("tool") == "rag_query" and h.get("status") == "success"
+            for h in history
+        )
+        has_relationships = any("relationship" in str(h.get("observation", "")).lower() for h in history)
+
+        # If JSON lookup failed, switch to RAG-only strategy
+        if has_json_error and not has_rag_data:
             return {
-                "tool_name": "json_lookup",
-                "tool_input": {"entity_type": "model", "filter_field": "name"},
-                "reasoning": "First, identify entities in the conceptual model",
+                "tool_name": "rag_query",
+                "tool_input": {"collection": "fa_handbook", "query": query},
+                "reasoning": "JSON lookup unavailable - using RAG to query FA Handbook directly",
             }
 
-        # Check if we have enough information to synthesize
-        has_entity_data = any("entity" in str(h.get("observation", "")) for h in history)
-        has_relationships = any("relationship" in str(h.get("observation", "")) for h in history)
-        has_governance = any("governance" in str(h.get("observation", "")) for h in history)
+        # First call - start with RAG (more reliable than JSON lookup which may not exist)
+        if not history:
+            return {
+                "tool_name": "rag_query",
+                "tool_input": {"collection": "fa_handbook", "query": query},
+                "reasoning": "Starting with FA Handbook RAG query",
+            }
 
-        # Determine what's missing
-        if not has_entity_data:
+        # If we have RAG data but no entity context, try JSON lookup
+        if has_rag_data and not has_entity_data and not has_json_error:
             return {
                 "tool_name": "json_lookup",
                 "tool_input": {"entity_type": "model"},
                 "reasoning": "Need entity data from conceptual model",
             }
 
-        if "relationship" in query.lower() and not has_relationships:
+        # Check if query is about relationships
+        if "relationship" in query.lower() or "connected" in query.lower() or "flow" in query.lower():
+            if not has_relationships and not has_json_error:
+                return {
+                    "tool_name": "graph_traversal",
+                    "tool_input": {"entity_name": "extracted_entity", "max_depth": 2},
+                    "reasoning": "Need relationship information from graph traversal",
+                }
+
+        # If we have RAG data, synthesize
+        if has_rag_data:
             return {
-                "tool_name": "graph_traversal",
-                "tool_input": {"entity_name": "extracted_entity", "max_depth": 2},
-                "reasoning": "Need relationship information from graph traversal",
+                "tool_name": None,
+                "tool_input": {},
+                "reasoning": "Sufficient information gathered - ready to synthesize final answer",
             }
 
-        if not has_governance:
+        # Default: try RAG query
+        if not has_rag_data:
             return {
                 "tool_name": "rag_query",
                 "tool_input": {"collection": "fa_handbook", "query": query},
-                "reasoning": "Need governance context from FA Handbook",
+                "reasoning": "Querying FA Handbook for context",
             }
 
-        # All information gathered — ready to synthesize
+        # All information gathered - ready to synthesize
         return {
             "tool_name": None,
             "tool_input": {},
-            "reasoning": "Sufficient information gathered — ready to synthesize final answer",
+            "reasoning": "Sufficient information gathered - ready to synthesize final answer",
         }
 
 
