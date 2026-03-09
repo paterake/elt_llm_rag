@@ -31,6 +31,7 @@ class OllamaConfig:
     context_window: int = 4096
     request_timeout: float = 60.0
     num_predict: int = -1  # -1 = unlimited; set to cap response tokens and avoid timeout
+    thinking: bool = False  # disable thinking mode (Qwen3 and similar models)
 
 
 def create_embedding_model(config: OllamaConfig) -> OllamaEmbedding:
@@ -79,6 +80,7 @@ def create_llm_model(config: OllamaConfig) -> Ollama:
         base_url=config.base_url,
         request_timeout=config.request_timeout,
         context_window=config.context_window,
+        thinking=config.thinking,
         **kwargs,
     )
 

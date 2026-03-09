@@ -49,6 +49,7 @@ class OllamaConfig:
     context_window: int = 4096
     request_timeout: float = 60.0
     num_predict: int = -1
+    thinking: bool = False
 
 
 @dataclass
@@ -145,6 +146,7 @@ class RagConfig:
                 context_window=ollama_data.get("context_window", 4096),
                 request_timeout=ollama_data.get("request_timeout", 60.0),
                 num_predict=ollama_data.get("num_predict", -1),
+                thinking=ollama_data.get("thinking", False),
             ),
             chunking=ChunkingConfig(
                 strategy=chunking_data.get("strategy", "sentence"),
