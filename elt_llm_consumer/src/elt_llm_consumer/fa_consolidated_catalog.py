@@ -1160,9 +1160,30 @@ def generate_consolidated_catalog(
         print(f"  {status}: {count}")
 
     # Quality metrics — count only real data, not error placeholders or hedged fallbacks.
+    # Strategy: check opening 200 chars for pure-negative responses; also require either
+    # "defined as" / "means" anywhere (positive signal) OR substantive length (>300 chars)
+    # to count responses that hedge but still deliver content ("X is not directly defined,
+    # however Y is defined as...").
     def _has_real_definition(e: dict) -> bool:
-        v = e.get("formal_definition", "")
-        return bool(v) and not v.startswith("[Error:")
+        v = e.get("formal_definition", "").strip()
+        if not v or v.startswith("[Error:"):
+            return False
+        vl = v.lower()
+        # Pure-negative opening: nothing useful follows
+        _pure_negative = (
+            "the provided context does not contain",
+            "the provided handbook documents do not contain",
+            "the provided text does not",
+            "not defined or referenced",
+        )
+        if any(vl.startswith(p) for p in _pure_negative):
+            return False
+        # Positive signal: contains an actual definition
+        _positive = ("is defined as", "are defined as", "means ", "is described as")
+        if any(p in vl for p in _positive):
+            return True
+        # Substantive length with handbook content (partial/indirect definitions)
+        return len(v) > 300
 
     def _has_real_governance(e: dict) -> bool:
         v = e.get("governance_rules", "").strip().lstrip("*").strip()
