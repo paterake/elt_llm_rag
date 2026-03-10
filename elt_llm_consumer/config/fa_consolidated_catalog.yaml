@@ -66,4 +66,5 @@ no_handbook_coverage:
 # ---------------------------------------------------------------------------
 forced_handbook_entities:
   - Sports Governing Body
+  - FA County
 
