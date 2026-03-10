@@ -295,7 +295,7 @@ def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
             for m in pat.finditer(text):
                 # Normalise term and definition: collapse <br> tags and whitespace
                 raw_term = re.sub(r"<br\s*/?>", " ", m.group(1))
-                term = " ".join(raw_term.split())
+                term = " ".join(raw_term.split()).strip("\"'\u2018\u2019\u201c\u201d*")
                 raw_defn = re.sub(r"<br\s*/?>", " ", m.group(2))
                 defn = " ".join(raw_defn.split()).rstrip(";").rstrip(".")
                 if len(defn) < 10 or len(defn) > 1500:
