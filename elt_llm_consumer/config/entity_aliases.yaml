@@ -68,7 +68,7 @@ event attendee:    ["attendee", "spectator", "audience", "guest"]
 
 # Other PARTY / Individual
 mentor:     ["advisor", "guide", "tutor"]
-candidates: ["applicant", "nominee", "candidate"]
+candidates: ["applicant", "candidate", "prospective officer", "applicant officer"]
 customer:   ["client", "consumer", "purchaser", "buyer"]
 prospect:   ["potential customer", "lead", "prospective member"]
 
@@ -101,7 +101,7 @@ affiliated association: ["sports governing body", "national association",
 
 school:          ["educational institution", "academy", "college", "university",
                   "secondary school", "primary school"]
-local authority: ["council", "local council", "municipality", "local government"]
+local authority: ["local council", "municipality", "local government", "ground authority"]
 government:      ["government body", "public authority", "state",
                   "government department", "ministry"]
 charity:         ["charitable organisation", "non-profit", "voluntary organisation",

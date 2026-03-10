@@ -290,7 +290,15 @@ def extract_handbook_terms_from_docstore(rag_config: RagConfig) -> list[dict]:
     seen: set[str] = set()
 
     for node in nodes:
-        text = getattr(node, "text", "") or ""
+        raw_text = getattr(node, "text", "") or ""
+        # Normalise smart quotes → ASCII so _DEF_PAT can match 'Term' means ... patterns
+        text = (
+            raw_text
+            .replace("\u2018", "'")
+            .replace("\u2019", "'")
+            .replace("\u201c", '"')
+            .replace("\u201d", '"')
+        )
         for pat in (_DEF_PAT, _TABLE_DEF_PAT):
             for m in pat.finditer(text):
                 # Normalise term and definition: collapse <br> tags and whitespace
@@ -467,9 +475,15 @@ def get_handbook_context_for_entity(
     except Exception as e:
         sections["formal_definition"] = f"[Error: {e}]"
 
-    # Override with exact handbook term if Step 3 found a direct match — highest confidence.
+    # Override with handbook term if Step 3 found a match — check direct name then YAML aliases.
     if term_definitions:
-        direct_def = term_definitions.get(entity_name.lower())
+        # Priority: exact entity name → direct YAML aliases → broader variants
+        lookup_keys = [entity_name.lower()]
+        lookup_keys.extend(_ENTITY_ALIASES.get(entity_name.lower(), []))
+        for v in _get_alias_variants(entity_name):
+            if v not in lookup_keys:
+                lookup_keys.append(v)
+        direct_def = next((term_definitions[k] for k in lookup_keys if k in term_definitions), None)
         if direct_def:
             sections["formal_definition"] = direct_def
 
@@ -651,7 +665,6 @@ def _get_alias_variants(term: str) -> list[str]:
             variants.update(aliases)
         elif base in aliases:
             variants.add(canonical)
-            variants.update(a for a in aliases if a != base)
     
     # Add common abbreviations
     if "association" in base:
@@ -987,7 +1000,7 @@ def generate_consolidated_catalog(
     inventory_json: Path,
     domain_filter: str | None = None,
     skip_handbook: bool = False,
-    entity_filter: str | None = None,
+    entity_filter: list[str] | None = None,
 ) -> None:
     """Generate consolidated catalog via RAG+LLM queries."""
 
@@ -1015,18 +1028,19 @@ def generate_consolidated_catalog(
         print(f"  After domain filter ({domain_filter}): {len(conceptual_entities)} entities")
 
     if entity_filter:
-        entity_filter_norm = _normalize(entity_filter)
+        filter_norms = {_normalize(f) for f in entity_filter}
         matched = [
             e for e in conceptual_entities
-            if _normalize(e["entity_name"]) == entity_filter_norm
+            if _normalize(e["entity_name"]) in filter_norms
         ]
-        if not matched:
-            print(f"\nERROR: Entity '{entity_filter}' not found.", file=sys.stderr)
+        not_found = filter_norms - {_normalize(e["entity_name"]) for e in matched}
+        if not_found:
+            print(f"\nERROR: Entity/entities not found: {', '.join(sorted(not_found))}", file=sys.stderr)
             avail = ", ".join(e["entity_name"] for e in conceptual_entities)
             print(f"  Available: {avail}", file=sys.stderr)
             sys.exit(1)
         conceptual_entities = matched
-        print(f"  Entity filter: '{entity_filter}' (1 entity)")
+        print(f"  Entity filter: {entity_filter} ({len(matched)} entities)")
 
     # Step 2: Inventory lookup by fact_sheet_id (direct JSON, no RAG)
     print("\n=== Step 2: Load Inventory Descriptions ===")
@@ -1331,10 +1345,11 @@ def main() -> None:
     parser.add_argument(
         "--entity", default=None, metavar="ENTITY",
         help=(
-            "Restrict to a single entity name for fast validation (e.g. 'Player'). "
-            "Requires --domain. Skips step 4 (141 LLM mapping calls) — "
+            "Restrict to one or more entity names (comma-separated, e.g. 'Player' or "
+            "'FA County,Competition League,Local Authority'). "
+            "Requires --domain. Skips step 4 term-mapping scan — "
             "formal_definition is populated via direct handbook term lookup only. "
-            "Useful for quickly validating RAG extraction and parsing for one entity."
+            "Useful for quickly validating RAG extraction for specific entities."
         ),
     )
     args = parser.parse_args()
@@ -1380,7 +1395,7 @@ def main() -> None:
         inventory_json=args.inventory_json.expanduser(),
         domain_filter=args.domain,
         skip_handbook=args.skip_handbook,
-        entity_filter=args.entity,
+        entity_filter=[e.strip() for e in args.entity.split(",")] if args.entity else None,
     )
 
     domain_suffix = f"_{args.domain.lower()}" if args.domain else ""
