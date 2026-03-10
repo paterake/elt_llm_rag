@@ -15,6 +15,12 @@ prompt: |
   For the FA entity '{entity_name}' in the {domain} domain, identify its governance rules
   and domain context from the FA Handbook.
 
+  Important: The FA Handbook uses multiple names for the same entities. When searching for
+  '{entity_name}', also treat the following as equivalent and extract content for them:
+  - "The Association" or "The FA" may refer to the national governing body
+  - "Affiliated Association" or "County FA" or "County Football Association" refers to FA County entities
+  - "The Association (or the Affiliated Association, where applicable)" applies to both The FA and FA Counties jointly
+
   Respond using this exact format:
 
   DOMAIN_CONTEXT:
@@ -23,6 +29,8 @@ prompt: |
 
   GOVERNANCE:
   [What specific FA Handbook rules, obligations, or regulatory requirements apply to '{entity_name}'?
+  Include content where '{entity_name}' is mentioned alongside other bodies (e.g. "The Association or
+  Affiliated Association") — these joint references still confer powers on '{entity_name}'.
   Also include any regulatory powers or enforcement authority that '{entity_name}' holds
   (e.g. power to impose fines, suspensions, sanctions, or issue rulings against clubs or participants).
   Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).

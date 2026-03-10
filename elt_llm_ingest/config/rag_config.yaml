@@ -12,10 +12,12 @@ ollama:
   embedding_model: "nomic-embed-text"  # keep this, it's good
   llm_model: "qwen3.5:9b"        # ~6.6GB — newer generation (2025); faster than 14B
   embed_batch_size: 1
-  context_window: 16384         # 16K — safe on M3 18GB; allows 15 chunks of 512 tokens to LLM
+  context_window: 32768         # 32K — qwen3.5:9b supports 256K natively; 32K is safe on M3 18GB
+                                # and allows ~100 chunks of 256 tokens + generous LLM output room
   request_timeout: 300.0        # 5 minutes — sufficient with num_predict cap; was 600s but synthesis hit it
-  num_predict: 1000             # Cap synthesis response to ~1000 tokens (~200s on 9B models at 5 tok/s)
-                                # Avoids ReadTimeout on long LLM responses. -1 = unlimited.
+  num_predict: 800              # Cap synthesis response to ~800 tokens (~160s on 9B models at 5 tok/s)
+                                # With 44-chunk input context (11K tokens), prefill is ~110s,
+                                # total per call ~270s — well within 300s request_timeout.
   thinking: false               # Disable thinking mode — prevents token budget consumed by <think> blocks
 
 # Chunking settings: Table-aware strategy preserves FA Handbook definition tables
@@ -48,8 +50,10 @@ query:
                             # contributes candidates before reranker scores. Critical when
                             # governance content (e.g. Respect/conduct sections) is sparse
                             # and may not win a pure vector-similarity race against 43 others.
-  reranker_top_k: 20        # Top 20 chunks to LLM: 20 × 256 avg tokens ≈ 5.1K, well within
-                            # 16K context window (leaving ~10K for system prompt + LLM output)
+  reranker_top_k: 44        # 1 per section × 44 sections: 44 × 256 avg tokens ≈ 11K to LLM.
+                            # Reranker still sees all 88 candidates (reranker_retrieve_k) and
+                            # scores them — top 44 by relevance go to LLM. Confirmed s40 Respect
+                            # Code ranks ~35-40, so 44 captures it while halving prefill vs 88.
 
   # Multi-query retrieval: generate num_queries-1 additional query variants via LLM.
   # Higher values improve recall for compound queries at the cost of extra LLM calls.
