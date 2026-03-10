@@ -44,9 +44,12 @@ query:
   use_reranker: true        # Re-score retrieved chunks before LLM synthesis
   reranker_strategy: "embedding"  # "embedding" (Ollama/local) | "cross-encoder" (sentence-transformers)
   reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"  # used only when strategy=cross-encoder
-  reranker_retrieve_k: 24   # Reduced from 30 (fetch fewer candidates)
-  reranker_top_k: 10        # Reduced from 15 to fit context window with larger chunks
-                            # 10 chunks × 768 = 7.7K, leaving ~8.6K for LLM output
+  reranker_retrieve_k: 88   # ~2 per section × 44 handbook sections — ensures every section
+                            # contributes candidates before reranker scores. Critical when
+                            # governance content (e.g. Respect/conduct sections) is sparse
+                            # and may not win a pure vector-similarity race against 43 others.
+  reranker_top_k: 20        # Top 20 chunks to LLM: 20 × 256 avg tokens ≈ 5.1K, well within
+                            # 16K context window (leaving ~10K for system prompt + LLM output)
 
   # Multi-query retrieval: generate num_queries-1 additional query variants via LLM.
   # Higher values improve recall for compound queries at the cost of extra LLM calls.

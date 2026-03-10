@@ -23,5 +23,7 @@ prompt: |
 
   GOVERNANCE:
   [What specific FA Handbook rules, obligations, or regulatory requirements apply to '{entity_name}'?
+  Also include any regulatory powers or enforcement authority that '{entity_name}' holds
+  (e.g. power to impose fines, suspensions, sanctions, or issue rulings against clubs or participants).
   Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).
   If no specific rules are documented, write: Not documented in FA Handbook — outside governance scope.]

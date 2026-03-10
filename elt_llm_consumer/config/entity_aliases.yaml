@@ -88,7 +88,8 @@ competition:           ["competition league", "league", "cup"]
 
 fa county:             ["county association", "county fa",
                         "county football association", "affiliated association",
-                        "county"]
+                        "county", "fa/county fa", "fine", "suspension",
+                        "respect", "code of conduct"]
 county association:    ["fa county", "county fa", "county football association"]
 
 sports governing body: ["national governing body", "governing body", "ngb",
