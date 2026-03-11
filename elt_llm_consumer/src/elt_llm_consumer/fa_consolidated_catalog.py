@@ -197,7 +197,6 @@ _HANDBOOK_CONTEXT_PROMPT         = _load_prompt("handbook_context.yaml")
 _HANDBOOK_CONTEXT_GOV_ONLY_PROMPT = _load_prompt("handbook_context.yaml", key="prompt_gov_only")
 _HANDBOOK_DEFINITION_PROMPT = _load_prompt("handbook_definition.yaml")   # retained for reference
 _HANDBOOK_GOVERNANCE_PROMPT = _load_prompt("handbook_governance.yaml")   # retained for reference
-_ENTITY_RELATIONSHIP_PROMPT = _load_prompt("entity_relationship.yaml")
 _DOMAIN_INFERENCE_PROMPT    = _load_prompt("domain_inference.yaml")
 
 # Authoritative definition sections — always queried for Pass 1 (formal definitions).
@@ -548,62 +547,6 @@ def get_handbook_context_for_entity(
 
 
 
-
-def extract_entity_relationships_from_handbook(
-    domain_relationships: dict[str, list[dict]],
-    conceptual_entities: list[dict],
-    handbook_collections: list[str],
-    rag_config: RagConfig,
-) -> list[dict]:
-    """Extract entity-to-entity relationships from FA Handbook via RAG.
-
-    One query per unique domain pair (bounded by ~17 domain relationships).
-    """
-    domain_entities: dict[str, list[str]] = {}
-    for e in conceptual_entities:
-        d = e.get("domain", "").upper()
-        domain_entities.setdefault(d, []).append(e["entity_name"])
-
-    entity_relationships: list[dict] = []
-    seen_pairs: set[tuple[str, str]] = set()
-
-    for source_domain_lower, rels in domain_relationships.items():
-        source_domain = source_domain_lower.upper()
-        source_entities = domain_entities.get(source_domain, [])
-        if not source_entities:
-            continue
-
-        for rel in rels:
-            target_domain = rel.get("target_entity", "").upper()
-            target_entities = domain_entities.get(target_domain, [])
-            if not target_entities:
-                continue
-
-            pair_key = tuple(sorted([source_domain, target_domain]))
-            if pair_key in seen_pairs:
-                continue
-            seen_pairs.add(pair_key)
-
-            query = _ENTITY_RELATIONSHIP_PROMPT.format(
-                source_domain=source_domain,
-                source_entities=", ".join(source_entities[:20]),
-                target_domain=target_domain,
-                target_entities=", ".join(target_entities[:20]),
-                domain_cardinality=rel.get("cardinality", "relates to"),
-            )
-
-            print(f"  Querying {source_domain} ↔ {target_domain}…", end="\r", flush=True)
-            try:
-                result = query_collections(handbook_collections, query, rag_config)
-                response = result.response.strip()
-                json_match = re.search(r'\[.*\]', response, re.DOTALL)
-                if json_match:
-                    records = json.loads(json_match.group())
-                    entity_relationships.extend(records)
-            except Exception as exc:
-                print(f"  [warn] {source_domain}↔{target_domain}: {exc}")
-
-    return entity_relationships
 
 
 def build_taxonomy_context(conceptual_entities: list[dict]) -> str:
@@ -1310,23 +1253,6 @@ def generate_consolidated_catalog(
         print("  Skipping relationship extraction (--skip-relationships)")
     else:
         relationships = load_relationships_from_json(model_json)
-
-    # Step 6b: Entity-to-entity relationships from Handbook
-    print("\n=== Step 6b: Extract Entity-to-Entity Relationships from Handbook ===")
-    entity_relationships: list[dict] = []
-    if not skip_relationships and relationships:
-        entity_relationships = extract_entity_relationships_from_handbook(
-            domain_relationships=relationships,
-            conceptual_entities=conceptual_entities,
-            handbook_collections=handbook_collections,
-            rag_config=rag_config,
-        )
-        entity_rel_path = output_dir / "fa_entity_relationships.json"
-        with open(entity_rel_path, "w", encoding="utf-8") as f:
-            json.dump(entity_relationships, f, indent=2, ensure_ascii=False)
-        print(f"  {len(entity_relationships)} entity relationships → {entity_rel_path}")
-    else:
-        print("  Skipping (--skip-relationships or no domain relationships found)")
 
     # Step 7: Consolidate
     print("\n=== Step 7: Consolidating ===")
