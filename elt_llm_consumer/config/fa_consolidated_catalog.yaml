@@ -29,11 +29,17 @@ entity_aliases_file: entity_aliases.yaml
 #                               sections, trigger an LLM alias-expansion call to generate
 #                               domain-aware synonyms and re-run BM25. Set to 0 to disable.
 #                               Recommended: 1 (fires only when BM25 finds nothing at all).
+# section_routing_top_n_governance: Cap on BM25 sections used for the governance pass
+#                               (Pass 2). null = no cap (all BM25 hits used). Separate from
+#                               section_routing_top_n which only caps the definition pass.
+#                               Keeping this uncapped (null) ensures broad-coverage entities
+#                               (e.g. Club, Player) use all BM25-routed sections for governance.
 # ---------------------------------------------------------------------------
 handbook_sections:
   section_prefix: "fa_handbook"
   section_routing_threshold: 0.0
   section_routing_top_n: 5
+  section_routing_top_n_governance: null
   section_bm25_top_k: 3
   section_routing_min_sections: 1
 
@@ -67,4 +73,19 @@ no_handbook_coverage:
 forced_handbook_entities:
   - Sports Governing Body
   - FA County
+  - Local Authority
+
+# ---------------------------------------------------------------------------
+# static_context
+#
+# Pre-populated field overrides for entities where RAG+LLM synthesis cannot
+# reliably produce correct content — typically entities that are *referenced*
+# in the handbook but not *governed* by it (e.g. external statutory bodies).
+#
+# Fields provided here override the corresponding RAG-synthesised values.
+# Omit a field to leave the RAG result untouched.
+#
+# Supported fields per entity: formal_definition, domain_context, governance_rules
+# ---------------------------------------------------------------------------
+static_context: {}
 

@@ -46,9 +46,9 @@ county administrator: ["county officer", "county official", "county secretary",
                        "county fa administrator", "county administrator"]
 
 # Board / Committee
-board & committee members: ["board member", "committee member", "director",
+board & committee members: ["board member", "committee member",
                              "management committee", "board", "committee",
-                             "directors", "trustees"]
+                             "trustees"]
 board:     ["board & committee members"]
 committee: ["board & committee members"]
 
@@ -88,8 +88,7 @@ competition:           ["competition league", "league", "cup"]
 
 fa county:             ["county association", "county fa",
                         "county football association", "affiliated association",
-                        "county", "fa/county fa", "fine", "suspension",
-                        "respect", "code of conduct"]
+                        "county fa association", "county football association"]
 county association:    ["fa county", "county fa", "county football association"]
 
 sports governing body: ["national governing body", "governing body", "ngb",
@@ -101,7 +100,7 @@ affiliated association: ["sports governing body", "national association",
 
 school:          ["educational institution", "academy", "college", "university",
                   "secondary school", "primary school"]
-local authority: ["local council", "municipality", "local government", "ground authority"]
+local authority: ["local council", "local government authority"]
 government:      ["government body", "public authority", "state",
                   "government department", "ministry"]
 charity:         ["charitable organisation", "non-profit", "voluntary organisation",

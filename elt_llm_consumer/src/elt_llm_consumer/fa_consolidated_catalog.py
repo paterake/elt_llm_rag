@@ -72,7 +72,7 @@ logging.getLogger("llama_index").propagate = False
 
 from elt_llm_core.config import RagConfig
 from elt_llm_core.vector_store import get_docstore_path
-from elt_llm_query.query import discover_relevant_sections, expand_entity_aliases, query_collections
+from elt_llm_query.query import discover_relevant_sections, expand_entity_aliases, find_sections_by_keyword, query_collections
 
 # ---------------------------------------------------------------------------
 # Prompt loader
@@ -121,6 +121,15 @@ _NO_HANDBOOK_COVERAGE: frozenset[str] = frozenset(_catalog_cfg["no_handbook_cove
 _FORCED_HANDBOOK_ENTITIES: frozenset[str] = frozenset(
     _catalog_cfg.get("forced_handbook_entities", [])
 )
+
+# Pre-populated field overrides for entities where RAG+LLM cannot reliably
+# synthesise correct content (e.g. external statutory bodies referenced but
+# not governed by the FA Handbook).  Keyed by normalised entity name.
+# Fields: formal_definition, domain_context, governance_rules.
+_STATIC_CONTEXT: dict[str, dict[str, str]] = {
+    _normalize(k): v
+    for k, v in (_catalog_cfg.get("static_context") or {}).items()
+}
 
 # Section-based retrieval — loaded from handbook_sections block in config
 _sections_cfg: dict = _catalog_cfg.get("handbook_sections", {})
@@ -419,6 +428,7 @@ def get_handbook_context_for_entity(
     term_definitions: dict[str, str] | None = None,
     leanix_description: str | None = None,
     bm25_sections: list[str] | None = None,
+    keyword_chunks: list[str] | None = None,
 ) -> dict:
     """Get FA Handbook context for an entity using a two-pass approach.
 
@@ -452,6 +462,19 @@ def get_handbook_context_for_entity(
     if leanix_description and leanix_description != "Not documented in LeanIX inventory":
         context_suffix = f"\n\nContext from data model: {leanix_description[:500]}"
 
+    # Keyword chunks: verbatim passages confirmed to mention the entity name.
+    # Injected directly into both LLM queries so they bypass vector search /
+    # reranker gaps caused by semantic distance between the governance query
+    # and operationally-embedded mentions (e.g. "Local Authority" in ground-
+    # fitness rules whose topic is referees, not party governance).
+    keyword_suffix = ""
+    if keyword_chunks:
+        passages = "\n".join(f"- {c}" for c in keyword_chunks[:10])
+        keyword_suffix = (
+            f"\n\nThe following passages from the FA Handbook explicitly mention "
+            f"'{entity_name}' — they must be considered in your response:\n{passages}"
+        )
+
     sections: dict = {"formal_definition": "", "domain_context": "", "governance_rules": ""}
 
     # ------------------------------------------------------------------
@@ -459,7 +482,7 @@ def get_handbook_context_for_entity(
     # Always includes S07 + S27; supplements with top-2 BM25 sections for
     # entities whose definitions live outside the main definition tables.
     # ------------------------------------------------------------------
-    def_query = _HANDBOOK_DEFINITION_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix
+    def_query = _HANDBOOK_DEFINITION_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
     seen: set = set()
     def_collections: list[str] = []
     for s in [*_DEFINITION_SECTIONS, *(bm25_sections or [])[:5]]:
@@ -490,7 +513,7 @@ def get_handbook_context_for_entity(
     # ------------------------------------------------------------------
     # Pass 2: Governance rules + domain context from BM25-routed sections.
     # ------------------------------------------------------------------
-    gov_query = _HANDBOOK_GOVERNANCE_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix
+    gov_query = _HANDBOOK_GOVERNANCE_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
 
     try:
         result = query_collections(governance_collections, gov_query, rag_config, iterative=False)
@@ -1177,22 +1200,53 @@ def generate_consolidated_catalog(
             if _SECTION_TOP_N and relevant_sections:
                 relevant_sections = relevant_sections[:_SECTION_TOP_N]
 
+            # Stage 1c: Keyword scan — find sections that explicitly mention the
+            # entity name.  Supplements BM25 routing to catch entities whose mentions
+            # are buried in operational rules sections that BM25 misses (e.g.
+            # "Local Authority" in ground-fitness rules vs. definition sections).
+            # Runs a fast verbatim substring scan across all section docstores.
+            keyword_sections, keyword_chunks = find_sections_by_keyword(name, _SECTION_PREFIX, rag_config)
+
+            # Merge keyword sections into relevant_sections (for Pass 1 definition)
+            # and use them as the governance collections for Pass 2 when they are
+            # fewer than all handbook sections — this concentrates the reranker
+            # pool on sections that actually mention the entity.
+            seen_secs = set(relevant_sections)
+            for s in keyword_sections:
+                if s not in seen_secs:
+                    relevant_sections.append(s)
+                    seen_secs.add(s)
+
+            # Governance collections: use keyword-found sections when they are a
+            # strict subset of all sections (sparse entity like "Local Authority").
+            # Fall back to all 44 when the entity appears everywhere (e.g. "Club").
+            if keyword_sections and len(keyword_sections) < len(handbook_collections):
+                gov_collections = keyword_sections
+            else:
+                gov_collections = handbook_collections
+
             # Stage 2: Two-pass LLM synthesis
-            # Pass 1 (definition): always hits S07+S27 + top-2 BM25 sections
-            # Pass 2 (governance): always uses ALL handbook sections so the reranker
-            #   can find governance rules scattered across competition/disciplinary sections.
-            #   BM25 routing is intentionally NOT used for governance — player/club rules
-            #   are spread across S08-S09, S28-S30, S44 etc. and BM25 routing (which
-            #   scores on term frequency) tends to surface definition sections, not rules.
+            # Pass 1 (definition): S07+S27 + BM25 sections + keyword sections
+            # Pass 2 (governance): keyword sections (focused) or all 44 (broad)
             inv_desc = inventory_descriptions.get(_normalize(name), {}).get("description")
             context = get_handbook_context_for_entity(
                 name, domain,
-                governance_collections=handbook_collections,  # all 44 — reranker finds best governance chunks
+                governance_collections=gov_collections,
                 rag_config=rag_config,
                 term_definitions=term_definitions,
                 leanix_description=inv_desc,
-                bm25_sections=relevant_sections,  # top-N BM25 sections supplement Pass 1 only
+                bm25_sections=relevant_sections,
+                keyword_chunks=keyword_chunks or None,
             )
+            # Apply static context overrides (fields pre-curated in config YAML).
+            # These take precedence over RAG synthesis for entities that are
+            # referenced-but-not-governed in the handbook (e.g. Local Authority).
+            static = _STATIC_CONTEXT.get(_normalize(name))
+            if static:
+                for field in ("formal_definition", "domain_context", "governance_rules"):
+                    if field in static:
+                        context[field] = static[field].strip()
+
             handbook_context[_normalize(name)] = context
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 

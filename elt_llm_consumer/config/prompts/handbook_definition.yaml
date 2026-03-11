@@ -22,9 +22,18 @@ prompt: |
   Respond using this exact format:
 
   FORMAL_DEFINITION:
-  [If a formal definition exists (e.g. 'X means Y' or 'X is defined as Y'), quote it exactly,
-  including any specialised subtypes defined.
-  If no formal definition exists but '{entity_name}' is described or referenced in the documents,
-  provide a concise description (2-4 sentences) based on the handbook content.
-  Only if '{entity_name}' is completely absent from the provided documents,
-  write: Not defined in FA Handbook.]
+  [Apply these rules in order:
+
+  1. FORMAL DEFINITION EXISTS — If there is an explicit 'X means Y' or 'X is defined as Y' statement,
+     quote it exactly, including any specialised subtypes defined.
+
+  2. NO FORMAL DEFINITION BUT ENTITY IS REFERENCED — If '{entity_name}' appears in the documents
+     (even in operational rules, passing references, or alongside other bodies) but is never formally
+     defined, write a concise description (2-4 sentences) that explains:
+     - What type of body or entity it appears to be, inferred from context
+     - What role, authority, or function it performs based on how it is referenced
+     Example: if the only references are operational rules where an entity's determination overrides
+     others, infer and describe that authority relationship.
+
+  3. COMPLETELY ABSENT — Only if '{entity_name}' does not appear anywhere in the provided documents,
+     write: Not defined in FA Handbook.]

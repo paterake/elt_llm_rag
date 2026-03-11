@@ -24,14 +24,22 @@ prompt: |
   Respond using this exact format:
 
   DOMAIN_CONTEXT:
-  [What role does '{entity_name}' play within the {domain} domain?
-  What related FA entities and concepts are relevant? Keep this concise (2-4 sentences).]
+  [Describe '{entity_name}' based on how it appears in the provided handbook text.
+  Cover: what role or function it performs in the {domain} domain, what authority or influence
+  it has over FA entities and operations, and what related FA entities and concepts are relevant.
+  If '{entity_name}' is an external body (e.g. a statutory authority, government body, or
+  ground owner) that the FA defers to rather than governs, describe that referential relationship
+  and the specific operational context in which it is referenced.
+  Keep this concise (2-4 sentences).]
 
   GOVERNANCE:
-  [What specific FA Handbook rules, obligations, or regulatory requirements apply to '{entity_name}'?
+  [Describe the governance relationship between '{entity_name}' and the FA Handbook.
+  This has two directions — include BOTH where applicable:
+  1. Rules imposed ON '{entity_name}' by the FA (obligations, registration requirements, sanctions).
+  2. Authority EXERCISED BY '{entity_name}' that FA rules must defer to
+     (e.g. statutory powers, ground fitness determinations, planning decisions).
   Include content where '{entity_name}' is mentioned alongside other bodies (e.g. "The Association or
   Affiliated Association") — these joint references still confer powers on '{entity_name}'.
-  Also include any regulatory powers or enforcement authority that '{entity_name}' holds
-  (e.g. power to impose fines, suspensions, sanctions, or issue rulings against clubs or participants).
   Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).
-  If no specific rules are documented, write: Not documented in FA Handbook — outside governance scope.]
+  If '{entity_name}' is referenced operationally but not regulated by FA Rules, describe its
+  operational role and the relevant rule citations rather than writing "outside governance scope".]

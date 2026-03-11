@@ -211,6 +211,73 @@ def discover_relevant_sections(
     return [c for c, _ in scored]
 
 
+def find_sections_by_keyword(
+    term: str,
+    section_prefix: str,
+    rag_config: RagConfig,
+) -> tuple[list[str], list[str]]:
+    """Find handbook sections and chunk texts that explicitly contain ``term``.
+
+    Unlike BM25 section routing (which scores sections by relevance), this is a
+    verbatim substring scan.  It guarantees that sections and chunks containing
+    the exact term are found regardless of BM25 scoring or vector similarity gaps.
+
+    Typical use: supplement BM25 routing so that operationally-referenced entities
+    whose mentions are buried in rules sections (e.g. ``Local Authority`` in
+    ground-fitness rules) are not missed by vector search, AND inject the matching
+    chunk texts directly into the LLM prompt so they bypass the reranker entirely.
+
+    Args:
+        term:           The entity name to search for (case-insensitive substring).
+        section_prefix: ChromaDB collection prefix (e.g. ``"fa_handbook"``).
+        rag_config:     RAG configuration (used to locate docstores).
+
+    Returns:
+        A tuple of:
+          - section_names: collection names where at least one chunk contains term
+          - chunk_texts:   deduplicated chunk texts that contain term (all matching
+                           chunks across all sections, preserving order of discovery)
+    """
+    from llama_index.core import StorageContext
+
+    all_collections = resolve_collection_prefixes([section_prefix], rag_config)
+    section_pat = re.compile(rf'^{re.escape(section_prefix)}_s\d{{2}}$')
+    section_collections = [c for c in all_collections if section_pat.match(c)]
+
+    term_lower = term.lower()
+    matched_sections: list[str] = []
+    matched_chunks: list[str] = []
+    seen_texts: set[str] = set()
+
+    for collection_name in sorted(section_collections):
+        docstore_path = get_docstore_path(rag_config.chroma, collection_name)
+        if not docstore_path.exists():
+            continue
+        try:
+            storage = StorageContext.from_defaults(persist_dir=str(docstore_path))
+            section_hit = False
+            for node in storage.docstore.docs.values():
+                text = getattr(node, "text", "") or ""
+                if term_lower in text.lower():
+                    if not section_hit:
+                        matched_sections.append(collection_name)
+                        section_hit = True
+                    # Deduplicate near-identical chunks (same sentence repeated
+                    # across sections, e.g. Standard Code of Rules boilerplate)
+                    stripped = " ".join(text.split())
+                    if stripped not in seen_texts:
+                        seen_texts.add(stripped)
+                        matched_chunks.append(text.strip())
+        except Exception as e:
+            logger.debug("Keyword scan failed for '%s' in '%s': %s", term, collection_name, e)
+
+    logger.info(
+        "Keyword scan '%s': found in %d sections, %d unique chunks → %s",
+        term, len(matched_sections), len(matched_chunks), matched_sections,
+    )
+    return matched_sections, matched_chunks
+
+
 def expand_entity_aliases(
     entity_name: str,
     rag_config: RagConfig,
