@@ -185,7 +185,8 @@ _DEFAULT_INVENTORY_JSON = _resolve_json_from_ingest_config(_INGEST_CONFIG_INVENT
 # System prompts
 # ---------------------------------------------------------------------------
 
-_HANDBOOK_CONTEXT_PROMPT    = _load_prompt("handbook_context.yaml")
+_HANDBOOK_CONTEXT_PROMPT         = _load_prompt("handbook_context.yaml")
+_HANDBOOK_CONTEXT_GOV_ONLY_PROMPT = _load_prompt("handbook_context.yaml", key="prompt_gov_only")
 _HANDBOOK_DEFINITION_PROMPT = _load_prompt("handbook_definition.yaml")   # retained for reference
 _HANDBOOK_GOVERNANCE_PROMPT = _load_prompt("handbook_governance.yaml")   # retained for reference
 _ENTITY_RELATIONSHIP_PROMPT = _load_prompt("entity_relationship.yaml")
@@ -461,11 +462,12 @@ def get_handbook_context_for_entity(
         context_suffix = f"\n\nContext from data model: {leanix_description[:500]}"
 
     # Keyword chunks: verbatim passages confirmed to contain the entity name.
-    # Injected as a suffix to guarantee the LLM sees them regardless of whether
-    # cosine similarity surfaces them through the normal retrieval stack.
+    # Capped at 5 chunks, each truncated to 500 chars to keep keyword_suffix
+    # bounded for common-word entities (e.g. "Club", "Player") that appear
+    # hundreds of times across the handbook.
     keyword_suffix = ""
     if keyword_chunks:
-        passages = "\n".join(f"- {c}" for c in keyword_chunks[:10])
+        passages = "\n".join(f"- {c[:500]}" for c in keyword_chunks[:5])
         keyword_suffix = (
             f"\n\nThe following passages from the FA Handbook explicitly mention "
             f"'{entity_name}' — they must be considered in your response:\n{passages}"
@@ -473,16 +475,32 @@ def get_handbook_context_for_entity(
 
     sections: dict = {"formal_definition": "", "domain_context": "", "governance_rules": ""}
 
-    # Single combined query: FORMAL_DEFINITION + DOMAIN_CONTEXT + GOVERNANCE.
-    # Collections are the union of definition sections (S07+S27), BM25-routed
-    # sections, and governance sections — built by the caller.
-    query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
+    # Step 3 pre-check: if a verbatim 'X means Y' definition exists for this entity,
+    # set it directly and use the gov-only prompt (DOMAIN_CONTEXT + GOVERNANCE only).
+    # This prevents the LLM spending its token budget generating a formal definition
+    # that will immediately be overridden, leaving no budget for domain context and
+    # governance rules.
+    step3_def: str | None = None
+    if term_definitions:
+        lookup_keys = [entity_name.lower()]
+        lookup_keys.extend(_ENTITY_ALIASES.get(entity_name.lower(), []))
+        for v in _get_alias_variants(entity_name):
+            if v not in lookup_keys:
+                lookup_keys.append(v)
+        step3_def = next((term_definitions[k] for k in lookup_keys if k in term_definitions), None)
+
+    if step3_def:
+        sections["formal_definition"] = step3_def
+        query = _HANDBOOK_CONTEXT_GOV_ONLY_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
+    else:
+        query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
 
     try:
         result = query_collections(all_collections, query, rag_config, iterative=False)
         response = result.response.strip()
-        match = re.search(r"FORMAL_DEFINITION:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
-        sections["formal_definition"] = match.group(1).strip() if match else response
+        if not step3_def:
+            match = re.search(r"FORMAL_DEFINITION:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
+            sections["formal_definition"] = match.group(1).strip() if match else response
         match = re.search(r"DOMAIN_CONTEXT:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
         sections["domain_context"] = match.group(1).strip() if match else ""
         match = re.search(r"GOVERNANCE:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
@@ -490,19 +508,9 @@ def get_handbook_context_for_entity(
         if result.raw_response:
             sections["raw_handbook_sections"] = result.raw_response
     except Exception as e:
-        sections["formal_definition"] = f"[Error: {e}]"
-
-    # Post-LLM override: if Step 3 extracted a verbatim 'X means Y' definition
-    # for this entity, use that instead of the LLM synthesis — it's more precise.
-    if term_definitions:
-        lookup_keys = [entity_name.lower()]
-        lookup_keys.extend(_ENTITY_ALIASES.get(entity_name.lower(), []))
-        for v in _get_alias_variants(entity_name):
-            if v not in lookup_keys:
-                lookup_keys.append(v)
-        direct_def = next((term_definitions[k] for k in lookup_keys if k in term_definitions), None)
-        if direct_def:
-            sections["formal_definition"] = direct_def
+        if not step3_def:
+            sections["formal_definition"] = f"[Error: {e}]"
+        sections["governance_rules"] = f"[Error: {e}]"
 
     return sections
 

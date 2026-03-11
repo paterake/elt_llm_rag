@@ -64,3 +64,42 @@ prompt: |
   Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).
   If '{entity_name}' is referenced operationally but not regulated by FA Rules, describe its
   operational role and the relevant rule citations rather than writing "outside governance scope".]
+
+# ---------------------------------------------------------------------------
+# prompt_gov_only: used when Step 3 has already supplied the formal definition.
+# Skips FORMAL_DEFINITION to save token budget for DOMAIN_CONTEXT + GOVERNANCE.
+# ---------------------------------------------------------------------------
+
+prompt_gov_only: |
+  For the FA entity '{entity_name}' in the {domain} domain, identify its domain context
+  and governance rules from the FA Handbook text provided.
+
+  Important: The FA Handbook uses multiple names for the same entities. When searching for
+  '{entity_name}', also treat the following as equivalent and extract content for them:
+  - "The Association" or "The FA" may refer to the national governing body
+  - "Affiliated Association" or "County FA" or "County Football Association" refers to FA County entities
+  - "The Association (or the Affiliated Association, where applicable)" applies to both The FA and FA Counties jointly
+
+  The handbook may also refer to this entity through specialisations or qualified variants
+  (e.g. 'Contract {entity_name}', 'Registered {entity_name}', 'Associate {entity_name}').
+
+  Respond using this exact format:
+
+  DOMAIN_CONTEXT:
+  [Describe '{entity_name}' based on how it appears in the provided handbook text.
+  Cover: what role or function it performs in the {domain} domain, what authority or influence
+  it has over FA entities and operations, and what related FA entities and concepts are relevant.
+  If '{entity_name}' is an external body that the FA defers to rather than governs, describe that
+  referential relationship and the specific operational context in which it is referenced.
+  Keep this concise (2-4 sentences).]
+
+  GOVERNANCE:
+  [Describe the governance relationship between '{entity_name}' and the FA Handbook.
+  This has two directions — include BOTH where applicable:
+  1. Rules imposed ON '{entity_name}' by the FA (obligations, registration requirements, sanctions).
+  2. Authority EXERCISED BY '{entity_name}' that FA rules must defer to
+     (e.g. statutory powers, ground fitness determinations, planning decisions).
+  Include content where '{entity_name}' is mentioned alongside other bodies.
+  Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).
+  If '{entity_name}' is referenced operationally but not regulated by FA Rules, describe its
+  operational role and the relevant rule citations rather than writing "outside governance scope".]

@@ -14,11 +14,10 @@ ollama:
   embed_batch_size: 1
   context_window: 32768         # 32K — qwen3.5:9b supports 256K natively; 32K is safe on M3 18GB
                                 # and allows ~100 chunks of 256 tokens + generous LLM output room
-  request_timeout: 360.0        # 6 minutes — increased for single-pass (1000 token output vs 800)
-  num_predict: 1000             # Cap synthesis response to ~1000 tokens — increased for single-pass
-                                # (3 fields: FORMAL_DEFINITION + DOMAIN_CONTEXT + GOVERNANCE).
-                                # With 44-chunk input context (11K tokens), prefill is ~110s,
-                                # total per call ~310s — raise request_timeout if needed.
+  request_timeout: 480.0        # 8 minutes — covers 1500 output tokens (~300s) + prefill (~55s)
+  num_predict: 1500             # 1500 tokens for single-pass output (3 fields).
+                                # Gov-only prompt (Step 3 entities) needs ~700 tokens (2 fields),
+                                # full prompt needs ~1200 tokens (3 fields). 1500 gives headroom.
   thinking: false               # Disable thinking mode — prevents token budget consumed by <think> blocks
 
 # Chunking settings: Table-aware strategy preserves FA Handbook definition tables
