@@ -23,7 +23,8 @@ entity_aliases_file: entity_aliases.yaml
 #
 # section_prefix:             ChromaDB collection prefix → resolves fa_handbook_s01…s44
 # section_routing_threshold:  Minimum BM25 score to include a section (0.0 = any hit)
-# section_routing_top_n:      Max sections to pass to Stage 2 (null = all above threshold)
+# section_routing_top_n:      Retained for future use; not enforced — BM25 routing is now
+#                               the query scope (not a pre-filter over all 44 sections)
 # section_bm25_top_k:         BM25 candidates per section during Stage 1 scoring
 # section_routing_min_sections: If BM25 + entity_aliases find fewer than this many
 #                               sections, trigger an LLM alias-expansion call to generate

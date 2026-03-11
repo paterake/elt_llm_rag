@@ -123,6 +123,13 @@ _FORCED_HANDBOOK_ENTITIES: frozenset[str] = frozenset(
     _catalog_cfg.get("forced_handbook_entities", [])
 )
 
+# _normalize is needed at module load time (used in _STATIC_CONTEXT below),
+# so it must be defined before the module-level dict comprehension.
+def _normalize(name: str) -> str:
+    """Normalize entity name for matching."""
+    return " ".join(name.lower().split())
+
+
 # Pre-populated field overrides for entities where RAG+LLM cannot reliably
 # synthesise correct content (e.g. external statutory bodies referenced but
 # not governed by the FA Handbook).  Keyed by normalised entity name.
@@ -201,6 +208,17 @@ _DEFINITION_SECTIONS: list[str] = ["fa_handbook_s07", "fa_handbook_s27"]
 # ---------------------------------------------------------------------------
 # Quality filters — used in consolidate_catalog (source promotion) and metrics
 # ---------------------------------------------------------------------------
+
+
+def _write_checkpoint(path: Path, handbook_context: dict) -> None:
+    """Persist handbook_context to a checkpoint file for resume on failure."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"handbook_context": handbook_context}, f, ensure_ascii=False)
+    except Exception as e:
+        # Never let a checkpoint write failure abort the main run.
+        print(f"\n  Warning: checkpoint write failed ({e})")
 
 
 def _has_real_definition(e: dict) -> bool:
@@ -660,11 +678,6 @@ def infer_domain_for_handbook_entity(
 # ---------------------------------------------------------------------------
 
 
-def _normalize(name: str) -> str:
-    """Normalize entity name for matching."""
-    return " ".join(name.lower().split())
-
-
 def _get_alias_variants(term: str) -> list[str]:
     """Generate normalized term variants including aliases.
     
@@ -1025,9 +1038,11 @@ def generate_consolidated_catalog(
         domain_filter = domain_filter.upper()
         catalog_json_path = output_dir / f"fa_consolidated_catalog_{domain_filter.lower()}.json"
         relationships_json_path = output_dir / f"fa_consolidated_relationships_{domain_filter.lower()}.json"
+        checkpoint_path = output_dir / f"fa_catalog_checkpoint_{domain_filter.lower()}.json"
     else:
         catalog_json_path = output_dir / "fa_consolidated_catalog.json"
         relationships_json_path = output_dir / "fa_consolidated_relationships.json"
+        checkpoint_path = output_dir / "fa_catalog_checkpoint.json"
 
     print("\n=== FA Consolidated Catalog (RAG+LLM) ===")
     print(f"  Model: {rag_config.ollama.llm_model}")
@@ -1139,6 +1154,18 @@ def generate_consolidated_catalog(
     # Step 5: Get handbook context for all entities (RAG+LLM)
     print("\n=== Step 5: Extract Handbook Context ===")
     handbook_context: dict[str, dict] = {}
+
+    # Checkpoint/resume: load partial results from a previous interrupted run.
+    # Skipped for --entity runs (short, targeted — no need to resume).
+    if not entity_filter and checkpoint_path.exists():
+        try:
+            with open(checkpoint_path, encoding="utf-8") as _f:
+                handbook_context = json.load(_f).get("handbook_context", {})
+            print(f"  Resuming from checkpoint — {len(handbook_context)} entities already done")
+        except Exception as _e:
+            print(f"  Warning: could not load checkpoint ({_e}) — starting fresh")
+            handbook_context = {}
+
     if skip_handbook:
         print("  Skipping (--skip-handbook)")
     else:
@@ -1149,8 +1176,14 @@ def generate_consolidated_catalog(
         for i, entity in enumerate(conceptual_entities, 1):
             name = entity.get("entity_name", "")
             domain = entity.get("domain", "UNKNOWN")
+
+            # Resume: skip entities already completed in a previous run.
+            if _normalize(name) in handbook_context:
+                print(f"  [{i:>3}/{total}] {name[:50]:<50} [skip — checkpointed]", end="\r", flush=True)
+                continue
+
             print(f"  [{i:>3}/{total}] {name[:50]:<50}", end="\r", flush=True)
-            
+
             # Fix 1: Skip RAG for entities with no handbook coverage
             if name in _NO_HANDBOOK_COVERAGE:
                 handbook_context[_normalize(name)] = {
@@ -1158,6 +1191,7 @@ def generate_consolidated_catalog(
                     "domain_context": "Not applicable — internal FA business concept outside regulatory scope",
                     "governance_rules": "Not documented in FA Handbook — outside governance scope",
                 }
+                _write_checkpoint(checkpoint_path, handbook_context)
                 continue
             
             # Stage 1a: BM25 section discovery with config aliases
@@ -1191,8 +1225,10 @@ def generate_consolidated_catalog(
                             relevant_sections.append(s)
                             seen.add(s)
 
-            if _SECTION_TOP_N and relevant_sections:
-                relevant_sections = relevant_sections[:_SECTION_TOP_N]
+            # _SECTION_TOP_N cap intentionally not applied here.
+            # unified_collections no longer appends all 44 handbook sections —
+            # relevant_sections IS the complete query scope. Capping BM25 results
+            # to 5 would leave governance content behind for broad entities.
 
             # Stage 1c: Keyword scan — find sections that explicitly mention the
             # entity name.  Supplements BM25 routing to catch entities whose mentions
@@ -1225,13 +1261,19 @@ def generate_consolidated_catalog(
                     "domain_context": "",
                     "governance_rules": "",
                 }
+                _write_checkpoint(checkpoint_path, handbook_context)
                 continue
 
             # Build unified collection set: definition sections + BM25 sections +
-            # governance/keyword sections.  Single LLM call covers all three fields.
+            # keyword sections.  No longer appends all 44 handbook_collections —
+            # BM25 routing and keyword scan ARE the scope, not a pre-filter.
+            # For broad entities (Club, Player): keyword scan finds all 44 sections
+            # anyway, so relevant_sections ≈ all 44 → no regression.
+            # For narrow entities (Local Authority): only 5-10 focused sections are
+            # queried, cutting retrieval calls and reranker pool proportionally.
             seen_unified: set[str] = set()
             unified_collections: list[str] = []
-            for s in [*_DEFINITION_SECTIONS, *relevant_sections, *handbook_collections]:
+            for s in [*_DEFINITION_SECTIONS, *relevant_sections]:
                 if s not in seen_unified:
                     unified_collections.append(s)
                     seen_unified.add(s)
@@ -1257,6 +1299,7 @@ def generate_consolidated_catalog(
                         context[field] = static[field].strip()
 
             handbook_context[_normalize(name)] = context
+            _write_checkpoint(checkpoint_path, handbook_context)
         print(f"  {len(handbook_context)} entities enriched with Handbook context      ")
 
     # Step 6: Load relationships from pre-parsed model JSON
@@ -1308,6 +1351,10 @@ def generate_consolidated_catalog(
 
     with open(relationships_json_path, "w", encoding="utf-8") as f:
         json.dump(consolidated_relationships, f, indent=2, ensure_ascii=False)
+
+    # Remove checkpoint file — run completed successfully.
+    if checkpoint_path.exists():
+        checkpoint_path.unlink()
 
     print(f"\n  Consolidated catalog (JSON) → {catalog_json_path}")
     print(f"  Consolidated relationships → {relationships_json_path}")
