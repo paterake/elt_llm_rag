@@ -14,10 +14,11 @@ ollama:
   embed_batch_size: 1
   context_window: 32768         # 32K — qwen3.5:9b supports 256K natively; 32K is safe on M3 18GB
                                 # and allows ~100 chunks of 256 tokens + generous LLM output room
-  request_timeout: 300.0        # 5 minutes — sufficient with num_predict cap; was 600s but synthesis hit it
-  num_predict: 800              # Cap synthesis response to ~800 tokens (~160s on 9B models at 5 tok/s)
+  request_timeout: 360.0        # 6 minutes — increased for single-pass (1000 token output vs 800)
+  num_predict: 1000             # Cap synthesis response to ~1000 tokens — increased for single-pass
+                                # (3 fields: FORMAL_DEFINITION + DOMAIN_CONTEXT + GOVERNANCE).
                                 # With 44-chunk input context (11K tokens), prefill is ~110s,
-                                # total per call ~270s — well within 300s request_timeout.
+                                # total per call ~310s — raise request_timeout if needed.
   thinking: false               # Disable thinking mode — prevents token budget consumed by <think> blocks
 
 # Chunking settings: Table-aware strategy preserves FA Handbook definition tables
@@ -73,11 +74,11 @@ query:
   use_lost_in_middle: true
 
   # Full-context threshold: collections with ≤ this many chunks are passed in full
-  # to the LLM (no retrieval). Lowered from 80 → 20 for 14B models on M3 18GB:
-  # - 80 chunks × ~130 tokens = ~10K tokens/call → single synthesis call can exceed timeout
-  # - 20 chunks × ~130 tokens = ~2.6K tokens/call → fast, well within 300s timeout
-  # - Sections >20 chunks fall through to retrieval path (reranker_top_k: 10 chunks)
-  full_context_max_chunks: 20
+  # to the LLM (no retrieval). Set to 0 to always use the retrieval path — this
+  # ensures LLM input is always bounded by reranker_top_k × chunk_size (~11K tokens)
+  # regardless of collection size. Prevents context overflow (status 500) when
+  # querying all 44 handbook sections simultaneously.
+  full_context_max_chunks: 0
 
   system_prompt: |
     You are a helpful assistant that answers questions based on the provided documents.

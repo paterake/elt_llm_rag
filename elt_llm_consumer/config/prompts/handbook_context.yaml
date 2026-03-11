@@ -1,35 +1,66 @@
 # Prompt: handbook_context
 #
-# Purpose: Generate a terms-of-reference entry for a conceptual model entity
-#          by querying the FA Handbook via RAG.
+# Purpose: Single-pass synthesis for a conceptual model entity from the FA Handbook.
+#          Covers formal definition, domain role, and governance rules in one LLM call,
+#          replacing the previous two-pass (handbook_definition + handbook_governance) approach.
 #
 # Variables:
 #   {entity_name}  — The entity name from the conceptual model (e.g. "Club", "Player")
 #   {domain}       — The domain the entity belongs to (e.g. "PARTY", "COMPETITION")
 #
 # Output sections expected in LLM response:
-#   FORMAL_DEFINITION  — Exact or paraphrased handbook definition, including subtypes
-#   DOMAIN_CONTEXT     — Role within the domain and related concepts
+#   FORMAL_DEFINITION  — Exact definition if it exists, otherwise handbook description
+#   DOMAIN_CONTEXT     — Role within the domain and related entities
 #   GOVERNANCE         — FA Handbook rules, obligations, section/rule number citations
 
 prompt: |
-  Provide a terms of reference entry for the FA entity '{entity_name}' in the {domain} domain.
+  Provide a terms of reference entry for the FA entity '{entity_name}' in the {domain} domain,
+  using only the FA Handbook text provided.
 
-  The FA Handbook may refer to this entity directly by name or through specialisations, subtypes, or
-  qualified variants (e.g. '{entity_name}' may appear as 'Contract {entity_name}', 'Registered {entity_name}',
-  'Associate {entity_name}', or other qualified forms). Include definitions and rules for any such
-  specialisations where they illuminate the meaning of '{entity_name}'.
+  Important: The FA Handbook uses multiple names for the same entities. When searching for
+  '{entity_name}', also treat the following as equivalent and extract content for them:
+  - "The Association" or "The FA" may refer to the national governing body
+  - "Affiliated Association" or "County FA" or "County Football Association" refers to FA County entities
+  - "The Association (or the Affiliated Association, where applicable)" applies to both The FA and FA Counties jointly
 
-  Structure your response with these three sections:
+  The handbook may also define this entity through specialisations or qualified variants
+  (e.g. 'Contract {entity_name}', 'Registered {entity_name}', 'Associate {entity_name}').
+  Include definitions and rules for any such specialisations where they illuminate the meaning of '{entity_name}'.
+
+  Respond using this exact format:
 
   FORMAL_DEFINITION:
-  [What is this entity? Provide a formal definition. Quote exact FA Handbook definition if one exists,
-  including any specialised forms or subtypes defined in the handbook.]
+  [Apply these rules in order:
+
+  1. FORMAL DEFINITION EXISTS — If there is an explicit 'X means Y' or 'X is defined as Y' statement,
+     quote it exactly, including any specialised subtypes defined.
+
+  2. NO FORMAL DEFINITION BUT ENTITY IS REFERENCED — If '{entity_name}' appears in the documents
+     (even in operational rules, passing references, or alongside other bodies) but is never formally
+     defined, write a concise description (2-4 sentences) that explains:
+     - What type of body or entity it appears to be, inferred from context
+     - What role, authority, or function it performs based on how it is referenced
+
+  3. COMPLETELY ABSENT — Only if '{entity_name}' does not appear anywhere in the provided documents,
+     write: Not defined in FA Handbook.]
 
   DOMAIN_CONTEXT:
-  [What role does it play within the {domain} domain? What related concepts should be considered?]
+  [Describe '{entity_name}' based on how it appears in the provided handbook text.
+  Cover: what role or function it performs in the {domain} domain, what authority or influence
+  it has over FA entities and operations, and what related FA entities and concepts are relevant.
+  If '{entity_name}' is an external body (e.g. a statutory authority, government body, or
+  ground owner) that the FA defers to rather than governs, describe that referential relationship
+  and the specific operational context in which it is referenced.
+  Keep this concise (2-4 sentences).]
 
   GOVERNANCE:
-  [What specific FA Handbook rules, obligations, or regulatory requirements apply?
-  Cite section and rule numbers where possible (e.g. Rule A3.1, Section C).
-  If no handbook rules apply, state 'Not documented in FA Handbook — outside governance scope'.]
+  [Describe the governance relationship between '{entity_name}' and the FA Handbook.
+  This has two directions — include BOTH where applicable:
+  1. Rules imposed ON '{entity_name}' by the FA (obligations, registration requirements, sanctions).
+  2. Authority EXERCISED BY '{entity_name}' that FA rules must defer to
+     (e.g. statutory powers, ground fitness determinations, planning decisions).
+  Include content where '{entity_name}' is mentioned alongside other bodies (e.g. "The Association or
+  Affiliated Association") — these joint references still confer powers on '{entity_name}'.
+  Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).
+  If '{entity_name}' is referenced operationally but not regulated by FA Rules, describe its
+  operational role and the relevant rule citations rather than writing "outside governance scope".]
