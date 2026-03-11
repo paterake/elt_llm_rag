@@ -221,23 +221,27 @@ def _write_checkpoint(path: Path, handbook_context: dict) -> None:
 
 
 def _has_real_definition(e: dict) -> bool:
-    """Return True if the entity has substantive FA Handbook definition content."""
+    """Return True if the entity has substantive FA Handbook definition content.
+
+    FA Handbook definitions are stored as definition text only — the 'X means'
+    preamble is stripped, so short phrases like 'any association football club
+    that is from time to time...' are legitimate formal definitions.  Exclude
+    known LLM-generated negative responses rather than requiring positive keywords.
+    """
     v = e.get("formal_definition", "").strip()
     if not v or v.startswith("[Error:"):
         return False
     vl = v.lower()
-    _pure_negative = (
+    _negative = (
+        "not defined in fa handbook",
+        "not defined or referenced",
         "the provided context does not contain",
         "the provided handbook documents do not contain",
         "the provided text does not",
-        "not defined or referenced",
+        "not defined in the fa handbook",
+        "no formal definition",
     )
-    if any(vl.startswith(p) for p in _pure_negative):
-        return False
-    _positive = ("is defined as", "are defined as", "means ", "is described as", "is referenced", "is described")
-    if any(p in vl for p in _positive):
-        return True
-    return len(v) > 300
+    return not any(vl.startswith(p) for p in _negative)
 
 
 def _has_real_governance(e: dict) -> bool:

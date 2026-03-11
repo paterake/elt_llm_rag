@@ -122,3 +122,21 @@ static_context:
       to affiliated football activity. Charitable status is governed by the Charity
       Commission and Charities Act 2011, which the FA does not regulate.
 
+  Sports Governing Body:
+    domain_context: >-
+      External governing bodies of sport recognised by the International Olympic Committee,
+      UK Sport, Sport England, the home countries' sports councils, or equivalent national
+      or international bodies (e.g. UEFA, FIFA). In the FA Handbook, Sports Governing Bodies
+      operate as parallel jurisdictions — The FA may share participant information with them
+      and must recognise their sanctions for eligibility and anti-doping purposes.
+    governance_rules: >-
+      Sports Governing Bodies are not governed by FA Rules but interact with The FA's
+      regulatory framework in two specific ways. First, The FA may share information about
+      Participants with a Sports Governing Body where reasonably necessary to carry out its
+      functions or protect the integrity of football or sport (Rule F7). Second, suspensions
+      or bans imposed by a Sports Governing Body constitute a Disqualifying Condition under
+      FA officer eligibility rules, and Players who move outside The FA's jurisdiction remain
+      subject to anti-doping obligations enforceable by the receiving Sports Governing Body.
+      Cited rules: Rule F7.1, F7.2 (information sharing); FA Anti-Doping Regulations
+      (cross-jurisdictional testing); Officer Declaration Regulations (disqualifying conditions).
+
