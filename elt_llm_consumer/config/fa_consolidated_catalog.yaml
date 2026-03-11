@@ -27,21 +27,17 @@ entity_aliases_file: entity_aliases.yaml
 # section_bm25_top_k:         BM25 candidates per section during Stage 1 scoring
 # section_routing_min_sections: If BM25 + entity_aliases find fewer than this many
 #                               sections, trigger an LLM alias-expansion call to generate
-#                               domain-aware synonyms and re-run BM25. Set to 0 to disable.
-#                               Recommended: 1 (fires only when BM25 finds nothing at all).
-# section_routing_top_n_governance: Cap on BM25 sections used for the governance pass
-#                               (Pass 2). null = no cap (all BM25 hits used). Separate from
-#                               section_routing_top_n which only caps the definition pass.
-#                               Keeping this uncapped (null) ensures broad-coverage entities
-#                               (e.g. Club, Player) use all BM25-routed sections for governance.
+#                               domain-aware synonyms and re-run BM25. Set to 0 to disable
+#                               (recommended — keyword scan Stage 1c handles sparse entities
+#                               more reliably and without the extra LLM call overhead).
 # ---------------------------------------------------------------------------
 handbook_sections:
   section_prefix: "fa_handbook"
   section_routing_threshold: 0.0
   section_routing_top_n: 5
-  section_routing_top_n_governance: null
   section_bm25_top_k: 3
-  section_routing_min_sections: 1
+  section_routing_min_sections: 0  # 0 = disabled; keyword scan (Stage 1c) covers sparse entities
+                                   # reliably without the overhead of an extra LLM alias call
 
 # ---------------------------------------------------------------------------
 # no_handbook_coverage
@@ -78,14 +74,50 @@ forced_handbook_entities:
 # ---------------------------------------------------------------------------
 # static_context
 #
-# Pre-populated field overrides for entities where RAG+LLM synthesis cannot
-# reliably produce correct content — typically entities that are *referenced*
-# in the handbook but not *governed* by it (e.g. external statutory bodies).
+# Pre-populated field overrides for entities that are *referenced* in the
+# handbook but not *governed* by it (e.g. external statutory bodies).
+# RAG will find mentions but cannot synthesise meaningful governance rules —
+# populate here to prevent hallucination.
 #
-# Fields provided here override the corresponding RAG-synthesised values.
+# These entries are merged AFTER Step 5 RAG and override the specified fields.
 # Omit a field to leave the RAG result untouched.
-#
-# Supported fields per entity: formal_definition, domain_context, governance_rules
+# Supported fields: formal_definition, domain_context, governance_rules
 # ---------------------------------------------------------------------------
-static_context: {}
+static_context:
+  Government:
+    domain_context: >-
+      UK central and devolved government bodies, including Parliament, the Home Office,
+      and relevant public authorities. Referenced in the FA Handbook primarily in the
+      context of statutory obligations, safeguarding legislation, data protection law
+      (UK GDPR / Data Protection Act 2018), and equality legislation.
+    governance_rules: >-
+      Not governed by FA Rules. The FA is required to comply with government legislation
+      and statutory instruments. Where the FA Handbook references government bodies it
+      does so to acknowledge legal obligations the FA and its participants must observe
+      (e.g. safeguarding duties under the Children Act 1989, equality duties under the
+      Equality Act 2010, data protection obligations under UK GDPR).
+
+  School:
+    domain_context: >-
+      Educational institutions (primary, secondary, academies, colleges, universities)
+      that participate in or support grassroots football. Referenced in the FA Handbook
+      in the context of youth football, safeguarding, player welfare, and educational
+      partnership programmes.
+    governance_rules: >-
+      Not governed by FA Rules as an institution. Schools participating in FA-affiliated
+      football competitions must comply with FA safeguarding and youth football regulations
+      as they apply to their players and affiliated teams. Schools are subject to their
+      own statutory safeguarding duties (Children Act 1989, Keeping Children Safe in
+      Education) which the FA recognises and does not override.
+
+  Charity:
+    domain_context: >-
+      Charitable organisations and voluntary sector bodies referenced in the FA Handbook
+      primarily in the context of community football programmes, foundation activities,
+      and club charitable arms (e.g. Premier League and EFL club foundations).
+    governance_rules: >-
+      Not directly governed by FA Rules as charitable entities. Charitable arms of FA
+      affiliates (e.g. club foundations) must still comply with FA Rules as they apply
+      to affiliated football activity. Charitable status is governed by the Charity
+      Commission and Charities Act 2011, which the FA does not regulate.
 
