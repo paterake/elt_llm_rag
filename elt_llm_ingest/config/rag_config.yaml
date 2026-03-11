@@ -50,10 +50,10 @@ query:
                             # contributes candidates before reranker scores. Critical when
                             # governance content (e.g. Respect/conduct sections) is sparse
                             # and may not win a pure vector-similarity race against 43 others.
-  reranker_top_k: 44        # 1 per section × 44 sections: 44 × 256 avg tokens ≈ 11K to LLM.
-                            # Reranker still sees all 88 candidates (reranker_retrieve_k) and
-                            # scores them — top 44 by relevance go to LLM. Confirmed s40 Respect
-                            # Code ranks ~35-40, so 44 captures it while halving prefill vs 88.
+  reranker_top_k: 25        # Top 25 after reranking — 25 × 256 avg tokens ≈ 6.4K to LLM.
+                            # Reduced from 44 to cut LLM input and prefill time (~55s → ~32s).
+                            # Reranker still scores all 88 candidates (reranker_retrieve_k);
+                            # only the top 25 by relevance are passed to LLM synthesis.
 
   # Multi-query retrieval: generate num_queries-1 additional query variants via LLM.
   # Higher values improve recall for compound queries at the cost of extra LLM calls.

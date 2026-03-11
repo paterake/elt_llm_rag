@@ -52,6 +52,7 @@ Runtime:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import logging
 import re
@@ -492,11 +493,19 @@ def get_handbook_context_for_entity(
     if step3_def:
         sections["formal_definition"] = step3_def
         query = _HANDBOOK_CONTEXT_GOV_ONLY_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
+        # Gov-only prompt produces 2 fields (~700 tokens) not 3 (~1500).
+        # Override num_predict to avoid spending 800 extra tokens of generation time
+        # on a field we don't need — cuts per-entity LLM time by ~60%.
+        call_config = dataclasses.replace(
+            rag_config,
+            ollama=dataclasses.replace(rag_config.ollama, num_predict=700),
+        )
     else:
         query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
+        call_config = rag_config
 
     try:
-        result = query_collections(all_collections, query, rag_config, iterative=False)
+        result = query_collections(all_collections, query, call_config, iterative=False)
         response = result.response.strip()
         if not step3_def:
             match = re.search(r"FORMAL_DEFINITION:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
