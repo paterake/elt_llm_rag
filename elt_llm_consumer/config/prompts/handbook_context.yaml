@@ -1,20 +1,25 @@
 # Prompt: handbook_context
 #
 # Purpose: Single-pass synthesis for a conceptual model entity from the FA Handbook.
-#          Covers formal definition, domain role, and governance rules in one LLM call,
-#          replacing the previous two-pass (handbook_definition + handbook_governance) approach.
+#          Captures the full universe of information needed to ground a conceptual
+#          model entity for progression to logical and physical model design.
 #
 # Variables:
 #   {entity_name}  — The entity name from the conceptual model (e.g. "Club", "Player")
 #   {domain}       — The domain the entity belongs to (e.g. "PARTY", "COMPETITION")
 #
 # Output sections expected in LLM response:
-#   FORMAL_DEFINITION  — Exact definition if it exists, otherwise handbook description
-#   DOMAIN_CONTEXT     — Role within the domain and related entities
-#   GOVERNANCE         — FA Handbook rules, obligations, section/rule number citations
+#   FORMAL_DEFINITION      — Exact definition if it exists, otherwise handbook description
+#   DOMAIN_CONTEXT         — Role within the domain and related entities
+#   GOVERNANCE             — FA Handbook rules, obligations, section/rule number citations
+#   BUSINESS_RULES         — Entity-level constraints, eligibility conditions, cardinality rules
+#   LIFECYCLE_STATES       — States/statuses this entity transitions through in FA operations
+#   DATA_CLASSIFICATION    — Personal/sensitive data categories processed; GDPR basis
+#   REGULATORY_CONTEXT     — External legislation referenced in relation to this entity
+#   ASSOCIATED_AGREEMENTS  — Agreement types that govern this entity's FA relationship
 
 prompt: |
-  Provide a terms of reference entry for the FA entity '{entity_name}' in the {domain} domain,
+  Provide a complete terms of reference entry for the FA entity '{entity_name}' in the {domain} domain,
   using only the FA Handbook text provided.
 
   Important: The FA Handbook uses multiple names for the same entities. When searching for
@@ -65,14 +70,60 @@ prompt: |
   If '{entity_name}' is referenced operationally but not regulated by FA Rules, describe its
   operational role and the relevant rule citations rather than writing "outside governance scope".]
 
+  BUSINESS_RULES:
+  [List the key business rules, eligibility conditions, and constraints that apply specifically
+  to '{entity_name}' — distinct from the governance framework above. Focus on:
+  - Conditions that must be met for '{entity_name}' to exist or operate (eligibility, registration prerequisites)
+  - Cardinality or exclusivity constraints (e.g. "can only be registered to one Club at a time")
+  - Time-bound requirements (deadlines, windows, expiry)
+  - Conditions that trigger a change of status or disqualification
+  Use 3-5 bullet points or 2-3 sentences. If no specific business rules are stated, write: Not specified in FA Handbook.]
+
+  LIFECYCLE_STATES:
+  [List the states or statuses '{entity_name}' can be in during its lifecycle within FA operations.
+  Examples: unregistered, registered, active, suspended, deregistered, transferred, on loan.
+  Include the key transitions or triggers between states where referenced in the handbook.
+  If lifecycle states are not explicitly defined, list the key transitions implied by the rules.
+  If not applicable, write: Not specified in FA Handbook.]
+
+  DATA_CLASSIFICATION:
+  [Describe the personal data, sensitive data, or regulated information that The FA processes
+  in relation to '{entity_name}'. Cover:
+  - Data categories held or processed (e.g. identity, medical, disciplinary, financial, whereabouts)
+  - Any special category data (health, criminal records, biometric)
+  - Data protection or GDPR basis referenced in the handbook (consent, legal obligation, legitimate interest)
+  - Any data sharing obligations or restrictions referenced
+  If data processing is not referenced for this entity, write: Not specified in FA Handbook.]
+
+  REGULATORY_CONTEXT:
+  [List the external legislation, regulations, or statutes (beyond FA Rules) that are referenced
+  in the handbook in relation to '{entity_name}'. Examples:
+  - UK GDPR / Data Protection Act 2018
+  - Children Act 1989 / Keeping Children Safe in Education
+  - Equality Act 2010
+  - Football Spectators Act 2000
+  - Rehabilitation of Offenders Act 1974
+  Include the specific context in which each piece of legislation is referenced.
+  If no external legislation is cited, write: Not specified in FA Handbook.]
+
+  ASSOCIATED_AGREEMENTS:
+  [List the agreement types or contracts in the FA framework that govern, formalise, or regulate
+  '{entity_name}' in its relationship with The FA or affiliated parties. Examples:
+  - Player Registration, Player Transfer Agreement, Player Loan Agreement
+  - Licence (coaching, referee), Code of Conduct
+  - Club Affiliation Agreement, Competition Entry
+  - Agent/Intermediary Agreement, Worker Contract
+  Only include agreement types explicitly referenced in the handbook for this entity.
+  If none apply, write: Not specified in FA Handbook.]
+
 # ---------------------------------------------------------------------------
 # prompt_gov_only: used when Step 3 has already supplied the formal definition.
-# Skips FORMAL_DEFINITION to save token budget for DOMAIN_CONTEXT + GOVERNANCE.
+# Skips FORMAL_DEFINITION to save token budget. Captures all other 7 fields.
 # ---------------------------------------------------------------------------
 
 prompt_gov_only: |
-  For the FA entity '{entity_name}' in the {domain} domain, identify its domain context
-  and governance rules from the FA Handbook text provided.
+  For the FA entity '{entity_name}' in the {domain} domain, extract the following information
+  from the FA Handbook text provided.
 
   Important: The FA Handbook uses multiple names for the same entities. When searching for
   '{entity_name}', also treat the following as equivalent and extract content for them:
@@ -97,9 +148,38 @@ prompt_gov_only: |
   [Describe the governance relationship between '{entity_name}' and the FA Handbook.
   This has two directions — include BOTH where applicable:
   1. Rules imposed ON '{entity_name}' by the FA (obligations, registration requirements, sanctions).
-  2. Authority EXERCISED BY '{entity_name}' that FA rules must defer to
-     (e.g. statutory powers, ground fitness determinations, planning decisions).
+  2. Authority EXERCISED BY '{entity_name}' that FA rules must defer to.
   Include content where '{entity_name}' is mentioned alongside other bodies.
   Cite section and rule numbers where possible (e.g. Rule A3.1, Section C, Appendix H).
   If '{entity_name}' is referenced operationally but not regulated by FA Rules, describe its
   operational role and the relevant rule citations rather than writing "outside governance scope".]
+
+  BUSINESS_RULES:
+  [List the key business rules, eligibility conditions, and constraints that apply specifically
+  to '{entity_name}'. Focus on:
+  - Conditions that must be met for '{entity_name}' to exist or operate
+  - Cardinality or exclusivity constraints
+  - Time-bound requirements (deadlines, windows, expiry)
+  - Conditions that trigger a change of status or disqualification
+  Use 3-5 bullet points or 2-3 sentences. If no specific business rules are stated, write: Not specified in FA Handbook.]
+
+  LIFECYCLE_STATES:
+  [List the states or statuses '{entity_name}' can be in during its lifecycle within FA operations.
+  Include key transitions or triggers between states where referenced.
+  If not applicable, write: Not specified in FA Handbook.]
+
+  DATA_CLASSIFICATION:
+  [Describe the personal data, sensitive data, or regulated information The FA processes
+  in relation to '{entity_name}'. Cover data categories, special category data, GDPR basis,
+  and any data sharing obligations or restrictions referenced.
+  If not referenced, write: Not specified in FA Handbook.]
+
+  REGULATORY_CONTEXT:
+  [List the external legislation referenced in the handbook in relation to '{entity_name}'.
+  Include the specific context in which each piece of legislation is referenced.
+  If none cited, write: Not specified in FA Handbook.]
+
+  ASSOCIATED_AGREEMENTS:
+  [List the agreement types in the FA framework that govern or formalise '{entity_name}'.
+  Only include agreement types explicitly referenced in the handbook for this entity.
+  If none apply, write: Not specified in FA Handbook.]

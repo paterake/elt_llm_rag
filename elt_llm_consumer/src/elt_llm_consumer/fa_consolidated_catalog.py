@@ -125,6 +125,32 @@ _FORCED_HANDBOOK_ENTITIES: frozenset[str] = frozenset(
 
 # _normalize is needed at module load time (used in _STATIC_CONTEXT below),
 # so it must be defined before the module-level dict comprehension.
+def _extract_around_mention(chunk: str, entity_name: str, window: int = 600) -> str:
+    """Return a text window centred on the first mention of entity_name in chunk.
+
+    Finds the entity name (case-insensitive) and returns up to ``window`` chars
+    of surrounding context, snapped to word boundaries.  Falls back to the first
+    ``window`` chars when the entity is not found (should not happen for keyword
+    chunks but guards against edge cases).
+    """
+    idx = chunk.lower().find(entity_name.lower())
+    if idx == -1:
+        return chunk[:window]
+    half = window // 2
+    start = max(0, idx - half)
+    end = min(len(chunk), idx + half)
+    # Snap to word boundaries
+    if start > 0:
+        space = chunk.rfind(" ", 0, start + 1)
+        if space != -1:
+            start = space + 1
+    if end < len(chunk):
+        space = chunk.find(" ", end - 1)
+        if space != -1:
+            end = space
+    return chunk[start:end].strip()
+
+
 def _normalize(name: str) -> str:
     """Normalize entity name for matching."""
     return " ".join(name.lower().split())
@@ -133,7 +159,8 @@ def _normalize(name: str) -> str:
 # Pre-populated field overrides for entities where RAG+LLM cannot reliably
 # synthesise correct content (e.g. external statutory bodies referenced but
 # not governed by the FA Handbook).  Keyed by normalised entity name.
-# Fields: formal_definition, domain_context, governance_rules.
+# Fields: formal_definition, domain_context, governance_rules, business_rules,
+#          lifecycle_states, data_classification, regulatory_context, associated_agreements.
 _STATIC_CONTEXT: dict[str, dict[str, str]] = {
     _normalize(k): v
     for k, v in (_catalog_cfg.get("static_context") or {}).items()
@@ -489,13 +516,24 @@ def get_handbook_context_for_entity(
     # hundreds of times across the handbook.
     keyword_suffix = ""
     if keyword_chunks:
-        passages = "\n".join(f"- {c[:500]}" for c in keyword_chunks[:5])
+        passages = "\n".join(
+            f"- {_extract_around_mention(c, entity_name)}" for c in keyword_chunks[:5]
+        )
         keyword_suffix = (
             f"\n\nThe following passages from the FA Handbook explicitly mention "
             f"'{entity_name}' — they must be considered in your response:\n{passages}"
         )
 
-    sections: dict = {"formal_definition": "", "domain_context": "", "governance_rules": ""}
+    sections: dict = {
+        "formal_definition": "",
+        "domain_context": "",
+        "governance_rules": "",
+        "business_rules": "",
+        "lifecycle_states": "",
+        "data_classification": "",
+        "regulatory_context": "",
+        "associated_agreements": "",
+    }
 
     # Step 3 pre-check: if a verbatim 'X means Y' definition exists for this entity,
     # set it directly and use the gov-only prompt (DOMAIN_CONTEXT + GOVERNANCE only).
@@ -519,7 +557,7 @@ def get_handbook_context_for_entity(
         # on a field we don't need — cuts per-entity LLM time by ~60%.
         call_config = dataclasses.replace(
             rag_config,
-            ollama=dataclasses.replace(rag_config.ollama, num_predict=700),
+            ollama=dataclasses.replace(rag_config.ollama, num_predict=1200),
         )
     else:
         query = _HANDBOOK_CONTEXT_PROMPT.format(entity_name=entity_name, domain=domain) + context_suffix + keyword_suffix
@@ -528,13 +566,20 @@ def get_handbook_context_for_entity(
     try:
         result = query_collections(all_collections, query, call_config, iterative=False)
         response = result.response.strip()
+
+        def _parse(label: str) -> str:
+            m = re.search(rf"{label}:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
+            return m.group(1).strip() if m else ""
+
         if not step3_def:
-            match = re.search(r"FORMAL_DEFINITION:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
-            sections["formal_definition"] = match.group(1).strip() if match else response
-        match = re.search(r"DOMAIN_CONTEXT:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
-        sections["domain_context"] = match.group(1).strip() if match else ""
-        match = re.search(r"GOVERNANCE:\s*(.*?)(?=\n+[A-Z_]+:|\Z)", response, re.DOTALL)
-        sections["governance_rules"] = match.group(1).strip() if match else ""
+            sections["formal_definition"] = _parse("FORMAL_DEFINITION") or response
+        sections["domain_context"]       = _parse("DOMAIN_CONTEXT")
+        sections["governance_rules"]     = _parse("GOVERNANCE")
+        sections["business_rules"]       = _parse("BUSINESS_RULES")
+        sections["lifecycle_states"]     = _parse("LIFECYCLE_STATES")
+        sections["data_classification"]  = _parse("DATA_CLASSIFICATION")
+        sections["regulatory_context"]   = _parse("REGULATORY_CONTEXT")
+        sections["associated_agreements"] = _parse("ASSOCIATED_AGREEMENTS")
         if result.raw_response:
             sections["raw_handbook_sections"] = result.raw_response
     except Exception as e:
@@ -763,6 +808,11 @@ def consolidate_catalog(
             "formal_definition": hb_context.get("formal_definition", ""),
             "domain_context": hb_context.get("domain_context", ""),
             "governance_rules": hb_context.get("governance_rules", ""),
+            "business_rules": hb_context.get("business_rules", ""),
+            "lifecycle_states": hb_context.get("lifecycle_states", ""),
+            "data_classification": hb_context.get("data_classification", ""),
+            "regulatory_context": hb_context.get("regulatory_context", ""),
+            "associated_agreements": hb_context.get("associated_agreements", ""),
             "handbook_term": handbook_term_name,
             "mapping_confidence": mapped.get("mapping_confidence", ""),
             "mapping_rationale": mapped.get("mapping_rationale", ""),
@@ -819,6 +869,11 @@ def consolidate_catalog(
             "formal_definition": term_entry.get("definition", ""),
             "domain_context": hb_context.get("domain_context", ""),
             "governance_rules": hb_context.get("governance_rules", ""),
+            "business_rules": hb_context.get("business_rules", ""),
+            "lifecycle_states": hb_context.get("lifecycle_states", ""),
+            "data_classification": hb_context.get("data_classification", ""),
+            "regulatory_context": hb_context.get("regulatory_context", ""),
+            "associated_agreements": hb_context.get("associated_agreements", ""),
             "handbook_term": term,
             "mapping_confidence": "low",
             "mapping_rationale": "Discovered in Handbook but not mapped to conceptual model",
@@ -1137,6 +1192,11 @@ def generate_consolidated_catalog(
                     "formal_definition": "",
                     "domain_context": "Not applicable — internal FA business concept outside regulatory scope",
                     "governance_rules": "Not documented in FA Handbook — outside governance scope",
+                    "business_rules": "",
+                    "lifecycle_states": "",
+                    "data_classification": "",
+                    "regulatory_context": "",
+                    "associated_agreements": "",
                 }
                 _write_checkpoint(checkpoint_path, handbook_context)
                 continue
@@ -1207,6 +1267,11 @@ def generate_consolidated_catalog(
                     "formal_definition": "",
                     "domain_context": "",
                     "governance_rules": "",
+                    "business_rules": "",
+                    "lifecycle_states": "",
+                    "data_classification": "",
+                    "regulatory_context": "",
+                    "associated_agreements": "",
                 }
                 _write_checkpoint(checkpoint_path, handbook_context)
                 continue
@@ -1241,7 +1306,11 @@ def generate_consolidated_catalog(
             # referenced-but-not-governed in the handbook (e.g. Local Authority).
             static = _STATIC_CONTEXT.get(_normalize(name))
             if static:
-                for field in ("formal_definition", "domain_context", "governance_rules"):
+                for field in (
+                    "formal_definition", "domain_context", "governance_rules",
+                    "business_rules", "lifecycle_states", "data_classification",
+                    "regulatory_context", "associated_agreements",
+                ):
                     if field in static:
                         context[field] = static[field].strip()
 
