@@ -964,7 +964,7 @@ Query: "What does the FA Handbook say about Club Official?"
 - NetworkX (BSD) — Graph traversal (no Neo4j required)
 - ChromaDB (Apache 2.0) — Vector store (via `elt_llm_query`)
 
-See [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture, [elt_llm_agent/QUALITY_GATE.md](elt_llm_agent/QUALITY_GATE.md) for quality gate implementation details, or [AGENT_VS_CONSUMER.md](AGENT_VS_CONSUMER.md) for detailed comparison with `elt_llm_consumer`.
+See [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture, [elt_llm_agent/QUALITY_GATE.md](elt_llm_agent/QUALITY_GATE.md) for quality gate implementation details, or [elt_llm_agent/AGENT_VS_CONSUMER.md](elt_llm_agent/AGENT_VS_CONSUMER.md) for detailed comparison with `elt_llm_consumer`.
 
 ---
 
