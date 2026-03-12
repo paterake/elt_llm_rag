@@ -69,6 +69,14 @@ The RAG pipeline has two separable stages. Each consumer uses one or both:
 
 **Why the Coverage Validator skips generation**: the question is "does the handbook contain content about this entity?" The top retrieval similarity score answers that directly. Running the LLM would add ~60s per entity and produce prose that then has to be re-interpreted as a signal — slower and less precise.
 
+**Retrieval Stage Detail**: The retrieval pipeline has 3 sub-stages:
+- **Stage 1a**: BM25 section routing (~1-2s, docstore-only)
+- **Stage 1b**: LLM alias expansion (~5-7s, fallback only)
+- **Stage 1c**: Verbatim keyword scan (~0.5-1s, docstore-only)
+- **Stage 2**: Hybrid retrieval (vector + BM25, ~0.3-0.5s)
+
+See [RAG_PIPELINE_DEEP_DIVE.md](../RAG_PIPELINE_DEEP_DIVE.md) for complete implementation details.
+
 ---
 
 ## 4. The Three Consumers

@@ -158,6 +158,8 @@ RAG+LLM is used **only for the FA Handbook** (unstructured PDF text).
 | **Reranking** | Embedding or Cross-encoder | Cosine similarity or CrossEncoder |
 | **Orchestration** | LlamaIndex | Query engine with synthesis |
 
+**Storage Architecture**: Vector embeddings are stored in ChromaDB SQLite (`chroma.sqlite3`), while full text chunks are stored in separate JSON docstores (`docstore.json`). This separation enables both semantic search (via vectors) and lexical search (BM25 on full text). See [CHROMADB_VECTORSTORE_VS_DOCSTORE.md](.tmp/CHROMADB_VECTORSTORE_VS_DOCSTORE.md) for detailed storage layout and usage by stage.
+
 ### 2.4 RAG Strategy
 
 **Why Hybrid Retrieval?**
@@ -643,6 +645,8 @@ When querying across multiple collections (e.g., multiple LeanIX domains):
 4. Keep top-`reranker_top_k` overall
 
 **Benefit**: Each collection has representation while reranker selects the most relevant overall.
+
+**Implementation Detail**: The retrieval pipeline has 7 stages including BM25 section routing, LLM alias expansion (fallback), verbatim keyword scan, hybrid retrieval, reranking, and LLM synthesis. See [RAG_PIPELINE_DEEP_DIVE.md](RAG_PIPELINE_DEEP_DIVE.md) for stage-by-stage implementation details, performance characteristics, and debugging guide.
 
 See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, and enhancement roadmap.
 
@@ -1247,11 +1251,14 @@ The two sidecars join on **`fact_sheet_id`**: `_model.json` (entities from XML) 
 | [README.md](README.md) | Quick start and module overview |
 | [RAG_STRATEGY.md](RAG_STRATEGY.md) | Retrieval strategy — hybrid search, reranking, enhancement roadmap |
 | [RAG_TUNING.md](RAG_TUNING.md) | Parameter tuning rationale and trade-offs |
+| [RAG_PIPELINE_DEEP_DIVE.md](RAG_PIPELINE_DEEP_DIVE.md) | **Implementation details** — 7-stage pipeline, storage layout, debugging guide |
 | [ORCHESTRATION.md](ORCHESTRATION.md) | Workflow documentation — runbooks, phase status, troubleshooting |
 | [elt_llm_ingest/ARCHITECTURE.md](elt_llm_ingest/ARCHITECTURE.md) | Ingestion internals — preprocessors, chunking, change detection |
 | [elt_llm_consumer/ARCHITECTURE.md](elt_llm_consumer/ARCHITECTURE.md) | Consumer pipelines — output interpretation, enhancement cycle |
+| [CHROMADB_VECTORSTORE_VS_DOCSTORE.md](.tmp/CHROMADB_VECTORSTORE_VS_DOCSTORE.md) | **Storage deep dive** — vector store vs docstore usage by stage |
+| [RAG_FLOW_EXPLAINED.md](.tmp/RAG_FLOW_EXPLAINED.md) | **Query walkthrough** — "Sports Governing Body" example flow |
 
 ---
 
-**Document Status**: Living Document  
+**Document Status**: Living Document
 **Next Review**: After Phase 2 planning
