@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 elt-llm-agent-chat = "elt_llm_agent.chat:main"
 elt-llm-agent-query = "elt_llm_agent.runner:main"
+elt-llm-agent-consolidated-catalog = "elt_llm_agent.agent_consolidated_catalog:main"
 
 [build-system]
 requires = ["uv_build>=0.9.15,<0.10.0"]

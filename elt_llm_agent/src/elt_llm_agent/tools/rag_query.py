@@ -28,7 +28,7 @@ def rag_query_tool(collection: str, query: str) -> str:
 
     Args:
         collection: Collection to query. Options:
-            - "fa_handbook": FA Handbook rules and governance
+            - "fa_handbook": FA Handbook rules and governance (44 section collections)
             - "fa_leanix_dat_enterprise_conceptual_model": Conceptual data model
             - "fa_leanix_global_inventory": Asset inventory (applications, interfaces, etc.)
             - "dama_dmbok": DAMA-DMBOK data management knowledge
@@ -46,23 +46,7 @@ def rag_query_tool(collection: str, query: str) -> str:
     """
     try:
         from elt_llm_query.query import query_collections
-
-        # Map collection to collection prefix
-        collection_map = {
-            "fa_handbook": ["fa_handbook"],
-            "fa_leanix_dat_enterprise_conceptual_model": ["fa_leanix_dat_enterprise_conceptual_model"],
-            "fa_leanix_global_inventory": ["fa_leanix_global_inventory"],
-            "dama_dmbok": ["dama_dmbok"],
-            "all": None,  # Will query all available
-        }
-
-        collections = collection_map.get(collection, ["fa_handbook"])
-
-        logger.info(
-            "RAG query: collection=%s, query=%s",
-            collection,
-            query[:100],
-        )
+        from elt_llm_core.vector_store import create_chroma_client, list_collections_by_prefix
 
         # Import config to get RAG config - use absolute path from project root
         from elt_llm_core.config import load_config
@@ -70,8 +54,33 @@ def rag_query_tool(collection: str, query: str) -> str:
         project_root = Path(__file__).parent.parent.parent.parent.parent  # Goes to elt_llm_rag/
         rag_config = load_config(project_root / "elt_llm_ingest" / "config" / "rag_config.yaml")
 
+        # Map collection name to collection prefix (for dynamic resolution)
+        collection_prefix_map = {
+            "fa_handbook": "fa_handbook",
+            "fa_leanix_dat_enterprise_conceptual_model": "fa_leanix_dat_enterprise_conceptual_model",
+            "fa_leanix_global_inventory": "fa_leanix_global_inventory",
+            "dama_dmbok": "dama_dmbok",
+        }
+
+        prefix = collection_prefix_map.get(collection, "fa_handbook")
+
+        # Resolve actual collection names from ChromaDB
+        client = create_chroma_client(rag_config.chroma)
+        collections = list_collections_by_prefix(client, prefix)
+
+        if not collections:
+            logger.warning("No collections found for prefix '%s'", prefix)
+            return f"Error: No collections found for '{collection}'"
+
+        logger.info(
+            "RAG query: collection=%s, resolved=%d collections, query=%s",
+            collection,
+            len(collections),
+            query[:100],
+        )
+
         result = query_collections(
-            collection_names=collections if collections else ["fa_handbook"],
+            collection_names=collections,
             query=query,
             rag_config=rag_config,
             iterative=False,
