@@ -1,7 +1,7 @@
 # ELT LLM Agent Architecture
 
-**Workspace**: `elt_llm_agent`  
-**Purpose**: Agentic RAG orchestration — multi-step reasoning with tool use  
+**Workspace**: `elt_llm_agent`
+**Purpose**: Agentic RAG orchestration — multi-step reasoning with tool use
 **Last Updated**: March 2026
 
 **Start here**: This document explains how the agent works, how it differs from traditional RAG, and how it uses your existing ingestion outputs.
@@ -30,9 +30,10 @@
   - [5.1 Keyword-Based Tool Selection](#51-keyword-based-tool-selection)
   - [5.2 Iterative Reasoning Loop](#52-iterative-reasoning-loop)
 - [6. Usage Patterns](#6-usage-patterns)
-  - [6.1 All Domains/Entities](#61-alldomainsentities)
-  - [6.2 Specific Domain](#62-specific-domain)
-  - [6.3 Specific Domain/Entity](#63-specific-domainentity)
+  - [6.1 Interactive Chat](#61-interactive-chat)
+  - [6.2 Single Query](#62-single-query)
+  - [6.3 Batch Catalog Generation](#63-batch-catalog-generation)
+  - [6.4 Comparison with Consumer](#64-comparison-with-consumer)
 - [7. Data Flow](#7-data-flow)
   - [7.1 What Data Sources Does the Agent Use?](#71-what-data-sources-does-the-agent-use)
   - [7.2 Do I Need to Re-Ingest Data?](#72-do-i-need-to-re-ingest-data)
@@ -56,7 +57,7 @@
 
 **Key Design Principle**: **No re-ingestion required** — the agent consumes outputs from `elt_llm_ingest` (JSON sidecars, vector stores) without modification.
 
-**Command**:
+**Commands**:
 ```bash
 # Interactive chat
 uv run python -m elt_llm_agent.chat
@@ -64,7 +65,18 @@ uv run python -m elt_llm_agent.chat
 # Single query
 uv run python -m elt_llm_agent.query \
   -q "What data objects flow through the Player Registration interface?"
+
+# Batch catalog generation (alternative to elt_llm_consumer)
+uv run --package elt-llm-agent elt-llm-agent-consolidated-catalog --domain PARTY
+
+# Compare agent vs consumer outputs
+uv run --package elt-llm-agent python -m elt_llm_agent.compare_catalogs
 ```
+
+**New capabilities (March 2026)**:
+- ✅ **Batch catalog generation** — `agent_consolidated_catalog.py` as alternative to `elt_llm_consumer`
+- ✅ **Comparison tools** — `compare_catalogs.py` for side-by-side quality analysis
+- ✅ **Quality gate** — Hybrid RAG with automatic agent fallback for poor results
 
 ---
 
@@ -118,26 +130,39 @@ Query → Plan → [Tool: JSON Lookup] → [Tool: Graph Traversal] → [Tool: RA
 
 ```
 elt_llm_agent/
-├── ARCHITECTURE.md         # This document
-├── README.md               # Quick start and usage
-├── OPEN_SOURCE_GRAPH_OPTIONS.md  # Graph technology choices
-├── pyproject.toml          # Package configuration
+├── ARCHITECTURE.md                  # This document
+├── README.md                        # Quick start and usage
+├── AGENT_VS_CONSUMER.md             # Detailed comparison with elt_llm_consumer
+├── QUALITY_GATE.md                  # Quality gate implementation
+├── pyproject.toml                   # Package configuration
 └── src/elt_llm_agent/
-    ├── __init__.py         # Exports: ReActAgent, AgentConfig, Memory
-    ├── agent.py            # ReActAgent orchestrator
-    ├── chat.py             # Interactive chat CLI
-    ├── runner.py           # Batch query runner
-    ├── query.py            # CLI alias (convenience)
+    ├── __init__.py                  # Exports: ReActAgent, AgentConfig, Memory
+    ├── agent.py                     # ReActAgent orchestrator
+    ├── chat.py                      # Interactive chat CLI
+    ├── runner.py                    # Batch query runner
+    ├── query.py                     # CLI alias (convenience)
+    ├── agent_consolidated_catalog.py # Batch catalog generation (consumer alternative)
+    ├── compare_catalogs.py          # Consumer vs agent comparison tool
+    ├── test_consumer_vs_agent.py    # Test script for comparison
+    ├── quality_gate.py              # Quality gate for hybrid RAG
     ├── tools/
     │   ├── __init__.py
-    │   ├── rag_query.py    # Wraps elt_llm_query (RAG collections)
-    │   ├── json_lookup.py  # Direct JSON sidecar access
-    │   └── graph_traversal.py  # NetworkX relationship traversal
+    │   ├── rag_query.py             # Wraps elt_llm_query (RAG collections)
+    │   ├── json_lookup.py           # Direct JSON sidecar access
+    │   └── graph_traversal.py       # NetworkX relationship traversal
     ├── planners/
-    │   └── __init__.py     # ReAct + Plan-and-Execute planners
+    │   └── __init__.py              # ReAct + Plan-and-Execute planners
+    ├── enhancements/                # Optional enhancements (Phase 1+)
+    │   ├── answer_critic.py         # LLM-based answer quality evaluation
+    │   └── query_reformulator.py    # Question → affirmative query
     └── memory/
-        └── __init__.py     # Conversation + Workspace memory
+        └── __init__.py              # Conversation + Workspace memory
 ```
+
+**New components (March 2026)**:
+- `agent_consolidated_catalog.py` — Batch catalog generation (alternative to `elt_llm_consumer`)
+- `compare_catalogs.py` — Side-by-side comparison of consumer vs agent outputs
+- `quality_gate.py` — Hybrid RAG with quality-based agent fallback
 
 ---
 
@@ -653,62 +678,108 @@ response = self._synthesize(query, observations)
 
 ## 6. Usage Patterns
 
-### 6.1 All Domains/Entities
+### 6.1 Interactive Chat
 
-**Query**: *"Give me an overview of all domains in the FA conceptual model and their key entities"*
-
-**Agent workflow**:
-```
-1. json_lookup(entity_type="model") → Get all 175 entities
-2. Group by domain (PARTY, AGREEMENTS, etc.)
-3. rag_query(collection="fa_handbook", query="FA domains overview") → Get context
-4. Synthesize structured overview
-```
+**Use case**: Exploratory Q&A with conversation memory
 
 **Command**:
 ```bash
-uv run python -m elt_llm_agent.query \
-  -q "Give me an overview of all domains in the FA conceptual model"
+uv run python -m elt_llm_agent.chat
 ```
+
+**Example session**:
+```
+You: What does the FA Handbook say about Club Official?
+Agent: [Retrieves from fa_handbook, synthesizes answer]
+
+You: What about its relationships?
+Agent: [Uses conversation context, calls graph_traversal]
+
+You: How does this compare to DAMA's guidance?
+Agent: [Queries dama_dmbok collection, synthesizes comparison]
+```
+
+**Commands**:
+- `/reset` — Clear conversation
+- `/trace` — Show reasoning trace
+- `/exit` — Exit
 
 ---
 
-### 6.2 Specific Domain
+### 6.2 Single Query
 
-**Query**: *"What entities are in the PARTY domain and what does the Handbook say about them?"*
-
-**Agent workflow**:
-```
-1. json_lookup(entity_type="model", filter_field="domain", filter_value="PARTY") → Get PARTY entities
-2. For each entity: rag_query(collection="fa_handbook", query="{entity} definition")
-3. Synthesize domain-level answer
-```
+**Use case**: One-off queries without chat session
 
 **Command**:
 ```bash
 uv run python -m elt_llm_agent.query \
-  -q "What entities are in the PARTY domain and what does the Handbook say about them?"
+  -q "What does the FA Handbook say about Club Official?"
 ```
+
+**Options**:
+- `-q, --query` — Query string (required)
+- `-v, --verbose` — Show reasoning trace
+- `--model` — Override LLM model (default: qwen3.5:9b)
+- `--max-iterations` — Max tool calls (default: 5)
 
 ---
 
-### 6.3 Specific Domain/Entity
+### 6.3 Batch Catalog Generation
 
-**Query**: *"Tell me about Club in the PARTY domain"*
-
-**Agent workflow**:
-```
-1. json_lookup(entity_type="model", entity_name="Club") → Get Club from JSON
-2. rag_query(collection="fa_handbook", query="Club definition governance") → Get Handbook context
-3. graph_traversal(entity_name="Club", operation="neighbors") → Get relationships
-4. Synthesize complete answer
-```
+**Use case**: Generate structured catalog for entire domain (alternative to `elt_llm_consumer`)
 
 **Command**:
 ```bash
-uv run python -m elt_llm_agent.query \
-  -q "Tell me about Club in the PARTY domain"
+uv run --package elt-llm-agent elt-llm-agent-consolidated-catalog --domain PARTY
 ```
+
+**Options**:
+- `--domain` — Filter to single domain (e.g. PARTY, AGREEMENTS)
+- `--entity` — Filter to specific entities (comma-separated)
+- `--output-dir` — Output directory (default: .tmp)
+- `--model-json` — Path to LeanIX model JSON
+- `--inventory-json` — Path to LeanIX inventory JSON
+
+**Output**: `.tmp/fa_agent_catalog_{domain}.json`
+
+**Comparison with Consumer**:
+| Aspect | Agent Catalog | Consumer Catalog |
+|--------|--------------|------------------|
+| **Approach** | Agentic RAG (multi-step reasoning) | Traditional RAG (systematic) |
+| **Runtime** | ~10-20 min per domain | ~45-60 min per domain |
+| **Output format** | Structured JSON (agent-extracted fields) | Structured JSON (8-field schema) |
+| **Best for** | Exploration, debugging thin coverage | Stakeholder review, Purview import |
+| **Quality** | Good for well-defined entities | Better for systematic coverage |
+
+**When to use**:
+- ✅ Quick domain scan (faster than consumer)
+- ✅ Debugging LEANIX_ONLY entities (agent may find missed content)
+- ✅ Exploratory analysis (natural language output)
+- ❌ Stakeholder review (use consumer for structured output)
+
+---
+
+### 6.4 Comparison with Consumer
+
+**Use case**: Compare agent vs consumer output quality
+
+**Command**:
+```bash
+# First run both catalogs
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --domain PARTY
+uv run --package elt-llm-agent elt-llm-agent-consolidated-catalog --domain PARTY
+
+# Then compare
+uv run --package elt-llm-agent python -m elt_llm_agent.compare_catalogs
+```
+
+**Output**: Side-by-side comparison showing:
+- Entities where both found good content
+- Entities where consumer found content but agent didn't
+- Entities where agent found content but consumer didn't (LEANIX_ONLY recovery)
+- Entities where both returned empty
+
+**Output files**: `.tmp/comparison_*.json` (detailed per-entity comparison)
 
 ---
 
@@ -770,6 +841,8 @@ See [OPEN_SOURCE_GRAPH_OPTIONS.md](OPEN_SOURCE_GRAPH_OPTIONS.md) for graph techn
 
 ## 9. Performance Characteristics
 
+### Single Query Performance
+
 | Operation | Latency | Notes |
 |-----------|---------|-------|
 | `json_lookup_tool` | < 100ms | O(1) dict lookup |
@@ -778,10 +851,33 @@ See [OPEN_SOURCE_GRAPH_OPTIONS.md](OPEN_SOURCE_GRAPH_OPTIONS.md) for graph techn
 | Full reasoning loop (3 tools) | 10–30s | 3–5 tool calls typical |
 | Complex multi-hop (5+ tools) | 30–60s | 5–10 tool calls |
 
+---
+
+### Batch Catalog Generation Performance
+
+| Domain | Entities | Agent Runtime | Consumer Runtime | Speedup |
+|--------|----------|--------------|------------------|---------|
+| PARTY | 28 | ~10-20 min | ~45-60 min | 3-4x faster |
+| AGREEMENTS | 42 | ~15-30 min | ~60-90 min | 3-4x faster |
+| All domains | 175 | ~60-90 min | ~3-4 hours | 3-4x faster |
+
+**Why agent is faster for batch**:
+- Agent queries only relevant sections (BM25 routing)
+- Consumer queries all 44 handbook sections per entity
+- Agent skips entities with no handbook coverage (faster failure)
+
+**When consumer is better**:
+- Systematic coverage (processes ALL entities)
+- Structured 8-field schema (review-ready)
+- Checkpointing (resume from interruption)
+
+---
+
 **Optimization tips**:
 - Reduce `max_iterations` for faster responses
 - Use `--quiet` mode to skip trace output
 - For batch jobs, parallelize independent queries
+- Use agent for quick scans, consumer for final review
 
 ---
 

@@ -245,45 +245,66 @@ class ReActAgent:
         )
 
     def _synthesize(self, query: str, observations: list[dict[str, Any]]) -> str:
-        """Synthesize final answer from observations.
+        """Synthesize final answer from observations using LLM.
 
         Args:
             query: Original query
             observations: Tool call results
 
         Returns:
-            Synthesized answer
+            Synthesized answer from LLM
         """
-        # Simple synthesis: combine observations
-        # In production, this would call the LLM with a synthesis prompt
-
+        from elt_llm_core.models import create_llm_model
+        from elt_llm_core.config import load_config
+        from pathlib import Path
+        
         if not observations:
             return "I was unable to gather sufficient information to answer your query."
 
-        # Combine tool results
-        parts = []
+        # Combine tool results into context
+        context_parts = []
         for obs in observations:
             tool = obs.get("tool")
             result = obs.get("observation", "")
+            if isinstance(result, str) and len(result) > 0:
+                # Truncate very long results
+                if len(result) > 2000:
+                    result = result[:2000] + "... (truncated)"
+                context_parts.append(f"--- {tool.upper()} ---\n{result}")
+        
+        retrieved_context = "\n\n".join(context_parts)
+        
+        # Build synthesis prompt
+        synthesis_prompt = f"""You are an expert analyst. Synthesize a comprehensive answer based on the retrieved information below.
 
-            if isinstance(result, str):
-                # Truncate long results
-                if len(result) > 1000:
-                    result = result[:1000] + "... (truncated)"
-                parts.append(f"[{tool.upper()}]\n{result}")
+ORIGINAL QUERY:
+{query}
 
-        # Add synthesis header
-        synthesis = [
-            f"Based on my analysis of your query: \"{query}\"\n",
-            "I gathered information from multiple sources:",
-            "",
-            "\n\n".join(parts),
-            "",
-            "---",
-            "Note: This is a simplified synthesis. Enable LLM-based synthesis for better answers.",
-        ]
+RETRIEVED INFORMATION:
+{retrieved_context}
 
-        return "\n".join(synthesis)
+INSTRUCTIONS:
+1. Read all retrieved information carefully
+2. Synthesize a coherent, comprehensive answer
+3. Cite specific sources where possible (e.g. "According to FA Handbook Section...")
+4. If information is conflicting, note the discrepancy
+5. If information is missing, acknowledge the gap
+
+SYNTHESIZED ANSWER:
+"""
+        
+        # Call LLM for synthesis
+        try:
+            rag_config = load_config(Path("elt_llm_ingest/config/rag_config.yaml"))
+            llm = create_llm_model(rag_config.ollama)
+            response = llm.complete(synthesis_prompt)
+            return str(response).strip()
+        except Exception as e:
+            logger.warning("LLM synthesis failed: %s, falling back to concatenation", e)
+            # Fallback to simple concatenation
+            parts = [f"[{tool.upper()}]\n{obs.get('observation', '')}" 
+                    for obs in observations if obs.get('observation')]
+            return "\n\n".join(parts) if parts else "No information found."
 
     def chat(self, message: str) -> str:
         """Chat with the agent (maintains conversation context).

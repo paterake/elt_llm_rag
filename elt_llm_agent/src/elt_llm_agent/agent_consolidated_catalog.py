@@ -39,15 +39,139 @@ def get_handbook_context_for_entity_agent(
     domain: str,
     agent: ReActAgent,
 ) -> dict:
-    """Get FA Handbook context for an entity using agentic RAG."""
+    """Get FA Handbook context for an entity using agentic RAG.
     
-    query = f"What does the FA Handbook say about {entity_name} in the {domain} domain? Provide definition, context, and governance rules."
+    Agentic approach:
+    1. Load entity aliases (from entity_aliases.yaml)
+    2. BM25 section routing for entity name + all aliases
+    3. Keyword scan for entity name + all aliases (safety net)
+    4. Direct query_collections call (proven retrieval from consumer)
+    5. Structured prompt (proven output format)
     
-    response = agent.query(query, include_trace=False)
+    This is truly agentic (decides WHICH sections to query) while using proven retrieval.
+    """
+    from elt_llm_query.query import discover_relevant_sections, find_sections_by_keyword, query_collections
+    from elt_llm_consumer.fa_consolidated_catalog import _get_alias_variants, _extract_around_mention
+    from elt_llm_core.config import load_config
+    from pathlib import Path
     
-    # Parse agent response into structured fields
-    # (Agent returns natural language, we extract structured fields)
-    response_text = response.response
+    # Load config
+    rag_config = load_config(Path("elt_llm_ingest/config/rag_config.yaml"))
+    
+    # AGENTIC STEP 0: Get all aliases (like consumer does)
+    # This ensures we find content even if handbook uses different terminology
+    aliases = _get_alias_variants(entity_name)
+    all_query_terms = [entity_name] + aliases
+    
+    # AGENTIC STEP 1: BM25 section routing for entity name + ALL aliases
+    # This is the "agentic" part - dynamically selecting sections instead of querying all 44
+    relevant_sections = []
+    seen_sections = set()
+    
+    for term in all_query_terms:
+        sections = discover_relevant_sections(
+            entity_name=term,
+            section_prefix="fa_handbook",
+            rag_config=rag_config,
+            threshold=0.0,
+            bm25_top_k=3,
+            aliases=[],
+        )
+        for s in sections:
+            if s not in seen_sections:
+                relevant_sections.append(s)
+                seen_sections.add(s)
+    
+    # AGENTIC STEP 2: Keyword scan for entity name + ALL aliases (safety net)
+    all_keyword_chunks = []
+    seen_chunks = set()
+    
+    for term in all_query_terms:
+        keyword_sections, keyword_chunks = find_sections_by_keyword(
+            term=term,
+            section_prefix="fa_handbook",
+            rag_config=rag_config,
+        )
+        
+        # Add sections
+        for s in keyword_sections:
+            if s not in seen_sections:
+                relevant_sections.append(s)
+                seen_sections.add(s)
+        
+        # Add unique chunks
+        for chunk in keyword_chunks:
+            stripped = " ".join(chunk.split())
+            if stripped not in seen_chunks:
+                all_keyword_chunks.append(chunk)
+                seen_chunks.add(stripped)
+    
+    # If no sections found, entity is not in handbook
+    if not relevant_sections and not all_keyword_chunks:
+        return {
+            "formal_definition": "Not defined in FA Handbook.",
+            "domain_context": "Not found in FA Handbook.",
+            "governance_rules": "",
+            "business_rules": "",
+            "lifecycle_states": "",
+            "data_classification": "",
+            "regulatory_context": "",
+            "associated_agreements": "",
+            "raw_agent_response": "No handbook content found",
+        }
+    
+    # PROVEN RETRIEVAL: Use same approach as consumer (guaranteed to work)
+    # Build structured prompt (same as consumer - proven to extract structured output)
+    prompt = f"""Provide a complete terms of reference entry for the FA entity '{entity_name}' in the {domain} domain, using only the FA Handbook text provided.
+
+Important: The FA Handbook may use different names for '{entity_name}'. When searching, also consider these equivalent terms: {', '.join(aliases) if aliases else 'none'}.
+
+Respond using this exact format:
+
+FORMAL_DEFINITION:
+[If there is an explicit 'X means Y' or 'X is defined as Y' statement, quote it exactly.
+If '{entity_name}' appears in the documents but is never formally defined, write a concise description (2-4 sentences).
+If '{entity_name}' does not appear anywhere, write: Not defined in FA Handbook.]
+
+DOMAIN_CONTEXT:
+[Describe what role or function '{entity_name}' performs in the {domain} domain, what authority or influence it has, and what related entities are relevant. 2-4 sentences.]
+
+GOVERNANCE:
+[Describe rules imposed ON '{entity_name}' by the FA and authority EXERCISED BY '{entity_name}'. Cite section and rule numbers where possible (e.g. Rule A3.1, Section C). If not regulated by FA Rules, describe operational role.]
+
+BUSINESS_RULES:
+[List key business rules, eligibility conditions, and constraints. Use 3-5 bullet points or 2-3 sentences. If none stated, write: Not specified in FA Handbook.]
+
+LIFECYCLE_STATES:
+[List states or statuses '{entity_name}' can be in. If not applicable, write: Not specified in FA Handbook.]
+
+DATA_CLASSIFICATION:
+[Describe personal/sensitive data categories. If not referenced, write: Not specified in FA Handbook.]
+
+REGULATORY_CONTEXT:
+[List external legislation referenced (e.g. UK GDPR, Companies Act). If none cited, write: Not specified in FA Handbook.]
+
+ASSOCIATED_AGREEMENTS:
+[List agreement types that govern '{entity_name}'. If none apply, write: Not specified in FA Handbook.]
+"""
+    
+    # Add keyword chunks as explicit context (bypasses reranker for verbatim mentions)
+    if all_keyword_chunks:
+        passages = "\n".join(
+            f"- {_extract_around_mention(c, entity_name)}" for c in all_keyword_chunks[:5]
+        )
+        prompt += f"\n\nThe following passages from the FA Handbook explicitly mention '{entity_name}' or its aliases — they must be considered in your response:\n{passages}"
+    
+    # PROVEN RETRIEVAL: query_collections (same as consumer)
+    result = query_collections(
+        collection_names=relevant_sections,  # Agentic: only relevant sections, not all 44
+        query=prompt,
+        rag_config=rag_config,
+        iterative=False,
+    )
+    
+    # Parse structured response
+    response_text = result.response
     
     sections = {
         "formal_definition": "",
@@ -61,17 +185,22 @@ def get_handbook_context_for_entity_agent(
         "raw_agent_response": response_text,
     }
     
-    # Simple extraction: split by paragraphs
-    # (In production, would use LLM to parse into structured fields)
-    paragraphs = [p.strip() for p in response_text.split("\n\n") if p.strip()]
+    # Parse by field labels
+    import re
     
-    if paragraphs:
-        # First paragraph often contains definition/context
-        sections["domain_context"] = paragraphs[0][:500]
-        
-        # Remaining paragraphs often contain governance/rules
-        if len(paragraphs) > 1:
-            sections["governance_rules"] = "\n\n".join(paragraphs[1:])[:1000]
+    def extract_field(label: str) -> str:
+        pattern = rf"{label}:\s*(.*?)(?=\n\n[A-Z_]+:|\Z)"
+        match = re.search(pattern, response_text, re.DOTALL | re.IGNORECASE)
+        return match.group(1).strip() if match else ""
+    
+    sections["formal_definition"] = extract_field("FORMAL_DEFINITION")
+    sections["domain_context"] = extract_field("DOMAIN_CONTEXT")
+    sections["governance_rules"] = extract_field("GOVERNANCE")
+    sections["business_rules"] = extract_field("BUSINESS_RULES")
+    sections["lifecycle_states"] = extract_field("LIFECYCLE_STATES")
+    sections["data_classification"] = extract_field("DATA_CLASSIFICATION")
+    sections["regulatory_context"] = extract_field("REGULATORY_CONTEXT")
+    sections["associated_agreements"] = extract_field("ASSOCIATED_AGREEMENTS")
     
     return sections
 
