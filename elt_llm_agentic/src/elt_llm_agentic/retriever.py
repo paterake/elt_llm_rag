@@ -225,8 +225,11 @@ class AgenticRetriever:
                 query = action["query"]
                 sections = action.get("sections") or []
                 if not sections:
-                    # Auto-route: BM25 section discovery
-                    sections = self._route_sections(entity_name, aliases, rag_config)
+                    # Auto-route: BM25 section discovery.
+                    # Pass the LLM's chosen query as an extra routing term so that
+                    # reformulated queries (e.g. "casual worker employment status"
+                    # on iteration 2) can surface different sections than iteration 1.
+                    sections = self._route_sections(entity_name, aliases, rag_config, extra_query=query)
 
                 obs = self._rag_retrieve(query, sections, rag_config)
                 tried_queries.add(query)
@@ -310,8 +313,14 @@ class AgenticRetriever:
         entity_name: str,
         aliases: list[str],
         rag_config: Any,
+        extra_query: str | None = None,
     ) -> list[str]:
-        """BM25 section routing for entity name + aliases (same as consumer Stage 1a+1c)."""
+        """BM25 section routing for entity name + aliases + optional LLM query.
+
+        extra_query: the LLM's reformulated query text (e.g. from iteration 2+).
+        Passed as an additional BM25 term so reformulated queries can surface
+        sections the entity name + aliases alone would miss.
+        """
         from elt_llm_query.query import discover_relevant_sections, find_sections_by_keyword
 
         seen: set[str] = set()
@@ -331,7 +340,24 @@ class AgenticRetriever:
                 sections.append(s)
                 seen.add(s)
 
-        # Keyword scan for all alias terms (catches entities whose handbook name differs)
+        # If the LLM chose a reformulated query, also route with it as entity_name.
+        # This allows iteration 2+ RETRIEVE calls to discover sections that the
+        # original entity name / aliases didn't surface.
+        if extra_query and extra_query.lower() != entity_name.lower():
+            extra_sections = discover_relevant_sections(
+                entity_name=extra_query,
+                section_prefix=self.config.section_prefix,
+                rag_config=rag_config,
+                threshold=0.0,
+                bm25_top_k=3,
+                aliases=[],
+            )
+            for s in extra_sections:
+                if s not in seen:
+                    sections.append(s)
+                    seen.add(s)
+
+        # Keyword scan for entity name + all alias terms
         for term in [entity_name] + aliases:
             ks, _ = find_sections_by_keyword(term, self.config.section_prefix, rag_config)
             for s in ks:

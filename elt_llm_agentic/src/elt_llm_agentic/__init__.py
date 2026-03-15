@@ -16,5 +16,11 @@ Batch catalog:
 """
 
 from elt_llm_agentic.retriever import AgenticRetriever, RetrieverConfig
+from elt_llm_agentic.memory import ConversationMemory, WorkspaceMemory
+from elt_llm_agentic.quality_gate import quality_gated_query, evaluate_quality
 
-__all__ = ["AgenticRetriever", "RetrieverConfig"]
+__all__ = [
+    "AgenticRetriever", "RetrieverConfig",
+    "ConversationMemory", "WorkspaceMemory",
+    "quality_gated_query", "evaluate_quality",
+]

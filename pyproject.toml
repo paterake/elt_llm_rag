@@ -12,7 +12,6 @@ members = [
     "elt_llm_query",
     "elt_llm_api",
     "elt_llm_consumer",
-    "elt_llm_agent",
     "elt_llm_agentic",
 ]
 
@@ -22,7 +21,6 @@ elt-llm-ingest = { workspace = true }
 elt-llm-query = { workspace = true }
 elt-llm-api = { workspace = true }
 elt-llm-consumer = { workspace = true }
-elt-llm-agent = { workspace = true }
 elt-llm-agentic = { workspace = true }
 
 [dependency-groups]

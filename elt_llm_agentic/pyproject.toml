@@ -8,10 +8,12 @@ dependencies = [
     "elt-llm-core>=0.1.0",
     "elt-llm-query>=0.1.0",
     "elt-llm-consumer>=0.1.0",
+    "networkx>=3.0",
 ]
 
 [project.scripts]
 elt-llm-agentic-catalog = "elt_llm_agentic.fa_agentic_catalog:main"
+elt-llm-agentic-chat = "elt_llm_agentic.chat:main"
 
 [build-system]
 requires = ["uv_build>=0.9.15,<0.10.0"]

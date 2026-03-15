@@ -18,6 +18,35 @@ FA Handbook and LeanIX collections must be ingested first — see [elt_llm_inges
 
 ---
 
+## Interactive Chat
+
+```bash
+# Default: FA Handbook only
+uv run --package elt-llm-agentic elt-llm-agentic-chat
+
+# Broader profile (LeanIX + Handbook)
+uv run --package elt-llm-agentic elt-llm-agentic-chat --profile fa_enterprise_architecture
+```
+
+Commands in chat: `/reset`, `/history`, `/graph <entity> [operation]`, `/exit`
+
+---
+
+## Graph Traversal
+
+```bash
+# From Python
+from elt_llm_agentic.graph_traversal import graph_traversal
+
+graph_traversal("Club", operation="neighbors")
+graph_traversal("Player", operation="ego_graph", max_depth=2)
+graph_traversal("Club", operation="ancestors")
+```
+
+Or from the chat session: `/graph Club neighbors`
+
+---
+
 ## Generate Agentic Catalog
 
 ```bash
