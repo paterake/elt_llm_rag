@@ -38,6 +38,37 @@ _REPO_ROOT = Path(__file__).parent.parent.parent.parent  # elt_llm_rag/
 _DEFAULT_RAG_CONFIG = _REPO_ROOT / "elt_llm_ingest/config/rag_config.yaml"
 
 # ---------------------------------------------------------------------------
+# Boilerplate detection — used by the KEYWORD guard to distinguish
+# "found real content" from "retrieval returned but LLM synthesised nothing"
+# ---------------------------------------------------------------------------
+
+_BOILERPLATE_FRAGMENTS = (
+    "not defined in fa handbook",
+    "not specified in fa handbook",
+    "not listed in the document",
+    "not mentioned in the",
+    "no governance rules are imposed",
+    "no specific rules imposed",
+    "no specific governance",
+    "no authority is explicitly",
+    "does not exercise any authority",
+    "is absent",
+    "no information available",
+    "the provided text does not",
+    "i was unable to",
+    "i cannot find",
+    "no equivalent definition",
+    "no explicit governance",
+)
+
+
+def _is_boilerplate(text: str) -> bool:
+    """Return True if the text is a boilerplate negative/empty response."""
+    lower = text.strip().lower()
+    return any(frag in lower[:400] for frag in _BOILERPLATE_FRAGMENTS)
+
+
+# ---------------------------------------------------------------------------
 # Action types returned by _decide_action
 # ---------------------------------------------------------------------------
 
@@ -314,15 +345,26 @@ class AgenticRetriever:
             response = str(llm.complete(prompt)).strip()
             action = _parse_action(response)
 
-            # Guard: if LLM wants to stop but nothing has been found yet and no
-            # keyword scan has been attempted, force one keyword pass first.
-            # This prevents premature DONE on entities where the entity name appears
-            # in context (e.g. "mentor support") rather than as a primary subject,
-            # and where BM25/vector routing returns sparse or empty results.
+            # Guard: if LLM wants to stop but no *substantive* content has been
+            # found yet and no keyword scan has been attempted, force one keyword
+            # pass first.  "Substantive" means the retrieval returned real content,
+            # not just boilerplate ("Not defined in FA Handbook", "No governance
+            # rules are imposed on...", etc.).  This catches the common failure mode
+            # where iter 1 returns > 100 chars of boilerplate so has_content=True,
+            # the LLM reads "found content" and declares DONE — even though the
+            # content is semantically empty.
             if action["type"] == "DONE":
-                no_content = not any(o.get("has_content") for o in observations)
+                has_substantive = any(
+                    o.get("has_content") and not _is_boilerplate(o.get("content", ""))
+                    for o in observations
+                    if o["type"] == "rag"
+                ) or any(
+                    o.get("has_content")
+                    for o in observations
+                    if o["type"] == "keyword"
+                )
                 no_keyword_tried = not any(o["type"] == "keyword" for o in observations)
-                if no_content and no_keyword_tried:
+                if not has_substantive and no_keyword_tried:
                     terms = aliases[:3] if aliases else [entity_name]
                     return {"type": "KEYWORD", "terms": terms}
 
