@@ -295,14 +295,38 @@ class AgenticRetriever:
             tried_summary=tried_summary,
         )
 
-        # Early-exit: skip LLM call if no observations yet (always RETRIEVE first)
+        # Early-exit: skip LLM call if no observations yet (always RETRIEVE first).
+        # Use a structured question (not bare entity name) so semantic similarity
+        # activates chunks where the entity appears in governance/definition context
+        # rather than only where the name is the primary subject.
         if not observations:
-            return {"type": "RETRIEVE", "query": entity_name, "sections": []}
+            return {
+                "type": "RETRIEVE",
+                "query": (
+                    f"What is '{entity_name}' in the FA Handbook? "
+                    "Provide its definition, governance rules, and regulatory context."
+                ),
+                "sections": [],
+            }
 
         try:
             llm = self._get_llm()
             response = str(llm.complete(prompt)).strip()
-            return _parse_action(response)
+            action = _parse_action(response)
+
+            # Guard: if LLM wants to stop but nothing has been found yet and no
+            # keyword scan has been attempted, force one keyword pass first.
+            # This prevents premature DONE on entities where the entity name appears
+            # in context (e.g. "mentor support") rather than as a primary subject,
+            # and where BM25/vector routing returns sparse or empty results.
+            if action["type"] == "DONE":
+                no_content = not any(o.get("has_content") for o in observations)
+                no_keyword_tried = not any(o["type"] == "keyword" for o in observations)
+                if no_content and no_keyword_tried:
+                    terms = aliases[:3] if aliases else [entity_name]
+                    return {"type": "KEYWORD", "terms": terms}
+
+            return action
         except Exception as e:
             logger.warning("_decide_action LLM call failed (%s) — forcing DONE", e)
             return {"type": "DONE"}
@@ -370,29 +394,10 @@ class AgenticRetriever:
 
         return sections
 
-    def _get_all_sections(self, rag_config: Any) -> list[str]:
-        """Return all handbook section collection names as a broad fallback."""
-        try:
-            from elt_llm_core.vector_store import get_chroma_client
-            client = get_chroma_client(rag_config)
-            prefix = self.config.section_prefix + "_s"
-            return sorted(c.name for c in client.list_collections() if c.name.startswith(prefix))
-        except Exception as e:
-            logger.warning("_get_all_sections failed: %s", e)
-            return []
-
     def _rag_retrieve(self, query: str, sections: list[str], rag_config: Any) -> str:
-        """Run query_collections and return the synthesised response text.
-
-        When routing produces no sections (BM25 found nothing for this entity),
-        falls back to querying all handbook sections — same broad behaviour as
-        the consumer's naive pipeline, which never returns nothing just because
-        BM25 routing failed.
-        """
+        """Run query_collections and return the synthesised response text."""
         from elt_llm_query.query import query_collections
 
-        if not sections:
-            sections = self._get_all_sections(rag_config)
         if not sections:
             return ""
         try:
