@@ -244,7 +244,7 @@ This solution combines **AI components** (RAG, LLM, prompts) with **custom code*
 - **MMR (Maximal Marginal Relevance)**: Prevents near-duplicate chunks from dominating results
 - **Table-aware chunking**: FA Handbook definitions table (Rules §8) kept intact — no split definitions
 
-**For a detailed walkthrough of the RAG+LLM flow** (with visual diagrams), see [SOLUTION_OVERVIEW.md](SOLUTION_OVERVIEW.md) Parts 2-3.
+**For a detailed walkthrough of the RAG+LLM flow** (with visual diagrams), see [COMPLETE_DATA_FLOW.md](COMPLETE_DATA_FLOW.md) Part 2.
 
 See [RAG_STRATEGY.md](RAG_STRATEGY.md) for full pipeline detail, config knobs, and enhancement roadmap.
 
@@ -820,83 +820,91 @@ See [elt_llm_consumer/ARCHITECTURE.md](elt_llm_consumer/ARCHITECTURE.md) for the
 
 ---
 
-### 7.3 Agent Layer: Agentic RAG
+### 7.3 Agentic RAG Layer
 
-**Module**: `elt_llm_agent`  
-**Purpose**: Interactive, multi-step reasoning across data sources  
-**Start here**: [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture
+**Module**: `elt_llm_agentic`
+**Purpose**: LLM-driven iterative retrieval — the LLM decides what to query next based on observations
+
+**Start here**: [elt_llm_agentic/README.md](elt_llm_agentic/README.md) for commands, [elt_llm_agentic/ARCHITECTURE.md](elt_llm_agentic/ARCHITECTURE.md) for architecture
 
 **What is Agentic RAG?**
 
-Agentic RAG adds an **orchestration layer** on top of existing RAG infrastructure. Instead of single-shot retrieval (one query → one collection → one answer), the agent:
-1. Receives natural language questions (no collection name needed)
-2. Plans multi-step reasoning loops (which tools to call, in what order)
-3. Executes tools (JSON lookup, graph traversal, RAG queries)
-4. Synthesizes final answer from multiple sources with citations
+Agentic RAG uses an **LLM-driven ReAct loop** where the LLM reads what has been retrieved so far and decides the next action. Unlike the consumer's fixed 7-step pipeline, agentic retrieval adapts per entity:
 
-**Hybrid Agentic RAG Pattern** (Quality Gate + ReAct):
 ```
-Query → Classic RAG (2-6s) → Quality Gate (<10ms) → Pass? → Return (fast path)
-                                    ↓ Fail
-                                    ↓
-                            ReAct Agent (10-30s)
-                            Plan → [Tools] → Synthesize
+Iteration 1: RETRIEVE query: "Club Official governance"
+             ↓
+             LLM reads observations: "Sparse results, no definitions found"
+             ↓
+Iteration 2: KEYWORD terms: ["officer", "director", "secretary"]
+             ↓
+             LLM reads observations: "Found content in s10, s21"
+             ↓
+Iteration 3: RETRIEVE sections: ["fa_handbook_s10", "fa_handbook_s21"] query: "Club Official means definition"
+             ↓
+             LLM decides: DONE (sufficient evidence gathered)
+```
+
+**Key difference from consumer**:
+| Aspect | Consumer (naive) | Agentic |
+|--------|-----------------|---------|
+| Step 5 retrieval | Fixed: BM25 route → single query | Iterative: LLM decides next query |
+| Iteration count | 1 per entity | 1–5 per entity (LLM-controlled) |
+| Decision logic | Deterministic pipeline | LLM reads observations, picks RETRIEVE/KEYWORD/DONE |
+| Output field | — | `agentic_trace` (full per-iteration log) |
+
+**Quality Gate Pattern** (fast by default, agentic when needed):
+```
+Single Query → query_collections (fast path, ~2–6s) → Quality Gate (<10ms) → Pass? → Return
+                                            ↓ Fail
+                                            ↓
+                                    AgenticRetriever (~10–30s)
 ```
 
 **Key Components**:
-| Component | Purpose | Latency | Uses LLM? |
-|-----------|---------|---------|-----------|
-| **Classic RAG** | Fast path for simple queries | 2-6s | Yes (synthesis) |
-| **Quality Gate** | Rule-based routing decision | <10ms | ❌ No |
-| **ReAct Agent** | Slow path for complex queries | 10-30s | Yes (planning + synthesis) |
+| Component | Purpose | Latency |
+|-----------|---------|---------|
+| **AgenticRetriever** | LLM-driven iterative retrieval | ~10-30s per entity |
+| **quality_gated_query()** | Fast RAG + quality check + agentic fallback | ~2-30s (usually fast) |
+| **elt-llm-agentic-chat** | Interactive Q&A with conversation memory | ~2-6s per query |
+| **elt-llm-agentic-catalog** | Batch catalog for comparison with consumer | ~10-20 min (PARTY) |
 
-**Quality Gate Checks** (rule-based, no LLM):
-- ✓ Has citations? (`len(source_nodes) > 0`)
-- ✓ Not empty/hedged? (no "not defined", "LEANIX_ONLY", etc.)
-- ✓ Not too short? (`len(response) > 100`)
-- ✓ Not generic? (no "the provided documents", etc.)
+**When to Use Agentic vs Consumer**:
 
-**Key Tools** (used by agent):
-| Tool | Purpose | Uses |
-|------|---------|------|
-| `rag_query_tool` | Query RAG collections | `elt_llm_query` |
-| `json_lookup_tool` | Direct JSON sidecar access | `.tmp/*_model.json`, `*_inventory.json`, consumer catalog |
-| `graph_traversal_tool` | Relationship traversal | NetworkX (in-memory graph) |
-
-**When to Use Agent vs Consumer**:
-
-| Goal | Use Agent | Use Consumer |
-|------|-----------|--------------|
-| **Structured JSON output** | ❌ No | ✅ Yes |
-| **Complete entity coverage** | ❌ No (query-driven) | ✅ Yes (all 175 entities) |
-| **Interactive Q&A** | ✅ Yes (chat-style) | ❌ No (batch only) |
-| **Fast response (<30s)** | ❌ No (10–30s) | ❌ No (45–60 min) |
+| Goal | Use Agentic | Use Consumer |
+|------|-------------|--------------|
+| **Structured JSON output** | ✅ Yes (catalog) | ✅ Yes (catalog) |
+| **Complete entity coverage** | ✅ Yes (28/28 BOTH) | ⚠️ Partial (18/28 BOTH) |
+| **Interactive Q&A** | ✅ Yes (chat with memory) | ❌ No (batch only) |
+| **Fast response (<30s)** | ✅ Yes (quality gate fast path) | ❌ No (45–60 min) |
 | **Follow-up questions** | ✅ Yes (conversation memory) | ❌ No (stateless) |
-| **Graph traversal** | ✅ Yes (NetworkX) | ❌ No (direct lookup) |
-| **Downstream import** | ❌ No (prose output) | ✅ Yes (schema-enforced JSON) |
+| **Graph traversal** | ✅ Yes (`/graph` command) | ❌ No (direct lookup) |
+| **Downstream import** | ✅ Yes (same schema as consumer) | ✅ Yes (schema-enforced JSON) |
+| **Benchmarking** | ✅ Yes (compare vs consumer) | ✅ Yes (baseline) |
 
 **Example Commands**:
 ```bash
+# Single query with quality gate (fast by default, agentic fallback)
+python3 -c "from elt_llm_agentic import quality_gated_query; print(quality_gated_query('Club Official', 'PARTY', verbose=True))"
+
 # Interactive chat (uses quality gate automatically)
-uv run python -m elt_llm_agent.chat
+uv run --package elt-llm-agentic elt-llm-agentic-chat
 
-# Single query with quality gate
-uv run python -m elt_llm_agent.query \
-  -q "What data objects flow through the Player Registration interface?"
+# Batch catalog generation (compare against consumer)
+uv run --package elt-llm-agentic elt-llm-agentic-catalog --domain PARTY --verbose
 
-# Batch queries
-uv run python -m elt_llm_agent.query --file queries.json --output results.json
-
-# Test quality gate performance
-uv run python test_quality_gate.py
+# Graph traversal from chat
+/graph Club neighbors
 ```
 
-**Performance** (with Quality Gate):
+**Performance** (PARTY domain, 28 entities):
 
-| Metric | Always Agent | Quality Gate | Improvement |
-|--------|--------------|--------------|-------------|
-| Simple query | 10-30s | 2-6s | 70-80% faster |
-| Complex query | 10-30s | 10-30s | Same |
+| Metric | Consumer | Agentic | Improvement |
+|--------|----------|---------|-------------|
+| BOTH entities | 18/28 (64%) | 28/28 (100%) | +10 entities |
+| Governance rules | 17/28 (61%) | 26/28 (93%) | +9 entities |
+| Formal definitions | 10/28 (36%) | 8/28 (29%) | -2 (Step 3 pre-extraction) |
+| Runtime | ~45-60 min | ~10-20 min | 3-4x faster |
 | **Average** (80% simple, 20% complex) | 10-30s | **4-8s** | **60-75% faster** |
 
 **Expected Distribution**:
@@ -964,7 +972,7 @@ Query: "What does the FA Handbook say about Club Official?"
 - NetworkX (BSD) — Graph traversal (no Neo4j required)
 - ChromaDB (Apache 2.0) — Vector store (via `elt_llm_query`)
 
-See [elt_llm_agent/ARCHITECTURE.md](elt_llm_agent/ARCHITECTURE.md) for complete agent architecture, [elt_llm_agent/QUALITY_GATE.md](elt_llm_agent/QUALITY_GATE.md) for quality gate implementation details, or [elt_llm_agent/AGENT_VS_CONSUMER.md](elt_llm_agent/AGENT_VS_CONSUMER.md) for detailed comparison with `elt_llm_consumer`.
+See [elt_llm_agentic/README.md](elt_llm_agentic/README.md) for complete agentic architecture, [elt_llm_agentic/quality_gate.py](elt_llm_agentic/src/elt_llm_agentic/quality_gate.py) for quality gate implementation details, or [elt_llm_agentic/README.md](elt_llm_agentic/README.md#compare-with-consumer) for detailed comparison with `elt_llm_consumer`.
 
 ---
 
@@ -1060,7 +1068,7 @@ elt_llm_rag/
 │   ├── fa_handbook_model_builder.py
 │   └── fa_coverage_validator.py
 │
-└── elt_llm_agent/          # Agentic RAG orchestration
+└── elt_llm_agentic/        # Agentic RAG orchestration
     ├── agent.py            # ReActAgent orchestrator
     ├── chat.py             # Interactive chat CLI
     ├── runner.py           # Batch query runner
@@ -1078,7 +1086,7 @@ elt_llm_rag/
 | `elt_llm_query/` | Query interface | [README](elt_llm_query/README.md) |
 | `elt_llm_api/` | Gradio GUI + API | [README](elt_llm_api/README.md) |
 | `elt_llm_consumer/` | Purpose-built output generators | [README](elt_llm_consumer/README.md), [ARCHITECTURE](elt_llm_consumer/ARCHITECTURE.md) |
-| `elt_llm_agent/` 🆕 | Agentic RAG orchestration | [README](elt_llm_agent/README.md), [ARCHITECTURE](elt_llm_agent/ARCHITECTURE.md) |
+| `elt_llm_agentic/` 🆕 | Agentic RAG orchestration | [README](elt_llm_agentic/README.md) |
 
 ---
 

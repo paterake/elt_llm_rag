@@ -260,7 +260,7 @@ with open(output_dir / "fa_consolidated_catalog.json", "w") as f:
 | **Output schema** | Strict 8-field | 8-field (extracted) |
 | **Best for** | Stakeholder review, Purview import | Quick scans, debugging |
 
-See [elt_llm_agent/AGENT_VS_CONSUMER.md](../elt_llm_agent/AGENT_VS_CONSUMER.md) for detailed comparison.
+See [elt_llm_agentic/README.md](../elt_llm_agentic/README.md) for detailed comparison.
 
 ---
 
@@ -268,4 +268,4 @@ See [elt_llm_agent/AGENT_VS_CONSUMER.md](../elt_llm_agent/AGENT_VS_CONSUMER.md) 
 
 - [README.md](README.md) — Quick commands
 - [RAG_PIPELINE_DEEP_DIVE.md](../RAG_PIPELINE_DEEP_DIVE.md) — Retrieval stage details
-- [elt_llm_agent/AGENT_VS_CONSUMER.md](../elt_llm_agent/AGENT_VS_CONSUMER.md) — Agent vs consumer comparison
+- [elt_llm_agentic/README.md](../elt_llm_agentic/README.md) — Agentic vs consumer comparison

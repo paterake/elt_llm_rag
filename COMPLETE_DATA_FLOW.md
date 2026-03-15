@@ -295,7 +295,7 @@ Each collection has:
 
 ---
 
-## Part 2: Retrieval (elt_llm_consumer / elt_llm_agent)
+## Part 2: Retrieval (elt_llm_consumer / elt_llm_agentic)
 
 ### The Critical Flow: How Chunks Reach the LLM Prompt
 
