@@ -34,6 +34,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent  # elt_llm_rag/
+_DEFAULT_RAG_CONFIG = _REPO_ROOT / "elt_llm_ingest/config/rag_config.yaml"
+
 # ---------------------------------------------------------------------------
 # Action types returned by _decide_action
 # ---------------------------------------------------------------------------
@@ -153,7 +156,7 @@ class RetrieverConfig:
     """
 
     max_iterations: int = 5
-    rag_config_path: Path = Path("elt_llm_ingest/config/rag_config.yaml")
+    rag_config_path: Path = field(default_factory=lambda: _DEFAULT_RAG_CONFIG)
     section_prefix: str = "fa_handbook"
     keyword_chunk_limit: int = 8
     verbose: bool = False

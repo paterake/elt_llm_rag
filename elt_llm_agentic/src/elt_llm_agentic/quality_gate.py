@@ -35,6 +35,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent  # elt_llm_rag/
+_DEFAULT_RAG_CONFIG = _REPO_ROOT / "elt_llm_ingest/config/rag_config.yaml"
+
 
 # ---------------------------------------------------------------------------
 # Quality evaluation
@@ -139,7 +142,7 @@ def quality_gated_query(
     aliases: list[str] | None = None,
     rag_config: Any = None,
     collections: list[str] | None = None,
-    rag_config_path: Path = Path("elt_llm_ingest/config/rag_config.yaml"),
+    rag_config_path: Path = _DEFAULT_RAG_CONFIG,
     min_quality_score: float = 0.5,
     verbose: bool = False,
 ) -> dict:

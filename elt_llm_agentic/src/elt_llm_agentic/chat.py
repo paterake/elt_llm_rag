@@ -22,6 +22,9 @@ from pathlib import Path
 
 from elt_llm_agentic.memory import ConversationMemory
 
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent  # elt_llm_rag/
+_DEFAULT_RAG_CONFIG = _REPO_ROOT / "elt_llm_ingest/config/rag_config.yaml"
+
 
 def _get_collections(profile: str, rag_config: object) -> list[str]:
     """Resolve collection names for a named profile."""
@@ -58,7 +61,7 @@ def main() -> None:
         help="Query profile (default: fa_handbook_only). See elt_llm_query README for options.",
     )
     parser.add_argument(
-        "--config", type=Path, default=Path("elt_llm_ingest/config/rag_config.yaml"),
+        "--config", type=Path, default=_DEFAULT_RAG_CONFIG,
         help="Path to rag_config.yaml",
     )
     parser.add_argument("--quiet", action="store_true", help="Hide source citations")

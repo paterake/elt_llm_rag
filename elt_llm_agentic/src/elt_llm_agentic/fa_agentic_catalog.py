@@ -46,9 +46,10 @@ for _lib in ("httpx", "httpcore", "chromadb", "llama_index", "bm25s"):
 # Default paths — derived from ingest configs (same as consumer)
 # ---------------------------------------------------------------------------
 
-_THIS_DIR = Path(__file__).parent
-_RAG_CONFIG = _THIS_DIR.parent.parent.parent.parent / "elt_llm_ingest/config/rag_config.yaml"
-_OUTPUT_DIR = _THIS_DIR.parent.parent.parent.parent.parent / ".tmp"
+_THIS_DIR = Path(__file__).parent                           # elt_llm_agentic/src/elt_llm_agentic/
+_REPO_ROOT = _THIS_DIR.parent.parent.parent                 # elt_llm_rag/
+_RAG_CONFIG = _REPO_ROOT / "elt_llm_ingest/config/rag_config.yaml"
+_OUTPUT_DIR = _REPO_ROOT / ".tmp"
 
 _DEFAULT_MODEL_JSON = Path(
     "~/Documents/__data/resources/thefa/DAT_V00.01_FA Enterprise Conceptual Data Model_model.json"
@@ -96,7 +97,7 @@ def generate_agentic_catalog(
     print(f"  Retriever: AgenticRetriever (max_iterations={max_iterations})")
     print(f"  Output: {out_path}")
 
-    rag_config_path = Path("elt_llm_ingest/config/rag_config.yaml")
+    rag_config_path = _RAG_CONFIG
 
     # -----------------------------------------------------------------------
     # Step 1: Load entities from _model.json (identical to consumer)
