@@ -58,6 +58,7 @@ Side-by-side quality comparison
 | [AGENTIC_RAG_FOR_CATALOGS.md](AGENTIC_RAG_FOR_CATALOGS.md) | Agentic vs traditional RAG for batch processing |
 | [AGENT_VS_CONSUMER.md](AGENT_VS_CONSUMER.md) | Detailed comparison with `elt_llm_consumer` |
 | [QUALITY_GATE.md](QUALITY_GATE.md) | Quality gate implementation |
+| [INDUSTRY_BEST_PRACTICES.md](INDUSTRY_BEST_PRACTICES.md) | How we compare to industry standards |
 | [OPEN_SOURCE_GRAPH_OPTIONS.md](OPEN_SOURCE_GRAPH_OPTIONS.md) | Graph technology choices |
 
 ---
