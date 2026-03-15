@@ -48,13 +48,11 @@ handbook_sections:
 # saves LLM calls. Add entities here when confirmed absent from the handbook.
 # ---------------------------------------------------------------------------
 no_handbook_coverage:
-  - Supplier
+  # Entities confirmed absent even when queried with all aliases.
+  # Supplier, Customer, Event Attendee, Casual & Contingent Labourers, Prospect
+  # were removed — alias-based retrieval finds genuine handbook content for them.
   - Household
   - Business Unit
-  - Prospect
-  - Customer
-  - Event Attendee
-  - Casual & Contingent Labourers
   - Managed Service Workers
 
 # ---------------------------------------------------------------------------

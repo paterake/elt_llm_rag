@@ -1238,11 +1238,25 @@ def generate_consolidated_catalog(
             # to 5 would leave governance content behind for broad entities.
 
             # Stage 1c: Keyword scan — find sections that explicitly mention the
-            # entity name.  Supplements BM25 routing to catch entities whose mentions
-            # are buried in operational rules sections that BM25 misses (e.g.
-            # "Local Authority" in ground-fitness rules vs. definition sections).
+            # entity name OR any of its aliases.  Supplements BM25 routing to catch
+            # entities whose handbook mentions use a different vocabulary (e.g.
+            # "Casual & Contingent Labourers" → handbook says "casual worker").
             # Runs a fast verbatim substring scan across all section docstores.
-            keyword_sections, keyword_chunks = find_sections_by_keyword(name, _SECTION_PREFIX, rag_config)
+            _kw_seen_sections: set[str] = set()
+            _kw_seen_chunks: set[str] = set()
+            keyword_sections: list[str] = []
+            keyword_chunks: list[str] = []
+            for _kw_term in [name] + [v for v in _get_alias_variants(name) if v.lower() != name.lower()]:
+                _ks, _kc = find_sections_by_keyword(_kw_term, _SECTION_PREFIX, rag_config)
+                for _s in _ks:
+                    if _s not in _kw_seen_sections:
+                        keyword_sections.append(_s)
+                        _kw_seen_sections.add(_s)
+                for _c in _kc:
+                    _key = " ".join(_c.split())
+                    if _key not in _kw_seen_chunks:
+                        keyword_chunks.append(_c)
+                        _kw_seen_chunks.add(_key)
 
             # Merge keyword sections into relevant_sections (for Pass 1 definition)
             # and use them as the governance collections for Pass 2 when they are

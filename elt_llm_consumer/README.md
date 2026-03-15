@@ -45,13 +45,14 @@ uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --domain
 # Update review_status fields (APPROVED/REJECTED/NEEDS_CLARIFICATION)
 ```
 
-### 3. Compare with Agent (Optional)
+### 3. Compare with Agentic (Optional)
 ```bash
-# Run agent catalog (faster)
-uv run --package elt-llm-agent elt-llm-agent-consolidated-catalog --domain PARTY
+# Run agentic catalog (LLM-driven iterative retrieval)
+uv run --package elt-llm-agentic elt-llm-agentic-catalog --domain PARTY
 
-# Compare outputs
-uv run --package elt-llm-agent python -m elt_llm_agent.compare_catalogs
+# Outputs side-by-side:
+#   .tmp/fa_consolidated_catalog_party.json   ← consumer
+#   .tmp/fa_agentic_catalog_party.json         ← agentic
 ```
 
 ---
@@ -69,7 +70,7 @@ uv run --package elt-llm-agent python -m elt_llm_agent.compare_catalogs
 | Use Case | Tool |
 |----------|------|
 | Stakeholder review, Purview import | `elt_llm_consumer` |
-| Quick scan, debugging, exploration | `elt_llm_agent` |
+| Agentic retrieval comparison | `elt_llm_agentic` |
 
 ---
 
