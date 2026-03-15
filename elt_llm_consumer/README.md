@@ -41,6 +41,8 @@ uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
 **FA Consolidated Catalog** — your primary deliverable for stakeholder review:
 
 ```bash
+cd elt_llm_consumer
+uv sync
 # Full consolidation (entities + Handbook context + relationships)
 # Runtime: ~3-4 hr (num_queries=3) or ~45-60 min (num_queries=1)
 uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
