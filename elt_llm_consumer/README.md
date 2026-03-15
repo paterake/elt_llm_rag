@@ -1,249 +1,81 @@
-# elt-llm-consumer
+# ELT LLM Consumer
 
-Purpose-built products that drive the LLM+RAG infrastructure to produce structured deliverables.
-
-**Start here for understanding**: Read [ARCHITECTURE.md](../ARCHITECTURE.md) §7 for the consumer layer overview and 7-step pipeline. This README is for commands and usage.
-
-**All commands run from the repository root.**
+**Purpose**: Batch catalog generation from FA Handbook + LeanIX
 
 ---
 
-## What This Module Does
+## Quick Command
 
-`elt_llm_consumer` wraps `elt_llm_query` to produce specific business deliverables — structured JSON files — by systematically querying the RAG collections at scale.
-
-Unlike interactive query (one question → one answer), consumer scripts batch-process hundreds of entities and write the results to files for stakeholder use.
-
-**Output format**: All consumers produce **JSON** (not CSV) to properly support multi-line content, hierarchical structures, and nested fields from combined data sources.
-
-**Output location**: All generated files are written to `project/.tmp/` by default (configurable via `--output-dir`).
-
----
-
-## Prerequisites
-
+### Generate Consolidated Catalog (Primary)
 ```bash
-# 1. Start Ollama
-ollama serve
-ollama pull nomic-embed-text
-ollama pull qwen3.5:9b
-
-# 2. Ingest collections (if not already done)
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_handbook
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_dat_enterprise_conceptual_model
-uv run python -m elt_llm_ingest.runner --cfg ingest_fa_leanix_global_inventory
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --domain PARTY --skip-relationships
 ```
+
+**Runtime**: ~45-60 min (PARTY domain, 28 entities)  
+**Output**: `.tmp/fa_consolidated_catalog_party.json`
+
+**Options**:
+- `--domain PARTY` — Filter to single domain
+- `--skip-relationships` — Skip relationship extraction (faster)
+- `--model qwen3.5:9b` — Override LLM model
 
 ---
 
-## Quick Start: Target Output
+## All Commands
 
-**FA Consolidated Catalog** — your primary deliverable for stakeholder review:
+| Command | Purpose | Runtime |
+|---------|---------|---------|
+| `elt-llm-consumer-consolidated-catalog` | **Primary** — Generate structured catalog | ~45-60 min |
+| `elt-llm-consumer-handbook-model` | Extract entities from Handbook alone | ~5-7 min |
+| `elt-llm-consumer-coverage-validator` | Validate model coverage (no LLM) | ~3-5 min |
 
+---
+
+## Typical Workflow
+
+### 1. Generate Catalog
 ```bash
-cd elt_llm_consumer
-uv sync
-# Full consolidation (entities + Handbook context + relationships)
-# Runtime: ~3-4 hr (num_queries=3) or ~45-60 min (num_queries=1)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
-
-# Faster run (skip relationship extraction)
-# Runtime: ~2-3 hr (num_queries=3) or ~30-45 min (num_queries=1)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships --domain PARTY
-
-# With specific model override
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen3.5:9b
+uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --domain PARTY --skip-relationships
 ```
 
-**Output**:
-- `.tmp/fa_consolidated_catalog.json` ← **Your target output**
-- `.tmp/fa_consolidated_relationships.json` ← Relationships (if not skipped)
-
-**What it answers (7 requirements)**:
-1.  Entities from the conceptual model
-2.  Handbook-only entities (not in conceptual model)
-3.  LeanIX inventory descriptions
-4.  FA Handbook context (SME definition, glossary, ToR, governance)
-5.  Relationships from conceptual model
-6.  Relationships from inventory
-7.  Relationships from Handbook
-
----
-
-## All Consumers
-
-| Script | Entry Point | Purpose | Runtime |
-|--------|-------------|---------|---------|
-| `fa_consolidated_catalog.py` | `elt-llm-consumer-consolidated-catalog` | **Target output** — merged catalog with all 7 requirements | ~3-4 hr (`num_queries=3`) / ~45-60 min (`num_queries=1`) |
-| `fa_handbook_model_builder.py` | `elt-llm-consumer-handbook-model` | Extract candidate entities from Handbook alone | ~5-7 min |
-| `fa_coverage_validator.py` | `elt-llm-consumer-coverage-validator` | Validate model coverage against Handbook (no LLM) | ~3-7 min |
-
----
-
-## 1. FA Consolidated Catalog 
-
-**File**: `fa_consolidated_catalog.py`
-
-**Purpose**: Single consolidated catalog merging all sources — the target output for stakeholder review.
-
-Produces a merged catalog from three sources: direct JSON lookup for LeanIX entities and inventory, plus RAG+LLM for FA Handbook governance context. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full 7-step pipeline detail.
-
-**Usage**:
+### 2. Review Output
 ```bash
-# Full consolidation
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog
-
-# Skip relationships (faster)
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
-
-# Model override
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --model qwen3.5:9b
+# Open .tmp/fa_consolidated_catalog_party.json
+# Review with Data Architects
+# Update review_status fields (APPROVED/REJECTED/NEEDS_CLARIFICATION)
 ```
 
-**Output**:
-```
-.tmp/fa_consolidated_catalog.json       ← Merged catalog with all 7 requirements
-.tmp/fa_consolidated_relationships.json ← Relationships with source attribution
-```
+### 3. Compare with Agent (Optional)
+```bash
+# Run agent catalog (faster)
+uv run --package elt-llm-agent elt-llm-agent-consolidated-catalog --domain PARTY
 
-**JSON structure** (per entity):
-```json
-{
-  "fact_sheet_id": "12345",
-  "entity_name": "Club",
-  "domain": "PARTY",
-  "source": "BOTH",
-  "leanix_description": "...",
-  "formal_definition": "...",
-  "domain_context": "...",
-  "governance_rules": "...",
-  "mapping_confidence": "high",
-  "review_status": "PENDING",
-  "relationships": [...]
-}
+# Compare outputs
+uv run --package elt-llm-agent python -m elt_llm_agent.compare_catalogs
 ```
-
-**Review workflow**:
-1. Run consumer → generates JSON
-2. Review with Data Architects
-3. Update `review_status` fields in JSON (APPROVED/REJECTED/NEEDS_CLARIFICATION)
-4. Import to Purview or downstream systems
 
 ---
 
-## 2. FA Handbook Model Builder
+## Documentation
 
-**File**: `fa_handbook_model_builder.py`
-
-**Purpose**: Extract candidate entities and relationships from FA Handbook alone (no LeanIX required).
-
-**Usage**:
-```bash
-# Full run (14 default seed topics)
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
-
-# Subset of topics
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model \
-  --topics Club Player Competition
-
-# Resume after interruption
-RESUME=1 uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
-```
-
-**Output**:
-```
-.tmp/fa_handbook_candidate_entities.json       ← Terms, definitions, categories
-.tmp/fa_handbook_candidate_relationships.json  ← Inferred relationships
-.tmp/fa_handbook_terms_of_reference.json       ← Consolidated ToR per term
-```
-
-**Default seed topics** (14): Club, Player, Official, Referee, Competition, County FA, Registration, Transfer, Affiliation, Discipline, Safeguarding, Governance, Eligibility, Licence
-
-**Runtime**: ~14 topics × 20-30s ≈ 5-7 min
+| Document | Purpose |
+|----------|---------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 7-step pipeline, output interpretation |
 
 ---
 
-## 3. FA Coverage Validator
+## When to Use
 
-**File**: `fa_coverage_validator.py`
-
-**Purpose**: Validate conceptual model coverage against FA Handbook.
-
-**Two-direction analysis**:
-- **Direction 1** (always runs): Model → Handbook coverage scoring
-- **Direction 2** (`--gap-analysis`): Handbook → Model gap detection
-
-**Usage**:
-```bash
-# Coverage scoring only
-uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator
-
-# Gap analysis (requires handbook-model output)
-uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
-
-# Recommended workflow
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
-uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
-```
-
-**Output**:
-```
-.fa_coverage_report.json  ← Coverage scores per entity
-.fa_gap_analysis.json     ← Gap analysis (MATCHED / MODEL_ONLY / HANDBOOK_ONLY)
-```
-
-**Verdict bands**:
-| Verdict | Score | Meaning |
-|---------|-------|---------|
-| `STRONG` | ≥ 0.70 | Handbook clearly discusses this entity |
-| `MODERATE` | 0.55-0.70 | Some governance context available |
-| `THIN` | 0.40-0.55 | Weak signal; may be named differently |
-| `ABSENT` | < 0.40 | Not meaningfully present in handbook |
-
-**Runtime**: ~175 entities × 1-2s = 3-5 min (no LLM, retrieval only)
+| Use Case | Tool |
+|----------|------|
+| Stakeholder review, Purview import | `elt_llm_consumer` |
+| Quick scan, debugging, exploration | `elt_llm_agent` |
 
 ---
 
-## Model Options
+## Performance
 
-| Model | Speed | Quality | Use Case |
-|-------|-------|---------|----------|
-| `qwen3.5:9b` | ~10s/entity | Best | Default — strongest structured output |
-| `mistral-nemo:12b` | ~8s/entity | Good | Solid alternative |
-| `llama3.1:8b` | ~5s/entity | Medium | Fast iteration / dev use |
-| `granite3.1-dense:8b` | ~5s/entity | Medium | IBM enterprise tuning |
-
----
-
-## Recommended Workflow
-
-**For target output (Consolidated Catalog)**:
-```bash
-# After completing prerequisites above, run:
-# 1. Generate consolidated catalog
-uv run --package elt-llm-consumer elt-llm-consumer-consolidated-catalog --skip-relationships
-
-# 2. Review output with Data Architects
-# Open: .tmp/fa_consolidated_catalog.json
-
-# 3. Update review_status fields in JSON
-
-# 4. Import to downstream systems
-```
-
-**For conceptual model enhancement**:
-```bash
-# 1. Extract Handbook entities
-uv run --package elt-llm-consumer elt-llm-consumer-handbook-model
-
-# 2. Run gap analysis
-uv run --package elt-llm-consumer elt-llm-consumer-coverage-validator --gap-analysis
-
-# 3. Review gaps
-# Open: .tmp/fa_gap_analysis.json
-# Look for: HANDBOOK_ONLY entities (candidates for model addition)
-
-# 4. Update LeanIX conceptual model
-
-# 5. Re-ingest and re-validate
-```
+| Domain | Entities | Runtime |
+|--------|----------|---------|
+| PARTY | 28 | ~45-60 min |
+| All domains | 175 | ~3-4 hours |
