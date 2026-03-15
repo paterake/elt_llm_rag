@@ -234,26 +234,33 @@ def generate_agentic_catalog(
         norm = _normalize(name)
         ctx = handbook_context.get(norm, {})
 
-        # Source classification: same logic as consumer (check for real content)
-        # Check term mapping from Step 4
-        term_match = next(
-            ((term, m) for term, m in handbook_mappings.items()
-             if _normalize(m.get("mapped_entity", "")) == norm),
-            None,
-        )
-
-        if term_match:
-            source = "BOTH"
-            _, mapped = term_match
-        elif _has_real_definition(ctx) or _has_real_governance(ctx):
-            source = "BOTH"
-            mapped = {
-                "mapping_confidence": "medium",
-                "mapping_rationale": "Handbook content found via agentic retrieval",
-            }
-        else:
+        # Source classification
+        # Entities confirmed absent are always LEANIX_ONLY — the Step 5 stub
+        # must not be evaluated by _has_real_governance (it contains boilerplate
+        # text that can pass the check and produce a false BOTH classification).
+        if name in _NO_HANDBOOK_COVERAGE:
             source = "LEANIX_ONLY"
             mapped = {}
+        else:
+            # Check term mapping from Step 4
+            term_match = next(
+                ((term, m) for term, m in handbook_mappings.items()
+                 if _normalize(m.get("mapped_entity", "")) == norm),
+                None,
+            )
+
+            if term_match:
+                source = "BOTH"
+                _, mapped = term_match
+            elif _has_real_definition(ctx) or _has_real_governance(ctx):
+                source = "BOTH"
+                mapped = {
+                    "mapping_confidence": "medium",
+                    "mapping_rationale": "Handbook content found via agentic retrieval",
+                }
+            else:
+                source = "LEANIX_ONLY"
+                mapped = {}
 
         inv = inventory_descriptions.get(norm, {})
         entity_rels = relationships.get(norm, [])

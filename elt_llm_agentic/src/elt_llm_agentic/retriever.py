@@ -370,10 +370,29 @@ class AgenticRetriever:
 
         return sections
 
+    def _get_all_sections(self, rag_config: Any) -> list[str]:
+        """Return all handbook section collection names as a broad fallback."""
+        try:
+            from elt_llm_core.vector_store import get_chroma_client
+            client = get_chroma_client(rag_config)
+            prefix = self.config.section_prefix + "_s"
+            return sorted(c.name for c in client.list_collections() if c.name.startswith(prefix))
+        except Exception as e:
+            logger.warning("_get_all_sections failed: %s", e)
+            return []
+
     def _rag_retrieve(self, query: str, sections: list[str], rag_config: Any) -> str:
-        """Run query_collections and return the synthesised response text."""
+        """Run query_collections and return the synthesised response text.
+
+        When routing produces no sections (BM25 found nothing for this entity),
+        falls back to querying all handbook sections — same broad behaviour as
+        the consumer's naive pipeline, which never returns nothing just because
+        BM25 routing failed.
+        """
         from elt_llm_query.query import query_collections
 
+        if not sections:
+            sections = self._get_all_sections(rag_config)
         if not sections:
             return ""
         try:
